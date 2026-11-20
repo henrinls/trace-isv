@@ -239,8 +239,8 @@ table.vals td:first-child{color:#aaa;width:52%}table.vals td:last-child{color:#f
 table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .hint.big{font-size:14px;color:#ddd;line-height:1.5}
 .stepper input{flex:1;min-width:0}.stepper button.on{background:#1f6fb2;border-color:#1f6fb2;color:#fff}
-#ptDlg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
-#ptDlg .box{background:#1d1d1d;border-radius:14px;padding:16px;width:100%;max-width:380px}#ptDlg .box>*{margin-top:8px}
+#ptDlg,#ptEdit{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
+#ptDlg .box,#ptEdit .box{background:#1d1d1d;border-radius:14px;padding:16px;width:100%;max-width:380px}#ptDlg .box>*,#ptEdit .box>*{margin-top:8px}
 .colors{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 .colors button{width:32px;height:32px;border-radius:50%;border:2px solid #666;padding:0}.colors button.on{border-color:#fff;box-shadow:0 0 0 2px #1f6fb2}
 #btnPlaceZ.on,#btnPlaceP.on{background:#1f6fb2;border-color:#1f6fb2;color:#fff}

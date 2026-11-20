@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.1.7">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.1.8">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.1.7">
+<link rel="stylesheet" href="style.css?v=0.1.8">
 </head>
 <body>
 <div id="map"></div>
@@ -239,6 +239,15 @@
   </div>
 </div>
 
+<div id="ptEdit" class="hidden">
+  <div class="box">
+    <p id="peText"></p>
+    <input id="peName" placeholder="Nom">
+    <div id="peColors" class="colors"></div>
+    <div class="dlgbtns"><button id="peDel" class="danger">Supprimer</button><button id="peCancel">Annuler</button><button id="peOk" class="primary">OK</button></div>
+  </div>
+</div>
+
 <div id="calBox" class="hidden">
   <p id="calText"></p>
   <div id="calScroll"><div id="calWrap"><img id="calImg" alt=""></div></div>
@@ -254,13 +263,13 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.1.7"></script>
-<script src="vendor/leaflet-rotate.js?v=0.1.7"></script>
-<script src="vendor/mgrs.min.js?v=0.1.7"></script>
-<script src="geo.js?v=0.1.7"></script>
-<script src="wmm.js?v=0.1.7"></script>
-<script src="calc.js?v=0.1.7"></script>
-<script src="app.js?v=0.1.7"></script>
-<script src="photo.js?v=0.1.7"></script>
+<script src="vendor/leaflet.js?v=0.1.8"></script>
+<script src="vendor/leaflet-rotate.js?v=0.1.8"></script>
+<script src="vendor/mgrs.min.js?v=0.1.8"></script>
+<script src="geo.js?v=0.1.8"></script>
+<script src="wmm.js?v=0.1.8"></script>
+<script src="calc.js?v=0.1.8"></script>
+<script src="app.js?v=0.1.8"></script>
+<script src="photo.js?v=0.1.8"></script>
 </body>
 </html>

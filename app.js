@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.7';
+const VERSION = '0.1.8';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -660,11 +660,20 @@ async function addPoint(p, spec) {
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: null };
   current.points.push(pt); persist(); redraw(); if (pt.kind === 'alt') pointElev(pt);
 }
-async function pointMenu(pt) {
-  const r = await ask(`${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'} — ${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}. Nom :`, pt.name || '', 'Supprimer');
-  if (r === null) return;
-  if (r === 'DELETE') current.points = current.points.filter(x => x.id !== pt.id); else pt.name = String(r).trim();
-  persist(); redraw();
+// Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
+function pointMenu(pt) {
+  let col = pt.color || PT_COLORS[1];
+  $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
+  $('peName').value = pt.name || '';
+  const cs = $('peColors'); cs.classList.toggle('hidden', pt.kind === 'alt');
+  const sync = () => cs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === col));
+  cs.innerHTML = PT_COLORS.map(c => `<button data-c="${c}" style="background:${c}"></button>`).join(''); sync();
+  cs.onclick = e => { const c = e.target && e.target.dataset && e.target.dataset.c; if (c) { col = c; sync(); } };
+  const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = null; };
+  $('peOk').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw(); };
+  $('peCancel').onclick = close;
+  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; current.points = current.points.filter(x => x.id !== pt.id); persist(); redraw(); };
+  $('ptEdit').classList.remove('hidden');
 }
 
 // ---------- Mesure : cap et distance entre deux points touchés (dans l'ordre) ----------
