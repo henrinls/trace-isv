@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -350,7 +350,7 @@ function keep(key, ll, icon, z, onMove, onEnd, onClick) {
 }
 function clampToCircle(ll) { if (!sol || !sol.ok) return ll; const q = Calc.toLocal(sol.circle.c, ll), d = Math.hypot(q.x, q.y), R = Math.max(0, sol.circle.R - 20); return d <= R ? ll : Calc.fromLocal(sol.circle.c, { x: q.x * R / d, y: q.y * R / d }); }
 let dragT = 0;
-function dragRecalc() { const n = performance.now(); if (n - dragT > 140) { dragT = n; draw(true); } }
+function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { dragT = n; draw(true); } }
 function pointLabel(pt) { if (pt.kind !== 'alt') return pt.name || ''; const I = isv(); if (typeof pt.elev !== 'number' || (typeof I.ptuElev !== 'number' && !wxRec)) return pt.name || ''; const d = Math.round(pt.elev - elev0()); return `${pt.name || ''} ${d >= 0 ? '+' : '−'}${Math.abs(d)}`.trim(); }
 function draw(light) {
   compute();
@@ -393,14 +393,14 @@ function draw(light) {
   L.marker(LL(V.red), { interactive: false, icon: dotIcon(C_END, 15, '', 'big') }).addTo(fig);
   // Poignées : point de largage (déplacer le vecteur), point vert (le faire tourner)
   keep('drop', V.attach, L.divIcon({ className: 'hdl', iconSize: [40, 40], iconAnchor: [20, 20], html: '<span></span>' }), 700,
-    ll => { const c = clampToCircle(ll); I.manual = c; I.capManual = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); toast(sol && sol.ok ? `Largage FL${sol.fl} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || ''); });
+    ll => { const c = clampToCircle(ll); I.manual = c; I.capManual = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); toast(sol && sol.ok ? `${sol.openLowered ? 'Ouverture à ' + fmtInt(sol.hOpen) + ' m' : fmt1(sol.tFall) + ' s de chute'} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || ''); });
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
     () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
   // Indications le long du vecteur et de la trace
   if (current.show.label) {
     const mid = { lat: (V.green.lat + V.red.lat) / 2, lng: (V.green.lng + V.red.lng) / 2 };
-    const sideR = map.latLngToContainerPoint(LL(sol.circle.c)).x >= map.latLngToContainerPoint(LL(mid)).x; // étiquette du côté du centre du cercle : jamais sous les boutons
+    const sideR = map.latLngToContainerPoint(LL(mid)).x <= map.getSize().x / 2; // étiquette vers le milieu de l'écran : jamais sous les boutons
     lbl(mid, `<i class="vcap">${hdg(V.heading)}</i> · ${fmtInt(V.length)} m`, 'vlabel vv ' + (sideR ? 'vr' : 'vl')).addTo(fig);
     const tm = Calc.pointAt(sol.trace, sol.length / 2);
     lbl(tm, `<i class="tcap">CAP ${hdg(sol.cap)}</i> · ${fmtKm(sol.length)}`, 'vlabel vt').addTo(fig);
@@ -553,7 +553,7 @@ function quick(fn) { fn(); persist(); fillInputs(); redraw(); }
 $('qRelax').addEventListener('click', () => quick(() => { current.show.relax = !current.show.relax; }));
 $('qLabel').addEventListener('click', () => quick(() => { current.show.label = !current.show.label; }));
 $('qRev').addEventListener('click', () => quick(() => { const I = isv(); I.reversed = !I.reversed; }));
-$('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur, cap para et FL recalculés'); });
+$('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qVol').addEventListener('click', () => toggleTab('vol'));
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
@@ -874,7 +874,7 @@ function renderIsvTab() {
   if (!sol || !sol.ok) r.textContent = sol && sol.err ? sol.err : '';
   else r.innerHTML = `Voile la moins performante : <b>${esc(sol.weak.canopy.name)}</b>${sol.weak.several ? ` (para ${esc(pName(sol.weak.idx))})` : ''}.<br>` +
     `Trace <b>${fmtKm(sol.length)}</b> · CAP PARA <b>${hdg(sol.cap)}</b>${sol.capAuto ? '' : ' (choisi à la main)'} · ouverture terminée à <b>${fmtInt(sol.hOpen)} m</b>.<br>` +
-    `Largage <b>FL${sol.fl}</b>${sol.flLowered ? ` (abaissé, prévu FL${sol.flPlan})` : ''} · vecteur <b>${hdg(sol.acHeading)}</b>, ${fmtInt(sol.vec.length)} m · para ${esc(pName(sol.dropIdx))} sur le point de largage.` +
+    `Largage <b>FL${sol.fl}</b> · ${sol.openLowered ? `<b class="warn">ouverture à ${fmtInt(sol.hOpen)} m</b> (${fmt1(sol.tFall)} s de chute, vecteur déplacé à la main)` : `${fmt1(sol.tFall)} s de chute`} · vecteur <b>${hdg(sol.acHeading)}</b>, ${fmtInt(sol.vec.length)} m · para ${esc(pName(sol.dropIdx))} sur le point de largage.` +
     (sol.warn ? `<br><b class="warn">⚠️ ${esc(sol.warn)}</b>` : '') + (F ? '' : '<br><b class="warn">⚠️ Sans prévision de vent.</b>');
 }
 $('btnAddPara').addEventListener('click', () => { const I = isv(), last = I.team[I.team.length - 1]; const p = newPara(last && last.canopy); p.dt = last ? +last.dt || 3 : 3; I.team.push(p); changed(); });
@@ -897,7 +897,7 @@ function renderVol() {
   setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
-  $('v_flInfo').innerHTML = ok ? `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol sous le PTU${sol.flLowered ? ` <b class="warn">(abaissé : FL${sol.flPlan} prévu, vecteur déplacé à la main)</b>` : ''} · ${Math.round(I.acMs * KT)} kt badin = ${Math.round(sol.tas * KT)} kt vraie` : '';
+  $('v_flInfo').innerHTML = ok ? `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol sous le PTU${sol.openLowered ? ` · <b class="warn">vecteur déplacé à la main : ouverture à ${fmtInt(sol.hOpen)} m au lieu de ${fmtInt(sol.hOpenPlan)} m (${fmt1(sol.tFall)} s de chute au lieu de ${fmt1(sol.tFallPlan)} s)</b>` : ''} · ${Math.round(I.acMs * KT)} kt badin = ${Math.round(sol.tas * KT)} kt vraie` : '';
   const dSel = $('v_drop'), rSel = $('v_relax');
   if (document.activeElement !== dSel) dSel.innerHTML = `<option value="">Auto : ${esc(pName(Calc.defaultDropIdx(I.team.length)))}</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.dropId ? ' selected' : ''}>${esc(pName(i))}</option>`).join('');
   if (document.activeElement !== rSel) rSel.innerHTML = `<option value="green"${I.relaxRef === 'green' ? ' selected' : ''}>Début de largage (vert)</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.relaxRef ? ' selected' : ''}>${esc(pName(i))}</option>`).join('') + `<option value="red"${I.relaxRef === 'red' ? ' selected' : ''}>Fin de largage (rouge)</option>`;
@@ -925,7 +925,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Marge sur le vent', `${prm.margin} %${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
   return rows;
 }
-onNum('v_fl', v => { const I = isv(); I.fl = Math.round(v); I.manual = null; }, 20, 400);
+onNum('v_fl', v => { isv().fl = Math.round(v); }, 20, 400);
 onNum('v_ac', v => { isv().acMs = v; }, 20, 200);
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
 $('v_hOpen').addEventListener('change', e => {
@@ -1378,7 +1378,7 @@ async function renderPdfCanvas() {
   // Mis en évidence
   const big = fs * 1.55, hi = [
     `OSO : ${av && av.max ? av.oso : '....'}`, `ALPHA : ${av ? av.alpha : '....'}`,
-    Math.abs(sol.tFall - 4) < 0.05 ? 'Chute : 4 s' : `Ouverture : ${fmtInt(sol.hOpen)} m`
+    Math.abs(sol.tFall - 4) < 0.05 ? 'Chute : 4 s' : `Ouverture : ${fmtInt(Math.round(sol.hOpen))} m`
   ], hi2 = [sol.turn ? `Prise de cap à ${sol.turn}` : 'Prise de cap : dans l\'axe', sol.hand ? `PTU main ${sol.hand}` : (I.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
   hi.forEach((t, i) => tx(t, col2, l0 + lh * (0.3 + i * 1.9), '#ffd400', big, true));
   hi2.forEach((t, i) => tx(t, col3, l0 + lh * (0.3 + i * 1.9), '#00e5ff', big, true));
@@ -1395,7 +1395,7 @@ function pdfDataPages(doc) {
   title(`${current.name} - ${I.name} - saut du ${fmtWhen(current.when).replace(' ', ' à ')}`);
   row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol sous le PTU`, true);
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(sol.tas * KT)} kt vraie`);
-  row('Temps de chute', `${fmt1(sol.tFall)} s, puis ${prm.openLoss} m d'ouverture`);
+  row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol sous le PTU (${fmt1(sol.tFall)} s de chute, ${prm.openLoss} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${prm.openLoss} m d'ouverture`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
   row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol (${fmtInt(sol.elev0)} m)`);
   row('Ouverture terminée (OUV)', fmtPos(sol.ouv));

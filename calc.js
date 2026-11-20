@@ -106,11 +106,11 @@
     return { drop: z, dropFF, throwFF, throwAir: s, tOpen: tO, time: tFall + tO, steps };
   }
   // Temps de chute qui donne une perte de hauteur totale voulue (chute + ouverture)
-  function tFallFor(dropTotal, tas, vff, openLoss, vzCan) {
-    let a = 0, b = 150;
+  function tFallFor(dropTotal, tas, vff, openLoss, vzCan, exact) {
+    let a = 0, b = 400;
     if (fall(a, tas, vff, openLoss, vzCan).drop >= dropTotal) return 0;
     for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (fall(m, tas, vff, openLoss, vzCan).drop < dropTotal) a = m; else b = m; }
-    return Math.round((a + b) / 2 * 10) / 10;
+    return exact ? (a + b) / 2 : Math.round((a + b) / 2 * 10) / 10;
   }
   // Dérive sous RSE : projection (sens du vol) + vent de chaque tranche traversée, du largage à l'ouverture terminée
   function rseDrift(F, pt, altRel, fl, acHeading) {
@@ -214,9 +214,9 @@
     const vzRef = Math.min(...used.map(c => +c.vz)); // fin d'ouverture : vitesse de la voile la plus lente à descendre (effet minime)
 
     // Largage au FL demandé → hauteur d'ouverture
-    const relState = fl => {
+    const relState = (fl, tf) => {
       const altRel = flToAlt(F, ptu, fl), hRel = altRel - elev0, tas = tasOf(F, ptu, altRel, ias);
-      let tFall = Math.max(0, +isv.tFall || 0), f = fall(tFall, tas, vff, openLoss, vzRef);
+      const tFall = tf != null ? tf : Math.max(0, +isv.tFall || 0), f = fall(tFall, tas, vff, openLoss, vzRef);
       return { fl, altRel, hRel, tas, tFall, f, hOpen: hRel - f.drop };
     };
     let st = relState(+isv.fl || 295);
@@ -228,21 +228,21 @@
     const wi = team.findIndex(p => canOf(p) === weak.c);
     out.weak = { canopy: weak.c, idx: wi, name: team[wi] && team[wi].name || '', several: used.length > 1 };
 
-    // Vecteur déplacé à la main : cap et hauteur d'ouverture pour passer par le point choisi, FL abaissé si besoin
-    let attach = null;
+    // Vecteur déplacé à la main : le FL ne change pas. La trace doit passer par le nouveau point d'ouverture ; si elle y passe
+    // plus bas que l'ouverture prévue, le para chute plus longtemps : la consigne devient « ouverture à x m » (centaine supérieure).
+    let attach = null; const stPlan = st;
     if (isv.manual && isv.capManual == null) {
-      // 1er passage avec la dérive sous RSE du cap d'avion actuel (elle change peu), puis recalage
-      let cap0 = weak.cap, O = null, sol = null;
-      for (let pass = 0; pass < 2; pass++) {
+      let O = null, sol = null;
+      for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
         const ach = acHeadingOf(F, isv, st, traceDir(weak.tr.pts), isv.manual), dr = rseDrift(F, isv.manual, st.altRel, st.f, ach);
         O = fromLocal(isv.manual, dr);
-        sol = capThrough(F, ptu, elev0, hPtu, relState(+isv.fl || 295).hOpen, weak.c, margin, O);
-        const hNeed = Math.min(relState(+isv.fl || 295).hOpen, Math.max(hPtu + 100, Math.ceil(sol.h / 100 - 1e-6) * 100)); // centaine supérieure
-        // FL qui donne cette hauteur d'ouverture, arrondi à 5 au-dessus, sans dépasser le FL prévu
-        const flNeed = altToFl(F, ptu, elev0 + hNeed + st.f.drop);
-        const fl = Math.min(+isv.fl || 295, Math.ceil(flNeed / 5 - 1e-6) * 5);
-        st = relState(fl);
+        sol = capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O);
+        const hNeed = Math.max(hPtu + 100, Math.ceil(sol.h / 100 - 1e-6) * 100); // centaine supérieure
+        const prev = st.hOpen;
+        st = hNeed >= stPlan.hOpen - 1 ? stPlan : relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true));
+        if (st !== stPlan) st.hOpen = hNeed; // hauteur ronde exacte (le calcul de chute avance par pas d'un mètre environ)
         weak = { c: weak.c, cap: sol.cap, tr: trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, sol.cap, margin) };
+        if (pass > 0 && Math.abs(st.hOpen - prev) < 1) break;
       }
       out.manualGap = sol.d; attach = O;
       if (sol.d > 100) out.warn = 'Ce point de largage est hors de portée : le PTU ne peut pas être rejoint depuis là.';
@@ -250,7 +250,7 @@
     const tr = weak.tr, ptsDown = tr.pts.slice().reverse(); // de l'ouverture terminée vers le PTU
     out.cap = n360(weak.cap); out.capAuto = isv.capManual == null && !isv.manual;
     out.trace = ptsDown; out.direct = tr.direct; out.length = tr.length; out.ouv = ptsDown[0];
-    Object.assign(out, { fl: st.fl, flPlan: +isv.fl || 295, flLowered: st.fl < (+isv.fl || 295), hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, tOpen: st.f.tOpen, elev0, vzRef, margin });
+    Object.assign(out, { fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, tOpen: st.f.tOpen, elev0, vzRef, margin });
 
     // Cap de l'avion : perpendiculaire au premier segment de la trace, sens le plus face au vent (ou cap choisi), ⇅ Sens l'inverse
     const dir1 = traceDir(tr.pts), acHeading = acHeadingOf(F, isv, st, dir1, ptsDown[0]);
@@ -262,7 +262,11 @@
 
     // Cercle de relaxation : en points d'ouverture, puis décalé de la dérive sous RSE pour l'avoir en points de largage
     const circ = relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin);
-    out.circleOuv = circ; out.circle = { c: fromLocal(circ.c, { x: -dr.x, y: -dr.y }), R: circ.R };
+    // Cercle affiché : celui du largage prévu (temps de chute de la consigne). Si l'ouverture a été abaissée (vecteur déplacé
+    // à la main), le contrôle du vecteur se fait avec le cercle, plus petit, de la hauteur d'ouverture réelle.
+    let circShow = circ, drShow = dr;
+    if (st !== stPlan) { circShow = relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin); drShow = rseDrift(F, circShow.c, stPlan.altRel, stPlan.f, acHeading); }
+    out.circleOuv = circShow; out.circle = { c: fromLocal(circShow.c, { x: -drShow.x, y: -drShow.y }), R: circShow.R };
 
     // Vecteur : le para choisi s'ouvre sur la trace ; on fait glisser ce point le long de la trace (vers le PTU) jusqu'à ce que
     // le vert et le rouge soient dans le cercle. La trace ne change pas.
@@ -274,7 +278,7 @@
     const ends = o => [fromLocal(o, { x: -a.x * sBefore, y: -a.y * sBefore }), fromLocal(o, { x: a.x * sAfter, y: a.y * sAfter })];
     let s0 = attach ? nearestOn(ptsDown, attach).s : 0, sFit = null;
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
-    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que le cercle de relaxation (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : 'Le vecteur ne rentre pas dans le cercle de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.'); sFit = s0; }
+    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que le cercle de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : 'Le vecteur ne rentre pas dans le cercle de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.'); sFit = s0; }
     const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
     out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
     out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),
