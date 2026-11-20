@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.4';
+const VERSION = '0.1.5';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -351,7 +351,7 @@ function keep(key, ll, icon, z, onMove, onEnd, onClick) {
 function clampToCircle(ll) { if (!sol || !sol.ok) return ll; const q = Calc.toLocal(sol.circle.c, ll), d = Math.hypot(q.x, q.y), R = Math.max(0, sol.circle.R - 20); return d <= R ? ll : Calc.fromLocal(sol.circle.c, { x: q.x * R / d, y: q.y * R / d }); }
 let dragT = 0;
 function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { dragT = n; draw(true); } }
-function pointLabel(pt) { if (pt.kind !== 'alt') return pt.name || ''; const I = isv(); if (typeof pt.elev !== 'number' || (typeof I.ptuElev !== 'number' && !wxRec)) return pt.name || ''; const d = Math.round(pt.elev - elev0()); return `${pt.name || ''} ${d >= 0 ? '+' : '−'}${Math.abs(d)}`.trim(); }
+function pointLabel(pt) { if (pt.kind !== 'alt') return pt.name || ''; const I = isv(); if (typeof pt.elev !== 'number' || (typeof I.ptuElev !== 'number' && !wxRec)) return pt.name || ''; const d = Math.round(pt.elev - elev0()); return `${pt.name || ''} ${d >= 0 ? 'P' : 'M'}${Math.abs(d)}`.trim(); }
 function draw(light) {
   compute();
   const I = isv(); fig.clearLayers();
@@ -655,7 +655,7 @@ $('ptAlt').addEventListener('click', () => { $('ptDlg').classList.add('hidden');
 $('ptFree').addEventListener('click', () => { $('ptDlg').classList.add('hidden'); startPlacing({ kind: 'free', color: ptColor }); });
 async function pointElev(pt) { try { const [e] = await fetchElev([pt]); if (typeof e === 'number') { pt.elev = Math.round(e); persist(); redraw(); } } catch (e) {} }
 async function addPoint(p, spec) {
-  const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol sous le PTU est ajouté tout seul) :' : 'Nom du point :', '');
+  const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol sous le PTU est ajouté tout seul, P = plus haut, M = plus bas) :' : 'Nom du point :', '');
   if (n === null) return;
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: null };
   current.points.push(pt); persist(); redraw(); if (pt.kind === 'alt') pointElev(pt);
