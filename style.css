@@ -247,3 +247,6 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .dot.up b{left:50%;top:auto;bottom:calc(100% + 2px);transform:rotate(-58deg);transform-origin:left bottom}
 #btnZones small{font-size:inherit;color:#ff8bd6}
 #quick #qIsv{border-color:#ff3fb4;color:#fff}
+
+/* Outil de mesure actif : les autres points et traits ne captent plus le doigt (on mesure jusque sur eux) */
+.leaflet-container.measuring .leaflet-interactive:not(.measpt){pointer-events:none!important}
