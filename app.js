@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.2';
+const VERSION = '0.1.4';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -19,7 +19,7 @@ const BASEMAPS = {
 };
 const TILE_CACHE = 'isv-tiles-v1';
 const KT = 1.943844; // m/s → nœuds
-const C_START = '#1ec83c', C_END = '#ff2020', C_TRACE = '#ff3fb4', C_RELAX = '#00e5ff', C_PTU = '#ffd400', C_ZMT = '#ff8c00';
+const C_LOW = '#ffe600', C_START = '#1ec83c', C_END = '#ff2020', C_TRACE = '#ff3fb4', C_RELAX = '#00e5ff', C_PTU = '#ffd400', C_ZMT = '#ff8c00';
 const isDark = c => c === '#000000';
 const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }, { id: 'pbo', name: 'PBO', vx: 10, vz: 3.5 }], margin: 20, openLoss: 200, vff: 50 };
 const n360 = h => ((h % 360) + 360) % 360;
@@ -405,6 +405,8 @@ function draw(light) {
     const tm = Calc.pointAt(sol.trace, sol.length / 2);
     lbl(tm, `<i class="tcap">CAP ${hdg(sol.cap)}</i> · ${fmtKm(sol.length)}`, 'vlabel vt').addTo(fig);
   }
+  // Ouverture basse : un point jaune par para
+  (lowPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_LOW, fillOpacity: 1, interactive: false }).addTo(fig));
   // Point le plus haut de la zone de sécurité
   if (I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();
@@ -497,6 +499,7 @@ function figurePoints() {
   if (I.zmt) pts.push(I.zmt); if (I.ptu) pts.push(I.ptu);
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
+    (lowPoints() || []).forEach(p => pts.push(p));
     if (current.show.relax) [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].forEach(a => pts.push(Calc.fromLocal(sol.circle.c, { x: sol.circle.R * Math.sin(a * Math.PI / 180), y: sol.circle.R * Math.cos(a * Math.PI / 180) })));
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
@@ -971,6 +974,20 @@ function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est p
   if (I.alti && I.alti.max && I.alti.key === altiKey()) { const m = I.alti.max; o.max = m; o.oso = Math.round(Calc.pOfZ(F, m.lat, m.lng, m.elev)); o.hRel = sol.altRel - m.elev; }
   return o;
 }
+// Ouverture basse : pour chaque para, point d'ouverture terminée s'il chutait jusqu'à LOW_FT au-dessus du point haut
+// au lieu d'ouvrir comme prévu (projection + vent de chaque tranche, depuis son point de largage). Points jaunes, sans nom.
+const LOW_FT = 1900, lowMem = { k: null, v: null };
+function lowPoints() {
+  const av = altiVals(); if (!av || !av.max || !sol || !sol.ok) return null;
+  const k = solKey + '|' + altiKey() + '|' + av.max.elev; if (lowMem.k === k) return lowMem.v;
+  let v = null;
+  const drop = sol.altRel - (av.max.elev + LOW_FT * 0.3048), vff = Math.max(10, +prm.vff || 50), ol = Math.max(0, +prm.openLoss || 0);
+  if (drop > ol + 1) {
+    const f = Calc.fall(Calc.tFallFor(drop, sol.tas, vff, ol, vzRefNow(), true), sol.tas, vff, ol, vzRefNow());
+    v = sol.vec.exits.map(e => Calc.fromLocal(e, Calc.rseDrift(F, e, sol.altRel, f, sol.acHeading)));
+  }
+  lowMem.k = k; lowMem.v = v; return v;
+}
 function renderAlti() {
   const tb = $('altiTable').querySelector('tbody'), v = altiVals(); tb.innerHTML = '';
   if (!v) { tb.innerHTML = '<tr><td class="mut">Pas encore de vecteur.</td></tr>'; return; }
@@ -1346,6 +1363,7 @@ async function renderPdfCanvas() {
   if (I.zmt) cible(I.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   current.points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pt.name, c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
+  (lowPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
   const av = altiVals();
   if (av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
   // ---- Flèche du nord (coin haut gauche) ----
