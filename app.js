@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.9';
+const VERSION = '0.1.10';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -517,7 +517,16 @@ function updateInfo() {
 
 // ---------- Interface ----------
 function $(id) { return document.getElementById(id) || document.createElement('div'); }
-function setBanner(t) { const b = $('banner'); if (!t) b.classList.add('hidden'); else { b.textContent = t; b.classList.remove('hidden'); } }
+function setBanner(t) { const b = $('banner'); if (!t) b.classList.add('hidden'); else { b.textContent = t; b.classList.remove('hidden'); addPlaceCancel(); } }
+// Pendant un placement (toucher la carte), bouton « ✕ Annuler » dans le bandeau (21 nov. 2026, demande d'Henri)
+function addPlaceCancel() {
+  let p = null; try { p = placing; } catch (e) { return; } // placing pas encore déclaré au tout début
+  const b = $('banner'); if (!p || b.querySelector('.bcancel')) return;
+  const c = document.createElement('button'); c.className = 'bcancel'; c.textContent = '✕ Annuler';
+  c.onclick = e => { e.stopPropagation(); cancelPlacing(); toast('Placement annulé'); };
+  b.append(document.createElement('br'), c);
+}
+function cancelPlacing() { placing = null; placeBanner(); fillInputs(); redraw(); }
 let toastT;
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), 3200); }
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
