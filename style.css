@@ -195,7 +195,7 @@ button,input,select,label,a{touch-action:manipulation}
 #quick #qWhen{min-height:62px}
 #jumpBox{left:74px}
 @media (orientation:landscape){#jumpBox{left:120px}}
-.tgt{position:relative}
+
 .tgt span{position:absolute;inset:5px;border-radius:50%;border:3px solid #ff8c00;box-shadow:0 0 0 1.5px #000,inset 0 0 0 1.5px #000}
 .tgt span:before,.tgt span:after{content:"";position:absolute;background:#ff8c00;box-shadow:0 0 0 1px #000}
 .tgt span:before{left:50%;top:-7px;bottom:-7px;width:2px;margin-left:-1px}
@@ -203,7 +203,7 @@ button,input,select,label,a{touch-action:manipulation}
 .tgt.alt span{border-color:#ff2020}.tgt.alt span:before,.tgt.alt span:after{background:#ff2020}
 .tgt b,.crossp b{position:absolute;left:calc(100% + 4px);top:50%;transform:translateY(-50%);white-space:nowrap;font-size:12px;font-weight:700;color:#ff8c00;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000}
 .tgt.alt b{color:#ff5a5a}
-.crossp{position:relative}.crossp i{display:block;font-style:normal;font-size:22px;line-height:26px;text-align:center;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000}
+.crossp i{display:block;font-style:normal;font-size:22px;line-height:26px;text-align:center;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000}
 .tri span{display:block;width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;border-bottom:19px solid #ffd400;filter:drop-shadow(0 0 1.5px #000) drop-shadow(0 0 1.5px #000)}
 .exitp span{display:block;width:8px;height:8px;margin:2px;border-radius:50%;background:#000;box-shadow:0 0 0 1.5px #fff}
 .exitp.ref span{background:#fff;box-shadow:0 0 0 2px #000}
