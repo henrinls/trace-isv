@@ -1,0 +1,323 @@
+// trace-isv — calculs purs (sans écran, testables à part) : champ de vent, chute sous RSE, trace à cap constant,
+// cercle de relaxation, vecteur de largage.
+// Repère local : x = Est (m), y = Nord (m). Vent (u, v) = vers où va l'air. Caps en degrés VRAIS (l'affichage convertit en magnétique).
+(function (root) {
+  'use strict';
+  const G = 9.81, RD = 287.05, RE = 6378137;
+  const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+  const n360 = h => ((h % 360) + 360) % 360;
+  const toLocal = (o, p) => ({ x: rad(p.lng - o.lng) * RE * Math.cos(rad(o.lat)), y: rad(p.lat - o.lat) * RE });
+  const fromLocal = (o, v) => ({ lat: o.lat + deg(v.y / RE), lng: o.lng + deg(v.x / (RE * Math.cos(rad(o.lat)))) });
+  const unit = h => ({ x: Math.sin(rad(h)), y: Math.cos(rad(h)) });
+  const bearingOf = v => n360(deg(Math.atan2(v.x, v.y)));
+  const dist = (a, b) => { const q = toLocal(a, b); return Math.hypot(q.x, q.y); };
+
+  // ---------- Atmosphère standard ----------
+  const stdP = hm => 1013.25 * Math.pow(1 - 0.0065 * hm / 288.15, 5.25588);
+  const stdH = p => (1 - Math.pow(p / 1013.25, 1 / 5.25588)) * 288.15 / 0.0065;
+
+  // ---------- Champ de vent ----------
+  // F = { lat0, lng0, dLat, dLng, n, nodes[] } : grille n × n (ligne i = latitude, colonne j = longitude), rangée par rangée.
+  // Chaque nœud : { elev, lv: [{ z, u, v, T }] trié par altitude z (m mer), pz: [{ p, z }] trié par pression décroissante }.
+  // F absent : vent nul et atmosphère standard (pas encore de prévision).
+  function lvAt(node, z) {
+    const L = node.lv; if (!L.length) return { u: 0, v: 0, T: 15 - 0.0065 * z };
+    if (z <= L[0].z) return L[0]; if (z >= L[L.length - 1].z) return L[L.length - 1];
+    let a = 0, b = L.length - 1;
+    while (b - a > 1) { const m = (a + b) >> 1; if (L[m].z <= z) a = m; else b = m; }
+    const A = L[a], B = L[b], f = (z - A.z) / (B.z - A.z);
+    const mix = k => (A[k] == null || B[k] == null) ? (A[k] != null ? A[k] : B[k]) : A[k] + (B[k] - A[k]) * f;
+    return { u: mix('u'), v: mix('v'), T: mix('T') };
+  }
+  function zOfPn(node, p) { // altitude (m) d'une pression, interpolée en log p (extrapolée aux bouts)
+    const pz = node.pz; if (!pz || pz.length < 2) return stdH(p);
+    let a = pz[0], b = pz[1];
+    for (let k = 1; k < pz.length; k++) { b = pz[k]; a = pz[k - 1]; if (p >= b.p) break; }
+    return a.z + (b.z - a.z) * (Math.log(p) - Math.log(a.p)) / (Math.log(b.p) - Math.log(a.p));
+  }
+  function pOfZn(node, z) {
+    const pz = node.pz; if (!pz || pz.length < 2) return stdP(z);
+    let a = pz[0], b = pz[1];
+    for (let k = 1; k < pz.length; k++) { b = pz[k]; a = pz[k - 1]; if (z <= b.z) break; }
+    return Math.exp(Math.log(a.p) + (Math.log(b.p) - Math.log(a.p)) * (z - a.z) / (b.z - a.z));
+  }
+  // Poids des 4 nœuds autour d'un point (hors grille : on prend le bord)
+  function weights(F, lat, lng) {
+    const fi = Math.max(0, Math.min(F.n - 1, (lat - F.lat0) / F.dLat)), fj = Math.max(0, Math.min(F.n - 1, (lng - F.lng0) / F.dLng));
+    const i0 = Math.min(F.n - 2, Math.floor(fi)), j0 = Math.min(F.n - 2, Math.floor(fj)), a = fi - i0, b = fj - j0;
+    if (F.n < 2) return [[F.nodes[0], 1]];
+    return [[F.nodes[i0 * F.n + j0], (1 - a) * (1 - b)], [F.nodes[i0 * F.n + j0 + 1], (1 - a) * b],
+      [F.nodes[(i0 + 1) * F.n + j0], a * (1 - b)], [F.nodes[(i0 + 1) * F.n + j0 + 1], a * b]].filter(w => w[1] > 1e-9 && w[0]);
+  }
+  function inGrid(F, p) { return !F || (p.lat >= F.lat0 && p.lat <= F.lat0 + (F.n - 1) * F.dLat && p.lng >= F.lng0 && p.lng <= F.lng0 + (F.n - 1) * F.dLng); }
+  function windAt(F, lat, lng, z) {
+    if (!F) return { u: 0, v: 0, T: 15 - 0.0065 * z };
+    let u = 0, v = 0, T = 0, s = 0;
+    weights(F, lat, lng).forEach(([nd, w]) => { const q = lvAt(nd, z); u += w * (q.u || 0); v += w * (q.v || 0); T += w * (q.T == null ? 15 - 0.0065 * z : q.T); s += w; });
+    return s ? { u: u / s, v: v / s, T: T / s } : { u: 0, v: 0, T: 15 - 0.0065 * z };
+  }
+  // Vent moyen d'une tranche d'altitude, à la verticale d'un point
+  function windMean(F, lat, lng, z1, z2) {
+    if (!F) return { u: 0, v: 0 };
+    const W = weights(F, lat, lng), n = Math.max(2, Math.ceil(Math.abs(z2 - z1) / 100)); let u = 0, v = 0;
+    for (let k = 0; k <= n; k++) {
+      const z = z1 + (z2 - z1) * k / n, c = (k === 0 || k === n) ? 0.5 : 1; let uu = 0, vv = 0, s = 0;
+      W.forEach(([nd, w]) => { const q = lvAt(nd, z); uu += w * (q.u || 0); vv += w * (q.v || 0); s += w; });
+      u += c * uu / s; v += c * vv / s;
+    }
+    return { u: u / n, v: v / n };
+  }
+  function zOfP(F, lat, lng, p) { if (!F) return stdH(p); let z = 0, s = 0; weights(F, lat, lng).forEach(([nd, w]) => { z += w * zOfPn(nd, p); s += w; }); return z / s; }
+  function pOfZ(F, lat, lng, z) { if (!F) return stdP(z); let lp = 0, s = 0; weights(F, lat, lng).forEach(([nd, w]) => { lp += w * Math.log(pOfZn(nd, z)); s += w; }); return Math.exp(lp / s); }
+  const flToAlt = (F, pt, fl) => zOfP(F, pt.lat, pt.lng, stdP(fl * 30.48));           // FL → altitude vraie (m mer)
+  const altToFl = (F, pt, alt) => stdH(pOfZ(F, pt.lat, pt.lng, alt)) / 30.48;           // altitude vraie → FL
+  const spdDir = w => ({ spd: Math.hypot(w.u, w.v), dir: n360(deg(Math.atan2(-w.u, -w.v))) });
+
+  // ---------- Avion ----------
+  // Vitesse indiquée (badin) → vitesse vraie à l'altitude de largage
+  function tasOf(F, pt, alt, ias) {
+    const p = pOfZ(F, pt.lat, pt.lng, alt) * 100, T = windAt(F, pt.lat, pt.lng, alt).T + 273.15;
+    return ias * Math.sqrt(1.225 / (p / (RD * T)));
+  }
+  // Vitesse sol le long d'une route de cap h (l'avion corrige la dérive)
+  function groundSpeed(tas, w, h) {
+    const a = unit(h), along = w.u * a.x + w.v * a.y, cross = w.u * a.y - w.v * a.x;
+    return Math.sqrt(Math.max(0, tas * tas - cross * cross)) + along;
+  }
+
+  // ---------- Chute sous RSE puis ouverture ----------
+  // Le para sort à la vitesse de l'avion (vitesse vraie), vitesse verticale nulle ; traînée quadratique (vitesse limite vff).
+  // Puis ouverture : freinage régulier jusqu'à la vitesse de la voile, sur openLoss mètres.
+  // Renvoie la perte de hauteur, la projection dans l'air (m, dans le sens du vol) et les pas (dz, dt) pour la dérive au vent.
+  function fall(tFall, tas, vff, openLoss, vzCan) {
+    const k = G / (vff * vff), dt = 0.02, steps = []; let u = tas, w = 0, z = 0, s = 0, t = 0, acc = 0, z0 = 0;
+    const N = Math.round(tFall / dt);
+    for (let i = 0; i < N; i++) {
+      const sp = Math.hypot(u, w); u += -k * sp * u * dt; w += (G - k * sp * w) * dt; s += u * dt; z += w * dt; t += dt; acc += dt;
+      if (acc >= 0.25 || i === N - 1) { steps.push({ z: (z0 + z) / 2, dt: acc }); acc = 0; z0 = z; }
+    }
+    const dropFF = z, throwFF = s, w1 = w;
+    const tO = openLoss > 0 ? 2 * openLoss / Math.max(1, w1 + vzCan) : 0, M = Math.max(1, Math.round(tO / 0.25));
+    for (let i = 0; i < M && tO > 0; i++) {
+      const f0 = i / M, f1 = (i + 1) / M, fm = (f0 + f1) / 2, d = tO / M;
+      const wz = w1 + (vzCan - w1) * fm, uu = u * (1 - fm);
+      steps.push({ z: z + wz * d / 2, dt: d }); z += wz * d; s += uu * d;
+    }
+    return { drop: z, dropFF, throwFF, throwAir: s, tOpen: tO, time: tFall + tO, steps };
+  }
+  // Temps de chute qui donne une perte de hauteur totale voulue (chute + ouverture)
+  function tFallFor(dropTotal, tas, vff, openLoss, vzCan) {
+    let a = 0, b = 150;
+    if (fall(a, tas, vff, openLoss, vzCan).drop >= dropTotal) return 0;
+    for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (fall(m, tas, vff, openLoss, vzCan).drop < dropTotal) a = m; else b = m; }
+    return Math.round((a + b) / 2 * 10) / 10;
+  }
+  // Dérive sous RSE : projection (sens du vol) + vent de chaque tranche traversée, du largage à l'ouverture terminée
+  function rseDrift(F, pt, altRel, fl, acHeading) {
+    const a = unit(acHeading); let x = a.x * fl.throwAir, y = a.y * fl.throwAir;
+    fl.steps.forEach(st => { const w = windAt(F, pt.lat, pt.lng, altRel - st.z); x += w.u * st.dt; y += w.v * st.dt; });
+    return { x, y };
+  }
+
+  // ---------- Trace à cap constant, calculée à rebours depuis le PTU ----------
+  // Hauteurs : PTU, puis chaque hauteur ronde (pas de 500 m) au-dessus, jusqu'à l'ouverture terminée.
+  function heights(hPtu, hOpen) {
+    const hs = [hPtu]; let h = Math.floor(hPtu / 500 + 1e-9) * 500 + 500;
+    while (h < hOpen - 1e-6) { hs.push(h); h += 500; }
+    hs.push(hOpen); return hs;
+  }
+  // margin (0,2 = 20 %) porte sur le vent, dans le sens défavorable : vent qui pousse (dans le sens du cap) compté 20 % plus
+  // faible, vent contraire compté 20 % plus fort. La voile (vx, vz) n'est pas réduite.
+  function trace(F, ptu, elev0, hPtu, hOpen, can, cap, margin) {
+    const hd = unit(cap), hs = heights(hPtu, hOpen), pts = [{ h: hPtu, lat: ptu.lat, lng: ptu.lng, t: 0 }];
+    let P = { lat: ptu.lat, lng: ptu.lng }, len = 0, time = 0;
+    for (let i = 1; i < hs.length; i++) {
+      const dt = (hs[i] - hs[i - 1]) / can.vz, W = windMean(F, P.lat, P.lng, elev0 + hs[i - 1], elev0 + hs[i]);
+      const k = (W.u * hd.x + W.v * hd.y) >= 0 ? 1 - margin : 1 + margin;
+      const dx = (can.vx * hd.x + k * W.u) * dt, dy = (can.vx * hd.y + k * W.v) * dt;
+      P = fromLocal(P, { x: -dx, y: -dy }); len += Math.hypot(dx, dy); time += dt;
+      pts.push({ h: hs[i], lat: P.lat, lng: P.lng, t: time });
+    }
+    const d = toLocal(ptu, P);
+    return { pts, cap, length: len, direct: Math.hypot(d.x, d.y), time, top: P };
+  }
+  // Cap qui met l'ouverture le plus loin du PTU en ligne droite
+  function bestCap(F, ptu, elev0, hPtu, hOpen, can, margin) {
+    const f = c => trace(F, ptu, elev0, hPtu, hOpen, can, c, margin).direct;
+    let best = 0, bd = -1;
+    for (let c = 0; c < 360; c += 3) { const d = f(c); if (d > bd) { bd = d; best = c; } }
+    for (const st of [1, 0.25, 0.05]) for (const s of [-2, -1, 1, 2]) { const c = best + s * st, d = f(c); if (d > bd) { bd = d; best = c; } }
+    return n360(best);
+  }
+  // Cercle de relaxation (points d'OUVERTURE) : centre = centre des ouvertures possibles par vent prévu ; rayon = la plus
+  // petite distance du centre aux ouvertures calculées avec la marge, tous caps confondus → du cercle, on rejoint le PTU
+  // que le vent soit plus fort ou plus faible que prévu.
+  function relaxCircle(F, ptu, elev0, hPtu, hOpen, can, margin) {
+    let cx = 0, cy = 0, n = 0;
+    for (let c = 0; c < 360; c += 15) { const q = toLocal(ptu, trace(F, ptu, elev0, hPtu, hOpen, can, c, 0).top); cx += q.x; cy += q.y; n++; }
+    cx /= n; cy /= n; let R = Infinity;
+    for (let c = 0; c < 360; c += 5) { const q = toLocal(ptu, trace(F, ptu, elev0, hPtu, hOpen, can, c, margin).top); R = Math.min(R, Math.hypot(q.x - cx, q.y - cy)); }
+    return { c: fromLocal(ptu, { x: cx, y: cy }), R: Math.max(0, R) };
+  }
+  // Point d'une polyligne (liste de { lat, lng, h }) le plus proche de q : distance, hauteur interpolée, abscisse
+  function nearestOn(pts, q) {
+    let best = null, acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const b = toLocal(pts[i - 1], pts[i]), p = toLocal(pts[i - 1], q), L2 = b.x * b.x + b.y * b.y, L = Math.sqrt(L2);
+      const f = L2 ? Math.max(0, Math.min(1, (p.x * b.x + p.y * b.y) / L2)) : 0, d = Math.hypot(p.x - f * b.x, p.y - f * b.y);
+      if (!best || d < best.d) best = { d, h: pts[i - 1].h + (pts[i].h - pts[i - 1].h) * f, s: acc + f * L, seg: i, f, pt: fromLocal(pts[i - 1], { x: f * b.x, y: f * b.y }) };
+      acc += L;
+    }
+    return best;
+  }
+  // Point d'une polyligne à l'abscisse s (m depuis le premier point)
+  function pointAt(pts, s) {
+    let acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const b = toLocal(pts[i - 1], pts[i]), L = Math.hypot(b.x, b.y);
+      if (s <= acc + L || i === pts.length - 1) { const f = L ? Math.max(0, Math.min(1, (s - acc) / L)) : 0; return Object.assign(fromLocal(pts[i - 1], { x: f * b.x, y: f * b.y }), { h: pts[i - 1].h + (pts[i].h - pts[i - 1].h) * f }); }
+      acc += L;
+    }
+    return pts[0];
+  }
+  // Cap et hauteur d'ouverture pour qu'une trace passe par un point d'ouverture donné (vecteur déplacé à la main)
+  function capThrough(F, ptu, elev0, hPtu, hMax, can, margin, O) {
+    const f = c => { const tr = trace(F, ptu, elev0, hPtu, hMax, can, c, margin); return Object.assign(nearestOn(tr.pts, O), { cap: n360(c) }); };
+    let best = null;
+    for (let c = 0; c < 360; c += 3) { const r = f(c); if (!best || r.d < best.d) best = r; }
+    for (const st of [1, 0.3, 0.1, 0.03, 0.01]) { let moved = true, guard = 0; while (moved && guard++ < 8) { moved = false; for (const s of [-1, 1]) { const r = f(best.cap + s * st); if (r.d < best.d) { best = r; moved = true; } } } }
+    return best; // { d (écart restant, m), h (hauteur sur la trace), cap }
+  }
+
+  // ---------- Temps de sortie ----------
+  // team[i].dt = intervalle avec le para d'avant (le premier sort tGreen après le vert) ; rouge tRed après le dernier
+  function exitTimes(team, tGreen, tRed) {
+    const te = []; let t = +tGreen || 0;
+    team.forEach((p, i) => { if (i > 0) t += Math.max(0, +p.dt || 0); te.push(t); });
+    return { te, total: t + (+tRed || 0) };
+  }
+  const defaultDropIdx = n => Math.floor(n / 2); // celui du milieu ; nombre pair : le second des deux du milieu
+
+  // ---------- Résolution complète d'une ISV ----------
+  // isv : { ptu, zmt, hPtu, team[], tGreen, tRed, fl, acMs, tFall, capManual, vecHeading, reversed, dropIdx, manual, relaxRef }
+  // prm : { canopies[{ id, name, vx, vz }], margin (%), openLoss, vff }
+  function solve(isv, prm, F, elev0) {
+    const out = { ok: false };
+    if (!isv.ptu) { out.err = 'Place le point d\'entrée PTU.'; return out; }
+    const team = isv.team || []; if (!team.length) { out.err = 'Ajoute au moins un parachutiste.'; return out; }
+    const cans = prm.canopies || [], canOf = p => cans.find(c => c.id === p.canopy) || cans[0];
+    if (!cans.length) { out.err = 'Ajoute au moins un parachute dans les Paramètres.'; return out; }
+    for (const c of cans) if (!(+c.vx > 0) || !(+c.vz > 0)) { out.err = `Parachute « ${c.name} » : Vx et Vz doivent être supérieurs à 0.`; return out; }
+    const margin = Math.max(0, +prm.margin || 0) / 100, openLoss = Math.max(0, +prm.openLoss || 0), vff = Math.max(10, +prm.vff || 50);
+    const ptu = isv.ptu, hPtu = Math.max(0, +isv.hPtu || 0), ias = Math.max(10, +isv.acMs || 65);
+    const used = []; team.forEach(p => { const c = canOf(p); if (c && !used.includes(c)) used.push(c); });
+    const vzRef = Math.min(...used.map(c => +c.vz)); // fin d'ouverture : vitesse de la voile la plus lente à descendre (effet minime)
+
+    // Largage au FL demandé → hauteur d'ouverture
+    const relState = fl => {
+      const altRel = flToAlt(F, ptu, fl), hRel = altRel - elev0, tas = tasOf(F, ptu, altRel, ias);
+      let tFall = Math.max(0, +isv.tFall || 0), f = fall(tFall, tas, vff, openLoss, vzRef);
+      return { fl, altRel, hRel, tas, tFall, f, hOpen: hRel - f.drop };
+    };
+    let st = relState(+isv.fl || 295);
+    if (st.hOpen <= hPtu + 50) { out.err = `Largage trop bas : ouverture à ${Math.round(st.hOpen)} m pour un PTU à ${Math.round(hPtu)} m.`; return out; }
+
+    // Voile la moins performante : celle qui va le moins loin (en ligne droite) à son meilleur cap, ou au cap imposé
+    const reach = (c, hOpen) => { const cap = isv.capManual != null ? isv.capManual : bestCap(F, ptu, elev0, hPtu, hOpen, c, margin); const tr = trace(F, ptu, elev0, hPtu, hOpen, c, cap, margin); return { c, cap, tr }; };
+    let cand = used.map(c => reach(c, st.hOpen)).sort((a, b) => a.tr.direct - b.tr.direct), weak = cand[0];
+    const wi = team.findIndex(p => canOf(p) === weak.c);
+    out.weak = { canopy: weak.c, idx: wi, name: team[wi] && team[wi].name || '', several: used.length > 1 };
+
+    // Vecteur déplacé à la main : cap et hauteur d'ouverture pour passer par le point choisi, FL abaissé si besoin
+    let attach = null;
+    if (isv.manual && isv.capManual == null) {
+      // 1er passage avec la dérive sous RSE du cap d'avion actuel (elle change peu), puis recalage
+      let cap0 = weak.cap, O = null, sol = null;
+      for (let pass = 0; pass < 2; pass++) {
+        const ach = acHeadingOf(F, isv, st, traceDir(weak.tr.pts), isv.manual), dr = rseDrift(F, isv.manual, st.altRel, st.f, ach);
+        O = fromLocal(isv.manual, dr);
+        sol = capThrough(F, ptu, elev0, hPtu, relState(+isv.fl || 295).hOpen, weak.c, margin, O);
+        const hNeed = Math.min(relState(+isv.fl || 295).hOpen, Math.max(hPtu + 100, Math.ceil(sol.h / 100 - 1e-6) * 100)); // centaine supérieure
+        // FL qui donne cette hauteur d'ouverture, arrondi à 5 au-dessus, sans dépasser le FL prévu
+        const flNeed = altToFl(F, ptu, elev0 + hNeed + st.f.drop);
+        const fl = Math.min(+isv.fl || 295, Math.ceil(flNeed / 5 - 1e-6) * 5);
+        st = relState(fl);
+        weak = { c: weak.c, cap: sol.cap, tr: trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, sol.cap, margin) };
+      }
+      out.manualGap = sol.d; attach = O;
+      if (sol.d > 100) out.warn = 'Ce point de largage est hors de portée : le PTU ne peut pas être rejoint depuis là.';
+    }
+    const tr = weak.tr, ptsDown = tr.pts.slice().reverse(); // de l'ouverture terminée vers le PTU
+    out.cap = n360(weak.cap); out.capAuto = isv.capManual == null && !isv.manual;
+    out.trace = ptsDown; out.direct = tr.direct; out.length = tr.length; out.ouv = ptsDown[0];
+    Object.assign(out, { fl: st.fl, flPlan: +isv.fl || 295, flLowered: st.fl < (+isv.fl || 295), hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, tOpen: st.f.tOpen, elev0, vzRef, margin });
+
+    // Cap de l'avion : perpendiculaire au premier segment de la trace, sens le plus face au vent (ou cap choisi), ⇅ Sens l'inverse
+    const dir1 = traceDir(tr.pts), acHeading = acHeadingOf(F, isv, st, dir1, ptsDown[0]);
+    const wRel = windAt(F, ptsDown[0].lat, ptsDown[0].lng, st.altRel);
+    const vg = groundSpeed(st.tas, wRel, acHeading), a = unit(acHeading);
+    const dr = rseDrift(F, ptsDown[0], st.altRel, st.f, acHeading);
+    Object.assign(out, { acHeading, vg, windRel: spdDir(wRel), rse: dr, rseLen: Math.hypot(dr.x, dr.y) });
+    if (vg < 5) { out.err = 'Vent de face plus fort que l\'avion sur ce cap : change le sens ou le cap du vecteur.'; return out; }
+
+    // Cercle de relaxation : en points d'ouverture, puis décalé de la dérive sous RSE pour l'avoir en points de largage
+    const circ = relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin);
+    out.circleOuv = circ; out.circle = { c: fromLocal(circ.c, { x: -dr.x, y: -dr.y }), R: circ.R };
+
+    // Vecteur : le para choisi s'ouvre sur la trace ; on fait glisser ce point le long de la trace (vers le PTU) jusqu'à ce que
+    // le vert et le rouge soient dans le cercle. La trace ne change pas.
+    const ex = exitTimes(team, isv.tGreen, isv.tRed), n = team.length;
+    const idx = (isv.dropIdx != null && isv.dropIdx >= 0 && isv.dropIdx < n) ? isv.dropIdx : defaultDropIdx(n);
+    const sBefore = vg * ex.te[idx], sAfter = vg * (ex.total - ex.te[idx]), L = sBefore + sAfter;
+    const total = (() => { let s = 0; for (let i = 1; i < ptsDown.length; i++) s += dist(ptsDown[i - 1], ptsDown[i]); return s; })();
+    const cO = circ.c, inside = p => dist(cO, p) <= circ.R + 0.5;
+    const ends = o => [fromLocal(o, { x: -a.x * sBefore, y: -a.y * sBefore }), fromLocal(o, { x: a.x * sAfter, y: a.y * sAfter })];
+    let s0 = attach ? nearestOn(ptsDown, attach).s : 0, sFit = null;
+    for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
+    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que le cercle de relaxation (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : 'Le vecteur ne rentre pas dans le cercle de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.'); sFit = s0; }
+    const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
+    out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
+    out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),
+      exits: ex.te.map((t, i) => Object.assign(shift(fromLocal(oAtt, { x: a.x * vg * (t - ex.te[idx]), y: a.y * vg * (t - ex.te[idx]) })), { t, i })) };
+    out.ex = ex;
+
+    // Point de relaxation et temps de largage « −5 s / +10 s »
+    const ref = isv.relaxRef === 'red' ? ex.total : (typeof isv.relaxRef === 'number' && isv.relaxRef < n ? ex.te[isv.relaxRef] : 0);
+    out.relax = { t: ref, before: -ref, after: ex.total - ref, pt: shift(fromLocal(oAtt, { x: a.x * vg * (ref - ex.te[idx]), y: a.y * vg * (ref - ex.te[idx]) })) };
+
+    // Para sur le point de largage, avec sa propre voile : temps sous voile, passage du FL180 et du FL120 depuis le vert
+    const own = canOf(team[idx]), tCan = (st.hOpen - hPtu) / own.vz;
+    const tPass = fl => {
+      if (st.fl <= fl) return null;
+      const dz = st.altRel - flToAlt(F, ptu, fl); // hauteur à perdre depuis le largage
+      if (dz <= st.f.drop) { let z = 0, t = 0; for (const s2 of st.f.steps) { t += s2.dt; if (s2.z >= dz) break; } return ex.te[idx] + t; }
+      return ex.te[idx] + st.f.time + (dz - st.f.drop) / own.vz;
+    };
+    out.own = { canopy: own, tCanopy: tCan, t180: tPass(180), t120: tPass(120) };
+
+    // Prise de cap : le para sort dos au sens de vol ; côté où il tourne pour se mettre au cap para
+    const dTurn = ((dir1 - (acHeading + 180) + 720 + 180) % 360) - 180; // côté où part la trace, vu du para qui sort dos au sens de vol
+    out.turn = Math.abs(dTurn) < 1 || Math.abs(Math.abs(dTurn) - 180) < 1 ? null : (dTurn > 0 ? 'droite' : 'gauche');
+    // PTU main droite / gauche : côté de la trace où se trouve la zone de posé, dans le sens d'arrivée sur le PTU
+    if (isv.zmt) {
+      const k2 = ptsDown.length, d = toLocal(ptsDown[k2 - 2], ptsDown[k2 - 1]), z = toLocal(ptsDown[k2 - 1], isv.zmt), cr = d.x * z.y - d.y * z.x;
+      out.hand = Math.hypot(z.x, z.y) < 1 ? null : (cr > 0 ? 'gauche' : 'droite');
+    }
+    out.ok = true; return out;
+  }
+  // Direction du premier segment de la trace (de l'ouverture vers le point suivant), pts donnés du PTU vers le haut
+  function traceDir(ptsUp) { const k = ptsUp.length; return bearingOf(toLocal(ptsUp[k - 1], ptsUp[k - 2])); }
+  function acHeadingOf(F, isv, st, dir1, pos) {
+    let h;
+    if (isv.vecHeading != null) h = isv.vecHeading;
+    else {
+      const q = pos || isv.ptu, w = windAt(F, q.lat, q.lng, st.altRel), c1 = n360(dir1 + 90), c2 = n360(dir1 - 90), u1 = unit(c1);
+      h = (w.u * u1.x + w.v * u1.y) <= 0 ? c1 : c2; // le plus face au vent de largage (vent nul : trace à gauche de l'avion)
+    }
+    return n360(isv.reversed ? h + 180 : h);
+  }
+
+  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, windAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
+    tasOf, groundSpeed, fall, tFallFor, rseDrift, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
+})(typeof window !== 'undefined' ? window : globalThis);

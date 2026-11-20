@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="trace-isv">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>trace-isv</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css?v=0.1.0">
+</head>
+<body>
+<div id="map"></div>
+
+<header id="top">
+  <div class="leftcol">
+    <button id="btnParams" class="pill" title="Paramètres">⚙ Paramètres</button>
+    <button id="btnZones" class="pill" title="Zones et ISV">☰ <span id="zoneName">Nouvelle zone</span><small id="isvName"></small></button>
+  </div>
+  <div class="spacer"></div>
+  <button id="btnNorth" class="round" title="Nord en haut"><span id="compassNeedle">▲<small>N</small></span></button>
+  <button id="btnAxisUp" class="round" title="Cap para vers le haut"><span class="axisIco">↑<small>CAP</small></span></button>
+  <button id="btnFit" class="round" title="Zoom optimisé">⤢</button>
+  <button id="btnLocate" class="round" title="Ma position">⌖</button>
+</header>
+
+<div id="banner" class="hidden"></div>
+
+<nav id="quick">
+  <button id="qWhen" title="Date et heure du saut"></button>
+  <button id="qWinds" title="Tableau des vents">🌬</button>
+  <button id="qIsv" title="Préparer l'ISV : ZMT, PTU, équipe, exports">ISV</button>
+  <button id="qVol" title="Données de vol">Vol</button>
+  <button id="qRev" title="Inverser le sens de vol de l'avion">⇅ Sens</button>
+  <button id="qVecAuto" class="hidden" title="Revenir au vecteur, au cap et au FL calculés">Vect. auto</button>
+  <button id="qRelax" title="Afficher / masquer le cercle de relaxation">Relax</button>
+  <button id="qLabel" title="Afficher / masquer les hauteurs et les indications">Infos</button>
+  <button id="qPoint" title="Ajouter une zone de posé alternative ou un point libre">＋ Point</button>
+  <button id="qZero" title="Essai : vent forcé à 0 partout">Vent 0</button>
+  <button id="qMeasure" title="Mesurer cap et distance entre deux points">📏</button>
+</nav>
+
+<div id="jumpBox" class="hidden">
+  <div class="when"><input type="date" id="j_date"></div>
+  <div class="when"><button id="j_minus">−1 h</button><select class="hr" id="j_hour" title="Heure du saut"></select><button id="j_plus">+1 h</button></div>
+  <div class="row"><button id="j_now" class="wide">🔄 Maintenant (mettre à jour la prévision)</button></div>
+  <p class="hint" id="wxInfo"></p>
+  <button id="jumpOk" class="wide primary">OK</button>
+</div>
+
+<div id="windsBox" class="hidden">
+  <div class="when"><button id="t_minus">−1 h</button><input type="date" id="t_date"><select class="hr" id="t_hour" title="Heure"></select><button id="t_plus">+1 h</button></div>
+  <p class="hint" id="t_info"></p>
+  <div class="tw"><table id="windsTable"><thead><tr><th>Niveau</th><th>Hauteur</th><th>Vient du (M)</th><th colspan="2">Vitesse</th><th>Temp.</th></tr></thead><tbody></tbody></table></div>
+  <div class="grid2"><button id="t_now">Maintenant</button><button id="t_close" class="primary">Fermer</button></div>
+</div>
+
+<div id="measureBox" class="hidden"></div>
+
+<section id="sheet" class="hidden">
+  <div class="grab" id="grab"><span></span></div>
+  <div class="tabs tabs5">
+    <button data-tab="zones">Zones</button>
+    <button data-tab="isv" class="on">ISV</button>
+    <button data-tab="vol">Vol</button>
+    <button data-tab="alti">Alti</button>
+    <button data-tab="params">Param.</button>
+    <button id="btnClose" class="close">✕</button>
+  </div>
+
+  <!-- ===== Zones ===== -->
+  <div id="tab-zones" class="tab hidden">
+    <div class="row"><button id="btnNewZone" class="wide">＋ Nouvelle zone</button></div>
+    <h3>Mes zones</h3>
+    <p class="hint">Touche un nom pour ouvrir la zone (tout s'enregistre au fur et à mesure). Tiens ≡ et glisse pour changer l'ordre.</p>
+    <ul id="zoneList"></ul>
+
+    <h3>ISV de cette zone</h3>
+    <ul id="isvList"></ul>
+    <div class="row grid2"><button id="btnNewIsv">＋ Nouvelle ISV</button><button id="btnDupIsv">⧉ Dupliquer l'ISV ouverte</button></div>
+
+    <h3>Fond de carte</h3>
+    <div class="row seg">
+      <button id="bmEsri">🛰 Satellite (monde)</button>
+      <button id="bmIgn">✈︎ Photos IGN (France)</button>
+    </div>
+
+    <h3>ZRT (zones d'exclusion aérienne)</h3>
+    <div class="row"><button id="btnZrt" class="wide">⬇︎ Importer un tracé (KML, KMZ ou GPX)</button></div>
+    <input type="file" id="zrtFile" accept=".kml,.kmz,.gpx,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml" class="hidden">
+    <ul id="zrtList"></ul>
+    <p class="hint">Affichage seulement : les ZRT ne changent rien au calcul. Une image ou un PDF se cale avec « Photo aérienne » ci-dessous.</p>
+
+    <h3>Photo aérienne ou image calée</h3>
+    <div class="row"><button id="btnPhoto" class="wide">📷 Importer une image</button></div>
+    <input type="file" id="photoFile" accept="image/*" class="hidden">
+    <div id="photoCtl" class="hidden">
+      <div class="row grid2"><button id="photoShow" class="wide">👁 Image affichée</button><button id="photoRecal" class="wide">🎯 Recaler</button></div>
+      <div class="row"><label>Transparence de l'image</label><input type="range" id="photoOpacity" min="10" max="100" step="5"></div>
+      <div class="row"><button id="photoDel" class="wide danger">🗑 Supprimer l'image</button></div>
+    </div>
+    <p class="hint">Calage en 4 appuis : un point sur l'image, le même sur la carte, puis un 2e point loin du premier. L'image reste sur ce téléphone (pas dans l'export).</p>
+
+    <h3>Sauvegarde des zones</h3>
+    <div class="row grid2">
+      <button id="btnExportZones" class="wide">⬆︎ Exporter les zones</button>
+      <button id="btnImportZones" class="wide">⬇︎ Importer des zones</button>
+    </div>
+    <input type="file" id="importZonesFile" accept=".json,application/json" class="hidden">
+    <div class="row"><button id="btnWipe" class="wide danger">🗑 Effacer toutes les zones</button></div>
+    <p class="hint">Exporter crée un fichier avec toutes tes zones et leurs ISV. Importer ajoute les zones d'un tel fichier aux tiennes, sans jamais en modifier ni en effacer.</p>
+  </div>
+
+  <!-- ===== ISV : préparation ===== -->
+  <div id="tab-isv" class="tab hidden">
+    <h3>Zone de posé (ZMT)</h3>
+    <div class="grid2"><button id="btnPlaceZ">📍 Toucher la carte</button><button id="btnCoordZ">⌨ Coordonnées</button></div>
+    <p class="hint" id="zmtInfo"></p>
+
+    <h3>Point d'entrée PTU</h3>
+    <div class="grid2"><button id="btnPlaceP">📍 Toucher la carte</button><button id="btnCoordP">⌨ Coordonnées</button></div>
+    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m)</label><input id="i_hPtu" inputmode="numeric"></div><div><p class="hint" id="ptuElevInfo"></p></div></div>
+    <p class="hint" id="ptuInfo"></p>
+
+    <h3>Équipe <span id="teamCount" class="mut"></span></h3>
+    <ul id="teamList"></ul>
+    <div class="row grid2"><button id="btnAddPara">＋ Ajouter un para</button><button id="btnAddN">＋ Plusieurs…</button></div>
+    <div class="grid2"><div><label>Intervalle pour tous (s)</label><input id="i_dtAll" inputmode="decimal" placeholder="3"></div><button id="btnDtAll">Appliquer à tous</button></div>
+    <p class="hint" id="applyHint">Intervalle = temps entre un para et celui qui sort avant lui. ⧉ : recopier l'intervalle d'un para sur d'autres. Tiens ≡ et glisse pour changer l'ordre de sortie.</p>
+
+    <h3>Marges de largage</h3>
+    <div class="grid2">
+      <div><label>Vert → 1er para (s)</label><input id="i_tGreen" inputmode="decimal"></div>
+      <div><label>Dernier para → rouge (s)</label><input id="i_tRed" inputmode="decimal"></div>
+    </div>
+
+    <h3>Résultat</h3>
+    <p class="hint big" id="resInfo"></p>
+
+    <h3>Export</h3>
+    <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 GPX (Garmin)</button></div>
+    <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
+  </div>
+
+  <!-- ===== Données de vol ===== -->
+  <div id="tab-vol" class="tab hidden">
+    <h3>Données de vol</h3>
+    <div class="grid2">
+      <div><label>Largage (FL)</label><input id="v_fl" inputmode="numeric"></div>
+      <div><label>Vitesse de largage (m/s, badin)</label><input id="v_ac" inputmode="decimal"></div>
+    </div>
+    <p class="hint" id="v_flInfo"></p>
+    <div class="grid2">
+      <div><label>Temps de chute (s)</label><input id="v_tFall" inputmode="decimal"></div>
+      <div><label>Hauteur d'ouverture (m, sol PTU)</label><input id="v_hOpen" inputmode="numeric"></div>
+    </div>
+    <label>CAP PARA (° magnétiques)</label>
+    <div class="stepper"><button id="v_capM">−</button><input id="v_cap" inputmode="numeric"><button id="v_capP">+</button><button id="v_capAuto">Auto</button></div>
+    <label>Cap avion = cap du vecteur (° magnétiques)</label>
+    <div class="stepper"><button id="v_acM">−</button><input id="v_acH" inputmode="numeric"><button id="v_acP">+</button><button id="v_acAuto">Auto</button></div>
+    <div class="grid2">
+      <div><label>Para sur le point de largage</label><select id="v_drop"></select></div>
+      <div><label>Point de relaxation</label><select id="v_relax"></select></div>
+    </div>
+    <table class="vals" id="volTable"><tbody></tbody></table>
+    <p class="hint" id="v_warn"></p>
+  </div>
+
+  <!-- ===== Altimétrie ===== -->
+  <div id="tab-alti" class="tab hidden">
+    <h3>Altimétrie</h3>
+    <div class="grid2">
+      <div><label>Sécurité avant / après le vecteur (m)</label><input id="a_long" inputmode="numeric"></div>
+      <div><label>Sécurité latérale (m)</label><input id="a_lat" inputmode="numeric"></div>
+    </div>
+    <table class="vals" id="altiTable"><tbody></tbody></table>
+    <div class="row"><button id="btnAlti" class="wide">🔄 Recalculer le point haut</button></div>
+    <p class="hint">Le point le plus haut de la zone de sécurité est marqué sur la carte par un triangle. Altitudes : relevé Copernicus (un point tous les 90 m), par Internet. OSO et ALPHA : pression prévue au sol, à l'heure du saut.</p>
+  </div>
+
+  <!-- ===== Paramètres ===== -->
+  <div id="tab-params" class="tab hidden">
+    <h3>Parachutes</h3>
+    <ul id="canList"></ul>
+    <div class="row"><button id="btnAddCan" class="wide">＋ Ajouter un parachute</button></div>
+    <p class="hint">Vx = vitesse horizontale, Vz = vitesse verticale, en m/s, constantes dans cette version.</p>
+
+    <h3>Calcul</h3>
+    <div class="grid2">
+      <div><label>Marge de sécurité sur le vent (%)</label><input id="p_margin" inputmode="numeric"></div>
+      <div><label>Perte de hauteur à l'ouverture (m)</label><input id="p_openLoss" inputmode="numeric"></div>
+    </div>
+    <div class="grid2">
+      <div><label>Vitesse de chute stabilisée (m/s)</label><input id="p_vff" inputmode="numeric"></div><div></div>
+    </div>
+    <p class="hint">La marge porte sur le vent : vent dans le dos compté plus faible, vent de face compté plus fort.</p>
+
+    <h3>Sauvegarde des paramètres</h3>
+    <div class="row grid2">
+      <button id="btnExportProf" class="wide">⬆︎ Exporter</button>
+      <button id="btnImportProf" class="wide">⬇︎ Importer</button>
+    </div>
+    <input type="file" id="importProfFile" accept=".json,application/json" class="hidden">
+    <p class="hint">trace-isv version <span id="ver"></span></p>
+  </div>
+</section>
+
+<div id="dialog" class="hidden">
+  <div class="box">
+    <p id="dlgText"></p>
+    <input id="dlgInput">
+    <div class="dlgbtns"><button id="dlgDel" class="danger hidden"></button><button id="dlgCancel">Annuler</button><button id="dlgOk" class="primary">OK</button></div>
+  </div>
+</div>
+
+<div id="nzDlg" class="hidden">
+  <div class="box">
+    <p><b>Nouvelle zone : où ?</b></p>
+    <button id="nzMap" class="wide primary">🗺 Rester ici (carte actuelle)</button>
+    <button id="nzHere" class="wide">📍 Ma position</button>
+    <div class="row search"><input id="searchInput" placeholder="Ville… ou coordonnées, ou MGRS"><button id="btnSearch">Chercher</button></div>
+    <ul id="searchResults"></ul>
+    <button id="nzCancel" class="wide">Annuler</button>
+  </div>
+</div>
+
+<div id="ptDlg" class="hidden">
+  <div class="box">
+    <p><b>Nouveau point</b></p>
+    <button id="ptAlt" class="wide">🎯 Zone de posé alternative</button>
+    <button id="ptFree" class="wide">✚ Point libre</button>
+    <div id="ptColors" class="colors"></div>
+    <button id="ptCancel" class="wide">Annuler</button>
+  </div>
+</div>
+
+<div id="calBox" class="hidden">
+  <p id="calText"></p>
+  <div id="calScroll"><div id="calWrap"><img id="calImg" alt=""></div></div>
+  <div class="calbtns"><button id="calZout">－</button><button id="calZin">＋</button><button id="calCancel">Annuler</button></div>
+</div>
+
+<div id="pdfReady" class="hidden">
+  <div class="box">
+    <p>Fichier prêt : <b id="pdfName"></b></p>
+    <div class="grid2"><button id="pdfClose">Fermer</button><button id="pdfShare" class="primary">Partager / Enregistrer</button></div>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+
+<script src="vendor/leaflet.js?v=0.1.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.1.0"></script>
+<script src="vendor/mgrs.min.js?v=0.1.0"></script>
+<script src="geo.js?v=0.1.0"></script>
+<script src="wmm.js?v=0.1.0"></script>
+<script src="calc.js?v=0.1.0"></script>
+<script src="app.js?v=0.1.0"></script>
+<script src="photo.js?v=0.1.0"></script>
+</body>
+</html>
