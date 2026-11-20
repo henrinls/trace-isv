@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.1.2">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.1.3">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.1.2">
+<link rel="stylesheet" href="style.css?v=0.1.3">
 </head>
 <body>
 <div id="map"></div>
@@ -178,6 +178,10 @@
       <div><label>Sécurité avant / après le vecteur (m)</label><input id="a_long" inputmode="numeric"></div>
       <div><label>Sécurité latérale (m)</label><input id="a_lat" inputmode="numeric"></div>
     </div>
+    <div class="grid2">
+      <div><label>Ouverture basse (ft au-dessus du point haut)</label><input id="a_low" inputmode="numeric"></div>
+      <div><p class="hint">Tracée en pointillés orange devant le vecteur : où ouvre un para qui descend jusqu'à cette hauteur.</p></div>
+    </div>
     <table class="vals" id="altiTable"><tbody></tbody></table>
     <div class="row"><button id="btnAlti" class="wide">🔄 Recalculer le point haut</button></div>
     <p class="hint">Le point le plus haut de la zone de sécurité est marqué sur la carte par un triangle. Altitudes : relevé Copernicus (un point tous les 90 m), par Internet. OSO et ALPHA : pression prévue au sol, à l'heure du saut.</p>
@@ -254,13 +258,13 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.1.2"></script>
-<script src="vendor/leaflet-rotate.js?v=0.1.2"></script>
-<script src="vendor/mgrs.min.js?v=0.1.2"></script>
-<script src="geo.js?v=0.1.2"></script>
-<script src="wmm.js?v=0.1.2"></script>
-<script src="calc.js?v=0.1.2"></script>
-<script src="app.js?v=0.1.2"></script>
-<script src="photo.js?v=0.1.2"></script>
+<script src="vendor/leaflet.js?v=0.1.3"></script>
+<script src="vendor/leaflet-rotate.js?v=0.1.3"></script>
+<script src="vendor/mgrs.min.js?v=0.1.3"></script>
+<script src="geo.js?v=0.1.3"></script>
+<script src="wmm.js?v=0.1.3"></script>
+<script src="calc.js?v=0.1.3"></script>
+<script src="app.js?v=0.1.3"></script>
+<script src="photo.js?v=0.1.3"></script>
 </body>
 </html>

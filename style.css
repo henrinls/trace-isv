@@ -247,3 +247,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .dot.up b{left:50%;top:auto;bottom:calc(100% + 2px);transform:rotate(-58deg);transform-origin:left bottom}
 #btnZones small{font-size:inherit;color:#ff8bd6}
 #quick #qIsv{border-color:#ff3fb4;color:#fff}
+.vlabel .vlow{font-style:normal;color:#ff8c00}

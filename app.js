@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -19,7 +19,7 @@ const BASEMAPS = {
 };
 const TILE_CACHE = 'isv-tiles-v1';
 const KT = 1.943844; // m/s → nœuds
-const C_START = '#1ec83c', C_END = '#ff2020', C_TRACE = '#ff3fb4', C_RELAX = '#00e5ff', C_PTU = '#ffd400', C_ZMT = '#ff8c00';
+const C_LOW = '#ff8c00', C_START = '#1ec83c', C_END = '#ff2020', C_TRACE = '#ff3fb4', C_RELAX = '#00e5ff', C_PTU = '#ffd400', C_ZMT = '#ff8c00';
 const isDark = c => c === '#000000';
 const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }, { id: 'pbo', name: 'PBO', vx: 10, vz: 3.5 }], margin: 20, openLoss: 200, vff: 50 };
 const n360 = h => ((h % 360) + 360) % 360;
@@ -113,7 +113,7 @@ function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (p
 function newIsv(name) {
   return { id: uid('i'), name: name || 'ISV 1', zmt: null, ptu: null, hPtu: 300, ptuElev: null, team: [newPara(), newPara(), newPara(), newPara()],
     tGreen: 4, tRed: 10, fl: 295, acMs: 65, tFall: 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
-    secLong: 1000, secLat: 500, alti: null };
+    secLong: 1000, secLat: 500, lowFt: 1900, alti: null };
 }
 function upIsv(I) {
   const d = newIsv(I && I.name); if (!I) return d;
@@ -405,6 +405,15 @@ function draw(light) {
     const tm = Calc.pointAt(sol.trace, sol.length / 2);
     lbl(tm, `<i class="tcap">CAP ${hdg(sol.cap)}</i> · ${fmtKm(sol.length)}`, 'vlabel vt').addTo(fig);
   }
+  // Ouverture basse : vecteur reporté en pointillés, décalé de sa dérive sous RSE
+  const lo = lowDrift();
+  if (lo) {
+    const st = { color: C_LOW, weight: 2.6, dashArray: '7 7', interactive: false };
+    L.polyline([LL(sol.vec.green), LL(lo.green)], st).addTo(fig); L.polyline([LL(sol.vec.red), LL(lo.red)], st).addTo(fig);
+    L.polyline([LL(lo.green), LL(lo.red)], Object.assign({}, st, { weight: 3.4 })).addTo(fig);
+    lo.exits.forEach(e => L.circleMarker(LL(e), { radius: 3, color: C_LOW, weight: 1.5, fillColor: '#000', fillOpacity: 1, interactive: false }).addTo(fig));
+    if (current.show.label) lbl({ lat: (lo.green.lat + lo.red.lat) / 2, lng: (lo.green.lng + lo.red.lng) / 2 }, `<i class="vlow">${fmtInt(isv().lowFt)} ft</i>`, 'vlabel vt').addTo(fig);
+  }
   // Point le plus haut de la zone de sécurité
   if (I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();
@@ -497,6 +506,7 @@ function figurePoints() {
   if (I.zmt) pts.push(I.zmt); if (I.ptu) pts.push(I.ptu);
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
+    const lo = lowDrift(); if (lo) pts.push(lo.green, lo.red);
     if (current.show.relax) [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].forEach(a => pts.push(Calc.fromLocal(sol.circle.c, { x: sol.circle.R * Math.sin(a * Math.PI / 180), y: sol.circle.R * Math.cos(a * Math.PI / 180) })));
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
@@ -532,7 +542,7 @@ function fillInputs() {
   $('ptuElevInfo').textContent = I.ptu ? (typeof I.ptuElev === 'number' ? `Sol sous le PTU : ${fmtInt(I.ptuElev)} m` : `Sol sous le PTU : ${fmtInt(elev0())} m (modèle météo, relevé en attente)`) : '';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
   setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff);
-  setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
+  setVal('a_long', I.secLong); setVal('a_lat', I.secLat); setVal('a_low', I.lowFt);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
   if (open && lastTab === 'isv') renderIsvTab();
@@ -971,6 +981,21 @@ function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est p
   if (I.alti && I.alti.max && I.alti.key === altiKey()) { const m = I.alti.max; o.max = m; o.oso = Math.round(Calc.pOfZ(F, m.lat, m.lng, m.elev)); o.hRel = sol.altRel - m.elev; }
   return o;
 }
+// Ouverture basse : dérive sous RSE d'un para qui ouvrirait à lowFt pieds au-dessus du point haut (ouverture terminée)
+// au lieu de la hauteur prévue. Même calcul que la dérive normale (projection + vent de chaque tranche), chute plus longue.
+const lowMem = { k: null, v: null };
+function lowDrift() {
+  const I = isv(), av = altiVals(); if (!av || !av.max || !sol || !sol.ok || !(+I.lowFt > 0)) return null;
+  const k = solKey + '|' + altiKey() + '|' + I.lowFt + '|' + av.max.elev; if (lowMem.k === k) return lowMem.v;
+  let v = null;
+  const hLow = av.max.elev + I.lowFt * 0.3048, drop = sol.altRel - hLow, vff = Math.max(10, +prm.vff || 50), ol = Math.max(0, +prm.openLoss || 0);
+  if (drop > ol + 1) {
+    const tf = Calc.tFallFor(drop, sol.tas, vff, ol, vzRefNow(), true), f = Calc.fall(tf, sol.tas, vff, ol, vzRefNow());
+    const d = Calc.rseDrift(F, sol.vec.green, sol.altRel, f, sol.acHeading), sh = p => Calc.fromLocal(p, d);
+    v = { tFall: tf, hOpen: hLow - sol.elev0, len: Math.hypot(d.x, d.y), extra: Math.hypot(d.x - sol.rse.x, d.y - sol.rse.y), green: sh(sol.vec.green), red: sh(sol.vec.red), exits: sol.vec.exits.map(sh) };
+  }
+  lowMem.k = k; lowMem.v = v; return v;
+}
 function renderAlti() {
   const tb = $('altiTable').querySelector('tbody'), v = altiVals(); tb.innerHTML = '';
   if (!v) { tb.innerHTML = '<tr><td class="mut">Pas encore de vecteur.</td></tr>'; return; }
@@ -980,11 +1005,14 @@ function renderAlti() {
   rows.push(['ALPHA', `${v.alpha} hPa`, true]);
   rows.push(['Hauteur de largage', v.max ? `${fmtInt(v.hRel)} m` : '…', true]);
   rows.push(['Sol sous le PTU', `${fmtInt(v.elevPtu)} m`]);
+  const lo = lowDrift();
+  if (v.max) rows.push([`Ouverture basse (${fmtInt(isv().lowFt)} ft au-dessus du point haut)`, lo ? `ouverture terminée à ${fmtInt(lo.hOpen)} m sol PTU · ${fmt1(lo.tFall)} s de chute · dérive sous RSE ${fmtInt(lo.len)} m (${fmtInt(lo.extra)} m de plus que prévu)` : 'plus haute que l\'ouverture prévue']);
   if (!F) rows.push(['', '<b class="warn">Sans prévision : pressions en atmosphère standard</b>']);
   rows.forEach(([k, val, hi]) => { const tr = document.createElement('tr'); if (hi) tr.className = 'hi'; tr.innerHTML = `<td>${k}</td><td>${val}</td>`; tb.append(tr); });
 }
 onNum('a_long', v => { isv().secLong = Math.round(v); }, 0, 20000);
 onNum('a_lat', v => { isv().secLat = Math.round(v); }, 0, 10000);
+onNum('a_low', v => { isv().lowFt = Math.round(v); }, 0, 30000);
 $('btnAlti').addEventListener('click', () => computeAlti(true));
 
 // ---------- Onglet Paramètres : parachutes et calcul ----------
@@ -1346,6 +1374,8 @@ async function renderPdfCanvas() {
   if (I.zmt) cible(I.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   current.points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pt.name, c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
+  { const lo = lowDrift(); if (lo) { line([sol.vec.green, lo.green], C_LOW, 2.4, [7, 7]); line([sol.vec.red, lo.red], C_LOW, 2.4, [7, 7]); line([lo.green, lo.red], C_LOW, 3.2, [7, 7]);
+    const m = toC({ lat: (lo.green.lat + lo.red.lat) / 2, lng: (lo.green.lng + lo.red.lng) / 2 }); shadowText(`${fmtInt(I.lowFt)} ft`, m.x + 12 * u, m.y, C_LOW, 11); } }
   const av = altiVals();
   if (av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
   // ---- Flèche du nord (coin haut gauche) ----
@@ -1406,6 +1436,7 @@ function pdfDataPages(doc) {
   row('OSO', av && av.max ? `${av.oso} hPa (point haut ${fmtInt(av.max.elev)} m)` : 'non calculé', true);
   row('ALPHA', av ? `${av.alpha} hPa (sol sous le PTU ${fmtInt(av.elevPtu)} m)` : '-', true);
   row('Hauteur de largage', av && av.max ? `${fmtInt(av.hRel)} m au-dessus du point haut` : 'non calculé', true);
+  { const lo = lowDrift(); if (lo) row(`Ouverture basse (${fmtInt(I.lowFt)} ft au-dessus du point haut)`, `terminée à ${fmtInt(lo.hOpen)} m sol PTU, ${fmt1(lo.tFall)} s de chute, dérive sous RSE ${fmtInt(lo.len)} m`); }
   row('Zone de sécurité', `${fmtInt(I.secLong)} m avant et après le vecteur, ${fmtInt(I.secLat)} m de chaque côté`);
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
   I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)})${p.mte ? ' - MTE ' + p.mte + ' kg' : ''} - sortie à ${fmt1(sol.ex.te[i])} s`); });
