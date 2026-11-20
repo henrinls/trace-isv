@@ -27,7 +27,7 @@
     while (b - a > 1) { const m = (a + b) >> 1; if (L[m].z <= z) a = m; else b = m; }
     const A = L[a], B = L[b], f = (z - A.z) / (B.z - A.z);
     const mix = k => (A[k] == null || B[k] == null) ? (A[k] != null ? A[k] : B[k]) : A[k] + (B[k] - A[k]) * f;
-    return { u: mix('u'), v: mix('v'), T: mix('T') };
+    return { u: mix('u'), v: mix('v'), T: mix('T'), RH: mix('RH') };
   }
   function zOfPn(node, p) { // altitude (m) d'une pression, interpolée en log p (extrapolée aux bouts)
     const pz = node.pz; if (!pz || pz.length < 2) return stdH(p);
@@ -71,6 +71,14 @@
   function pOfZ(F, lat, lng, z) { if (!F) return stdP(z); let lp = 0, s = 0; weights(F, lat, lng).forEach(([nd, w]) => { lp += w * Math.log(pOfZn(nd, z)); s += w; }); return Math.exp(lp / s); }
   const flToAlt = (F, pt, fl) => zOfP(F, pt.lat, pt.lng, stdP(fl * 30.48));           // FL → altitude vraie (m mer)
   const altToFl = (F, pt, alt) => stdH(pOfZ(F, pt.lat, pt.lng, alt)) / 30.48;           // altitude vraie → FL
+  // Humidité relative (%) à une altitude, à la verticale d'un point (null si la prévision n'en donne pas)
+  function rhAt(F, lat, lng, z) {
+    if (!F) return null; let h = 0, s = 0;
+    weights(F, lat, lng).forEach(([nd, w]) => { // seulement entre les niveaux qui ont une humidité
+      if (!nd.rh) nd.rh = nd.lv.filter(l => l.RH != null).map(l => ({ z: l.z, u: 0, v: 0, RH: l.RH }));
+      if (!nd.rh.length) return; const q = lvAt({ lv: nd.rh }, z); if (q.RH != null) { h += w * q.RH; s += w; } });
+    return s ? h / s : null;
+  }
   const spdDir = w => ({ spd: Math.hypot(w.u, w.v), dir: n360(deg(Math.atan2(-w.u, -w.v))) });
 
   // ---------- Avion ----------
@@ -321,7 +329,7 @@
     return n360(isv.reversed ? h + 180 : h);
   }
 
-  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, windAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
+  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
     tasOf, groundSpeed, fall, tFallFor, rseDrift, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
