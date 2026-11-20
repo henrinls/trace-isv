@@ -212,9 +212,9 @@ button,input,select,label,a{touch-action:manipulation}
 .hdl,.tgt,.crossp,.dot{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .vlabel .tcap{font-style:normal;color:#ff8bd6}.vlabel .vcap{font-style:normal}
 .vlabel.vv.vr span{transform:translate(14px,-170%)}.vlabel.vv.vl span{transform:translate(calc(-100% - 14px),-170%)}.vlabel.vt span{transform:translate(12px,-50%)}
-#teamList,#canList,#isvList,#zrtList{list-style:none;margin:0;padding:0}
-#isvList li,#zrtList li{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #262626}
-#isvList .zn,#zrtList .zn{flex:1;cursor:pointer;padding:8px 0}
+#teamList,#canList,#isvList,#zrtList,#ptList{list-style:none;margin:0;padding:0}
+#isvList li,#zrtList li,#ptList li{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #262626}
+#isvList .zn,#zrtList .zn,#ptList .zn{flex:1;cursor:pointer;padding:8px 0}
 #isvList li.cur .zn{color:#ff8bd6;font-weight:700}
 #teamList li.para{padding:7px 0;border-bottom:1px solid #262626}
 #teamList li.zdrag{position:relative;z-index:5;background:#2a2a2a;box-shadow:0 4px 14px rgba(0,0,0,.6)}
@@ -250,3 +250,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 
 /* Outil de mesure actif : les autres points et traits ne captent plus le doigt (on mesure jusque sur eux) */
 .leaflet-container.measuring .leaflet-interactive:not(.measpt){pointer-events:none!important}
+#ptList .pic{font-size:20px;width:26px;text-align:center;text-shadow:0 0 2px #fff,0 0 1px #fff}#ptList .pic.alt{font-size:22px}

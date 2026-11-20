@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.8';
+const VERSION = '0.1.9';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -538,7 +538,7 @@ function fillInputs() {
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
-  if (open && lastTab === 'isv') renderIsvTab();
+  if (open && lastTab === 'isv') { renderPtList(); renderIsvTab(); }
   if (open && lastTab === 'vol') renderVol();
   if (open && lastTab === 'alti') renderAlti();
   if (open && lastTab === 'params') renderCans();
@@ -629,7 +629,7 @@ $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.targ
 // ---------- Placement de la ZMT, du PTU et des points ----------
 function placeBanner() {
   setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
-    : placing ? (placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : 'Touche la carte pour placer le point libre.') : null);
+    : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : 'Touche la carte pour placer le point libre.') : null);
   if (!placing) updateInfo();
 }
 function startPlacing(what) { placing = placing === what ? null : what; stopMeasure(); if (placing) closeSheet(); placeBanner(); fillInputs(); }
@@ -658,9 +658,23 @@ async function addPoint(p, spec) {
   const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol sous le PTU est ajouté tout seul, P = plus haut, M = plus bas) :' : 'Nom du point :', '');
   if (n === null) return;
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: null };
-  current.points.push(pt); persist(); redraw(); if (pt.kind === 'alt') pointElev(pt);
+  current.points.push(pt); persist(); redraw(); fillInputs(); if (pt.kind === 'alt') pointElev(pt);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
+function renderPtList() {
+  const ul = $('ptList'); ul.innerHTML = '';
+  if (!current.points.length) { ul.innerHTML = '<li class="mut">Aucun point posé.</li>'; return; }
+  current.points.forEach(pt => {
+    const li = document.createElement('li'), alt = pt.kind === 'alt';
+    li.innerHTML = `<span class="pic${alt ? ' alt' : ''}" style="color:${alt ? '#ff2020' : (pt.color || '#fff')}">${alt ? '◎' : '✚'}</span><span class="zn">${esc(pointLabel(pt) || '(sans nom)')}<br><small class="mut">${alt ? 'Zone de posé alternative' : 'Point libre'}</small></span>`;
+    li.querySelector('.zn').onclick = () => { setSheetSize('mini'); map.setView(LL(pt), Math.max(map.getZoom(), 15)); };
+    const ed = document.createElement('button'); ed.textContent = '✏️'; ed.title = 'Modifier'; ed.onclick = () => pointMenu(pt);
+    const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Supprimer';
+    del.onclick = async () => { if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; current.points = current.points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
+    li.append(ed, del); ul.append(li);
+  });
+}
+$('btnAddPt').addEventListener('click', async () => { if (!(await askZoneName())) return; if (placing && typeof placing === 'object') { placing = null; placeBanner(); } syncPtColors(); $('ptDlg').classList.remove('hidden'); });
 function pointMenu(pt) {
   let col = pt.color || PT_COLORS[1];
   $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
@@ -669,10 +683,12 @@ function pointMenu(pt) {
   const sync = () => cs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === col));
   cs.innerHTML = PT_COLORS.map(c => `<button data-c="${c}" style="background:${c}"></button>`).join(''); sync();
   cs.onclick = e => { const c = e.target && e.target.dataset && e.target.dataset.c; if (c) { col = c; sync(); } };
-  const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = null; };
-  $('peOk').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw(); };
+  const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = $('peMove').onclick = null; };
+  $('peOk').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw(); fillInputs(); };
+  $('peMove').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw();
+    startPlacing({ kind: 'move', id: pt.id, name: pointLabel(pt) || (pt.kind === 'alt' ? 'zone de posé alternative' : 'point libre') }); };
   $('peCancel').onclick = close;
-  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; current.points = current.points.filter(x => x.id !== pt.id); persist(); redraw(); };
+  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; current.points = current.points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
   $('ptEdit').classList.remove('hidden');
 }
 
@@ -748,7 +764,9 @@ map.on('click', e => {
   if (!current.id) { if (!namingZone) { namingZone = true; askZoneName().then(ok => { namingZone = false; if (ok) map.fire('click', e); }); } return; } // nom d'abord, puis le point
   const p = { lat: e.latlng.lat, lng: e.latlng.lng }, what = placing;
   placing = null; placeBanner();
-  if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p); else addPoint(p, what);
+  if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
+  else if (what.kind === 'move') { const pt = current.points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; if (pt.kind === 'alt') { pt.elev = null; pointElev(pt); } persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
+  else addPoint(p, what);
   fillInputs();
 });
 map.on('zoomend', redraw);
