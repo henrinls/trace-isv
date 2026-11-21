@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.36.1';
+const VERSION = '0.37.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200 }; /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, tRef: 4 }; /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -118,7 +118,7 @@ function fieldOf(rec, when) {
 function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (prm && prm.canopies[0] ? prm.canopies[0].id : 'ph'), mte: MTE_DEF, dt: 3 }; }
 function newIsv(name) {
   return { id: uid('i'), name: name || 'ISV 1', ptu: null, hPtu: 300, ptuElev: null, team: [newPara(), newPara(), newPara(), newPara()],
-    tGreen: 4, tRed: 10, fl: 295, acMs: 65, tFall: 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
+    tGreen: 4, tRed: 10, fl: 295, acMs: 65, tFall: (typeof prm !== 'undefined' && +prm.tRef > 0) ? +prm.tRef : 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
     secLong: 1000, secLat: 500, alti: null, points: [], when: null };
 }
 function upIsv(I) {
@@ -394,7 +394,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 // ---------- Calcul ----------
 function calcInput(I) {
   const di = I.team.findIndex(p => p.id === I.dropId), ri = I.team.findIndex(p => p.id === I.relaxRef);
-  return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall,
+  return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall, tRef: +prm.tRef > 0 ? +prm.tRef : 4,
     capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
@@ -829,7 +829,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_offKm', prm.offKm);
+  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_offKm', prm.offKm);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -1321,7 +1321,7 @@ onNum('i_tRed', v => { isv().tRed = v; }, 0, 120);
 function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => Calc.canRef(c).vz)); } /* v0.31.0 : Vz ramenée à la référence */
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
-  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) e.innerHTML = `FL minimal de largage pour ouvrir à cette hauteur avec 4 s de chute (calculé) : <b>FL${String(sol.flMin4).padStart(3, '0')}</b>`; } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
+  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) e.innerHTML = `FL minimal de largage pour ouvrir à ${fmtInt(Math.round(sol.hOpen))} m avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) : <b>FL${String(sol.flMin4).padStart(3, '0')}</b>`; } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1424,6 +1424,7 @@ function renderBrief() {
   end();
   sec('Largage');
   row('FL de largage', `FL${s.fl}`, true);
+  if (s.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(s.flMin4).padStart(3, '0')} (même ouverture, ${fmtInt(Math.round(s.hOpen))} m)`); /* v0.37.0 (Henri) */
   row('Hauteur au-dessus de la ZMT', `${fmtInt(s.hRel)} m`);
   row('Hauteur au-dessus du point haut', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé');
   row('Cap avion au largage', hdg(s.acHeading), true);
@@ -1853,7 +1854,7 @@ $('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom 
 $('p_offline').addEventListener('change', e => { prm.offline = !!e.target.checked; saveProfile(); syncOffline(); toast(prm.offline ? 'Mode autonome : l\'appli ne va plus sur Internet' : 'Internet réactivé'); changed(); });
 function syncOffline() { $('p_offline').checked = !!prm.offline; try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ offline: !!prm.offline }); } catch (e) {} }
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
-onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_offKm', 'offKm', 1, 500);
+onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
@@ -2324,6 +2325,7 @@ function pdfDataPages(doc) {
   const row = (k, v, bold) => { if (y > 285) { doc.addPage('a4', 'portrait'); y = 18; } doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.text(clean(k), 15, y); doc.text(clean(v), 110, y); y += 5.6; };
   title(`${current.name} - ${I.name} - saut du ${fmtWhen(current.when).replace(' ', ' à ')}`);
   row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol de la ZMT`, true);
+  if (sol.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(sol.flMin4).padStart(3, '0')} (même ouverture, ${fmtInt(Math.round(sol.hOpen))} m)`);
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(sol.tas * KT)} kt vraie`);
   row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol de la ZMT (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
@@ -2553,15 +2555,18 @@ function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st && st.
   if (s === 'done') stepRefreshBefore(id);
   persist(); syncSteps(); }
 const STEP_ICON = { done: '✓', skip: '⏭', recheck: '⚠', todo: '○' };
+var stepFocus = null; /* étape remise à faire par ↺ : le bandeau la montre en priorité tant qu'elle n'est ni faite ni passée */
 function syncSteps() {
-  const I = isv(), states = STEPS.map(stepState), n = STEPS.length, i = states.findIndex(s => s === 'todo' || s === 'recheck');
+  const I = isv(), states = STEPS.map(stepState), n = STEPS.length, fi = STEPS.findIndex(x => x.id === stepFocus), open = s => s === 'todo' || s === 'recheck';
+  if (fi < 0 || !open(states[fi])) stepFocus = null;
+  const i = stepFocus ? fi : states.findIndex(open);
   /* liste en tête de Prépa ISV */
   const ul = $('stepList');
   if (ul) { ul.innerHTML = ''; STEPS.forEach((st, k) => { const s = states[k], li = document.createElement('li'); li.className = 'st ' + s;
       li.innerHTML = `<span class="si">${STEP_ICON[s]}</span><span class="sn">${k + 1}. ${esc(st.t)}${s === 'recheck' ? ' <small>à revérifier</small>' : s === 'skip' ? ' <small>passée</small>' : ''}</span>`;
       li.querySelector('.sn').onclick = () => { if (st.go) { closeSheet(); st.go(); } };
       const b = document.createElement('button'); const can = !st.auto && !st.chk;
-      if (s === 'done' && can || s === 'skip') { b.textContent = '↺'; b.title = 'Remettre à faire'; b.onclick = () => stepSet(st.id, null); }
+      if (s === 'done' && can || s === 'skip') { b.textContent = '↺'; b.title = 'Remettre à faire'; b.onclick = () => { stepSet(st.id, null); stepFocus = st.id; closeSheet(); syncSteps(); }; } /* v0.37.0 (Henri) : ↺ = remettre à faire ET retour à la carte, bandeau sur CETTE étape */
       else if (s !== 'done' && can) { b.textContent = '✓'; b.title = 'Fait'; b.onclick = () => stepSet(st.id, 'done'); }
       else b.style.visibility = 'hidden';
       li.append(b); ul.append(li); }); }
@@ -2587,7 +2592,7 @@ function hideStepInfo() { const el = $('stepInfo'); if (el) el.classList.add('hi
 /* v0.35.7 (Henri) : coche « bandeaux jaunes » à côté du titre Préparation pas à pas — cochée par défaut ; décochée = aucun bandeau de guidage, la liste continue de suivre ce qui est fait */
 function guideOn() { return store.get('isv.guideBar', true) !== false; }
 function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouverte ; l'alerte « trace a bougé » se pose au-dessus */
-  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing || suspended); } catch (e) { return false; } })(), hide = busy || !guideOn() || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
+  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing || suspended); } catch (e) { return false; } })(), hide = busy || (!guideOn() && !stepFocus) || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
   bar.classList.toggle('off', hide); avoidQuick(bar); if (hide || bar.classList.contains('hidden')) hideStepInfo();
   w.style.bottom = !bar.classList.contains('hidden') && !hide ? `calc(${bar.offsetHeight + 52}px + env(safe-area-inset-bottom))` : '';
   avoidQuick(w);

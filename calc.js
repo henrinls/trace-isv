@@ -377,8 +377,10 @@
     out.own = { canopy: own.c, mte: own.mte, tCanopy: tCan, t180: tPass(180), t120: tPass(120) };
     /* v0.35.0 (Henri) : ouverture qui n'est pas à 4 s → FL minimal de largage pour ouvrir à cette même hauteur avec 4 s de chute,
        arrondi au FL multiple de 5 supérieur (relState est croissant avec le FL : recherche par dichotomie) */
-    if (Math.abs(stPlan.tFall - 4) > 0.05) { let lo = 0, hi = 600; const target = stPlan.hOpen;
-      if (relState(hi, 4).hOpen >= target) { for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (relState(m, 4).hOpen >= target) hi = m; else lo = m; } out.flMin4 = Math.ceil(hi / 5 - 1e-9) * 5; } }
+    /* v0.37.0 (Henri) : sur l'ouverture RÉELLE (vecteur rentré à la main = ouverture abaissée compris), et « 4 s » réglable (isv.tRef) */
+    const tRef = +isv.tRef > 0 ? +isv.tRef : 4;
+    if (Math.abs(st.tFall - tRef) > 0.05) { let lo = 0, hi = 600; const target = st.hOpen;
+      if (relState(hi, tRef).hOpen >= target) { for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (relState(m, tRef).hOpen >= target) hi = m; else lo = m; } out.flMin4 = Math.ceil(hi / 5 - 1e-9) * 5; } }
     out.weakTime = tr.time; out.kOpen = weak.c.mk * kRho(F, ptsDown[0].lat, ptsDown[0].lng, elev0 + st.hOpen); out.weakEff = { vx: weak.c.vx, vz: weak.c.vz, mk: weak.c.mk };
 
     // Prise de cap : le para sort dos au sens de vol ; côté où il tourne pour se mettre au cap para
