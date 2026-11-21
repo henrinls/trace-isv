@@ -92,6 +92,9 @@
   /* v0.31.0 (Henri) : Vx et Vz d'une voile saisies telles que mesurées, avec la hauteur (altitude, atmosphère standard) et la MTE de la
      mesure ; ramenées ici aux valeurs de référence (1 000 m, 150 kg) : v_ref = v_mesurée × √(ρ(h mesure) / ρ_ref) × √(150 / MTE mesure) */
   const rhoStd = h => stdP(h) * 100 / (RD * (288.15 - 0.0065 * h));
+  /* v0.33.0 (Henri) : hauteur perdue à l'ouverture mesurée par voile, avec la hauteur (altitude) du début d'ouverture ; ramenée à
+     1 000 m (même durée d'ouverture, vitesses en √(ρ_ref/ρ)) : perte_ref = perte mesurée × √(ρ(h)/ρ_ref). null si pas de mesure. */
+  function canOpenRef(c) { if (!(+c.lossM >= 0) || c.lossM === '' || c.lossM == null) return null; const h = isFinite(+c.hOpenM) ? +c.hOpenM : 1000; return +c.lossM * Math.sqrt(rhoStd(h) / RHO_REF); }
   function canRef(c) { const h = isFinite(+c.hM) ? +c.hM : 1000, m = +c.mteM > 0 ? +c.mteM : MTE_REF, k = Math.sqrt(rhoStd(h) / RHO_REF) * Math.sqrt(MTE_REF / m); return { vx: +c.vx * k, vz: +c.vz * k }; }
   function rhoAt(F, lat, lng, z) { return pOfZ(F, lat, lng, z) * 100 / (RD * (windAt(F, lat, lng, z).T + 273.15)); }
   const kRho = (F, lat, lng, z) => Math.sqrt(RHO_REF / rhoAt(F, lat, lng, z));
@@ -266,11 +269,13 @@
     const cans = prm.canopies || [], canOf = p => cans.find(c => c.id === p.canopy) || cans[0];
     if (!cans.length) { out.err = 'Ajoute au moins un parachute dans les Paramètres.'; return out; }
     for (const c of cans) if (!(+c.vx > 0) || !(+c.vz > 0)) { out.err = `Parachute « ${c.name} » : Vx et Vz doivent être supérieurs à 0.`; return out; }
-    const margin = Math.max(0, +prm.margin || 0) / 100, openLoss = Math.max(0, +prm.openLoss || 0), vff = Math.max(10, +prm.vff || 50);
+    const margin = Math.max(0, +prm.margin || 0) / 100, openLoss0 = Math.max(0, +prm.openLoss || 0), vff = Math.max(10, +prm.vff || 50);
     const ptu = isv.ptu, hPtu = Math.max(0, +isv.hPtu || 0), ias = Math.max(10, +isv.acMs || 65);
     // Voile « effective » d'un para : sa voile + sa MTE (masse totale équipée du para, saisie dans l'équipe ; 150 kg à défaut)
     const effOf = p => { const c = canOf(p), m0 = MTE_REF, m = +p.mte > 0 ? +p.mte : m0; const r = canRef(c); return { c, id: c.id, name: c.name, vx: r.vx, vz: r.vz, mte: m, mk: Math.sqrt(m / m0), key: c.id + '|' + m }; };
     const used = []; team.forEach(p => { const e = effOf(p); if (!used.some(u => u.key === e.key)) used.push(e); });
+    /* perte à l'ouverture : la plus forte des voiles de l'équipe (mesures par voile), sinon la valeur générale */
+    const ols = used.map(u => canOpenRef(u.c)).filter(v => v != null), openLoss = ols.length ? Math.max(...ols) : openLoss0;
     const vzRef = Math.min(...used.map(c => +c.vz)); // fin d'ouverture : vitesse de la voile la plus lente à descendre (effet minime)
 
     // Largage au FL demandé → hauteur d'ouverture
@@ -394,7 +399,7 @@
     return n360(isv.reversed ? h + 180 : h);
   }
 
-  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, canRef, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
+  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, canRef, canOpenRef, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
     tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
