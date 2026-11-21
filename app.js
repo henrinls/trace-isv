@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.5';
+const VERSION = '0.5.6';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -350,6 +350,26 @@ const zmtIcon = L.divIcon({ className: 'tgt zmt', iconSize: [34, 34], iconAnchor
 const triIcon = L.divIcon({ className: 'tri', iconSize: [22, 20], iconAnchor: [11, 13], html: '<span></span>' });
 const lbl = (ll, html, cls) => L.marker(LL(ll), { interactive: false, icon: L.divIcon({ className: cls || 'glabel', iconSize: [0, 0], html: `<span>${html}</span>` }) });
 const mk = {}; // marqueurs gardés : zmt, ptu, drop, rot, et un par point (pt_<id>)
+let vecHit = null;
+function vecHitLine(V, I) {
+  const pts = [LL(V.green), LL(V.red)];
+  if (!vecHit) {
+    const line = L.polyline(pts, { color: '#fff', weight: 30, opacity: 0, interactive: true, bubblingMouseEvents: true }).addTo(handles);
+    vecHit = { line, h: { _lpDragging: false, getElement: () => line._path, setLatLng: () => {} }, el: null, off: null };
+  } else if (!vecHit.h._lpDragging) vecHit.line.setLatLngs(pts);
+  if (!handles.hasLayer(vecHit.line)) vecHit.line.addTo(handles);
+  /* Leaflet recrée l'élément <path> quand le trait revient sur la carte : rebrancher l'appui long sur le nouvel élément
+     (piège connu, voir Setup PSV / vecteur-largage : jamais de simple booléen « déjà branché ») */
+  if (vecHit.line._path && vecHit.el !== vecHit.line._path) {
+    vecHit.el = vecHit.line._path;
+    longPressDrag(vecHit.h, ll => {
+      if (!sol || !sol.ok) return; const I2 = isv();
+      if (!vecHit.off) vecHit.off = Calc.toLocal(ll, sol.vec.attach); // écart entre le doigt et le point de largage, gardé pendant tout le glissement
+      I2.manual = clampToCircle(Calc.fromLocal(ll, vecHit.off)); I2.capManual = null; dragRecalc();
+    }, () => { vecHit.off = null; persist(); fillInputs(); redraw(); toast(sol && sol.ok ? `${sol.openLowered ? 'Ouverture à ' + fmtInt(sol.hOpen) + ' m' : fmt1(sol.tFall) + ' s de chute'} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || ''); },
+    () => { vecHit.off = null; });
+  }
+}
 function keep(key, ll, icon, z, onMove, onEnd, onClick) {
   let m = mk[key];
   if (!ll) { if (m) { handles.removeLayer(m); delete mk[key]; } return null; }
@@ -384,7 +404,7 @@ function draw(light) {
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
-  if (!sol || !sol.ok) { keep('drop', null); keep('rot', null); if (!light) updateInfo(); return; }
+  if (!sol || !sol.ok) { keep('drop', null); keep('rot', null); if (vecHit && handles.hasLayer(vecHit.line)) handles.removeLayer(vecHit.line); if (!light) updateInfo(); capInfo(); return; }
   // Cercle de relaxation (points de largage)
   if (current.show.relax && sol.circle.R > 0) L.circle(LL(sol.circle.c), { radius: sol.circle.R, color: C_RELAX, weight: 2.4, fill: false, interactive: false }).addTo(fig);
   // Trace : tous les segments, de l'ouverture terminée au PTU
@@ -406,8 +426,10 @@ function draw(light) {
   V.exits.forEach(e => L.marker(LL(e), { interactive: false, icon: L.divIcon({ className: 'exitp' + (e.i === sol.dropIdx ? ' ref' : ''), iconSize: [12, 12], iconAnchor: [6, 6], html: '<span></span>' }) }).addTo(fig));
   L.marker(LL(V.red), { interactive: false, icon: dotIcon(C_END, 15, '', 'big') }).addTo(fig);
   // Poignées : point de largage (déplacer le vecteur), point vert (le faire tourner)
-  keep('drop', V.attach, L.divIcon({ className: 'hdl', iconSize: [40, 40], iconAnchor: [20, 20], html: '<span></span>' }), 700,
-    ll => { const c = clampToCircle(ll); I.manual = c; I.capManual = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); toast(sol && sol.ok ? `${sol.openLowered ? 'Ouverture à ' + fmtInt(sol.hOpen) + ' m' : fmt1(sol.tFall) + ' s de chute'} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || ''); });
+  // v0.5.6 (Henri) : plus de rond blanc ; poignée invisible tout le long du vecteur (trait épais transparent, comme dans les
+  // autres applis) : appui long n'importe où sur le vecteur puis glisser = déplacer. Le point attrapé reste sous le doigt.
+  keep('drop', null);
+  vecHitLine(V, I);
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
     () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
