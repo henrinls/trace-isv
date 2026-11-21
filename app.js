@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.19.2';
+const VERSION = '0.19.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1377,7 +1377,7 @@ function cutText(i) {
   }
   const q = c.pts[i];
   $('cutInfo').innerHTML = c.mode === 'trace'
-    ? `À ${fmtKm(q.d)} de l'OUV : trace <b>${fmtInt(q.h)} m</b> (sol ZMT) · terrain ${fmtInt(q.z)} m d'altitude · <b>${fmtInt(q.h + c.e0 - q.z)} m au-dessus du terrain</b>`
+    ? `À ${fmtKm(q.d)} de l'OUV : <b>hauteur terrain ${fmtInt(q.h + c.e0 - q.z)} m</b> · hauteur alti ${fmtInt(q.h)} m · altitude terrain ${fmtInt(q.z)} m` /* v0.19.3 (Henri) : hauteur alti = lue à l'altimètre calé sur le sol de la ZMT */
     : `À ${fmtDist(q.d)} du 1er point : terrain <b>${fmtInt(q.z)} m</b> d'altitude (${fmtInt(q.z - c.e0)} m par rapport à la ZMT)`;
 }
 function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $('cutCv').getBoundingClientRect(), G = cutGeom(), d = G.D(clientX - r.left);
