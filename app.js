@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.10';
+const VERSION = '0.6.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -679,6 +679,22 @@ $('j_hour').addEventListener('change', e => setWhen(current.when.slice(0, 11) + 
 
 // ---------- Tableau des vents, à la verticale du PTU (date et heure indépendantes de la carte) ----------
 let tWhen = null;
+/* Point choisi sur la carte pour le tableau (windpick.js, v0.6.0) : prévision d'un seul point, gardée en mémoire (pas sur le téléphone) */
+let windPt = null; const pickMem = {}, pickFailed = {};
+async function wxFetchPoint(p, date) {
+  const src = wxSource(date), ec = wxSource('9999-12-31'), tries = [[src, false, false], [src, true, true]].concat(src.kind === 'mf' ? [[ec, false, false], [ec, true, true]] : []);
+  let js = null, used = src;
+  for (const [s2, minimal, lite] of tries) { try { const r = await fetch(wxUrl([p.lat], [p.lng], date, s2, minimal, lite)); if (r.ok) { js = await r.json(); used = s2; break; } } catch (e) { if (navigator.onLine === false) break; } }
+  const a = Array.isArray(js) ? js[0] : js; if (!a || !a.hourly) throw new Error('réseau');
+  const slim = H => { const o = {}; Object.keys(H).forEach(k => { if (k !== 'time') o[k] = H[k].map(x => typeof x === 'number' ? Math.round(x * 10) / 10 : null); }); return o; };
+  return { date, fetched: Date.now(), model: used.name, rh: true, center: { lat: p.lat, lng: p.lng }, halfKm: 0, lat0: p.lat, lng0: p.lng, dLat: 0.01, dLng: 0.01, n: 1, time: a.hourly.time,
+    nodes: [{ elev: typeof a.elevation === 'number' ? a.elevation : 0, h: slim(a.hourly) }] };
+}
+const pickKey = (p, date) => p.lat.toFixed(4) + ',' + p.lng.toFixed(4) + '|' + date;
+async function ensurePick(date) {
+  const k = pickKey(windPt, date), have = pickMem[k]; if (have && Date.now() - have.fetched < 3600e3) return have;
+  try { const r = await wxFetchPoint(windPt, date); pickMem[k] = r; delete pickFailed[k]; return r; } catch (e) { pickFailed[k] = true; return have; }
+}
 function windRows(Fx, pt, e0) { // une ligne par tranche de 1 000 ft (FL), du sol au FL400
   const rows = [], add = (lab, alt) => { const w = Calc.windAt(Fx, pt.lat, pt.lng, alt), sd = Calc.spdDir(w); rows.push({ lab, h: alt - e0, dir: sd.dir, spd: sd.spd, T: w.T, RH: Calc.rhAt(Fx, pt.lat, pt.lng, alt) }); };
   add('Sol (10 m)', e0 + 10);
@@ -686,7 +702,18 @@ function windRows(Fx, pt, e0) { // une ligne par tranche de 1 000 ft (FL), du so
   return rows;
 }
 function renderWinds() {
-  const date = tWhen.slice(0, 10), rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = wxWanted().center, e0 = elev0();
+  const date = tWhen.slice(0, 10);
+  if (windPt) { /* point choisi sur la carte */
+    const k = pickKey(windPt, date), rec = pickMem[k], Fx = rec ? fieldOf(rec, tWhen) : null, e0 = rec ? rec.nodes[0].elev : 0;
+    $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
+    $('t_info').innerHTML = (rec ? `${rec.model.split(' (')[0]} · prévision du ${fmtFetched(rec.fetched)}` : pickFailed[k] ? '⚠️ Prévision impossible à télécharger pour ce point (réseau ?).' : 'Prévision en cours de téléchargement…') +
+      ` · <b>au point choisi</b> (${fmtPos(windPt)})` + (rec ? ` · hauteurs au-dessus du sol (${fmtInt(e0)} m)` : '');
+    const tb = $('windsTable').querySelector('tbody'); tb.innerHTML = '';
+    if (!Fx) { tb.innerHTML = `<tr><td colspan="6" class="mut">${rec ? 'Pas de donnée pour cette heure.' : '…'}</td></tr>`; return; }
+    windRows(Fx, windPt, e0).forEach(r => { const tr = document.createElement('tr'); tr.innerHTML = `<td>${r.lab}</td><td>${fmtInt(r.h)} m</td><td>${hdgN(r.dir)}</td><td>${Math.round(r.spd * KT)} kt</td><td>${fmt1(r.spd)} m/s</td><td>${r.T == null ? '–' : Math.round(r.T) + ' °C'}</td><td>${r.RH == null ? '–' : Math.round(r.RH) + ' %'}</td>`; tb.append(tr); });
+    return;
+  }
+  const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = wxWanted().center, e0 = elev0();
   $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
   $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale du ${isv().ptu ? 'PTU' : 'centre'} · hauteurs au-dessus du sol (${fmtInt(e0)} m)`;
   const tb = $('windsTable').querySelector('tbody'); tb.innerHTML = '';
@@ -697,8 +724,12 @@ function renderWinds() {
     tb.append(tr);
   });
 }
-async function setTWhen(w) { tWhen = w; renderWinds(); const d = w.slice(0, 10), have = wxCached(current.id, d); if (!have || Date.now() - have.fetched > 3600e3 || have.rh === undefined) { await ensureWx(false, d); renderWinds(); } }
-$('qWinds').addEventListener('click', () => { const b = $('windsBox'); if (!b.classList.contains('hidden')) { b.classList.add('hidden'); syncQuick(); return; } b.classList.remove('hidden'); syncQuick(); setTWhen(current.when); });
+async function setTWhen(w) { tWhen = w; renderWinds(); if (windPt) { const p0 = windPt; await ensurePick(w.slice(0, 10)); if (windPt === p0) renderWinds(); return; } const d = w.slice(0, 10), have = wxCached(current.id, d); if (!have || Date.now() - have.fetched > 3600e3 || have.rh === undefined) { await ensureWx(false, d); renderWinds(); } }
+$('qWinds').addEventListener('click', () => { const b = $('windsBox'); if (!b.classList.contains('hidden')) { b.classList.add('hidden'); syncQuick(); WindPick.sync(); return; } WindPick.reset(); b.classList.remove('hidden'); syncQuick(); setTWhen(current.when); });
+WindPick.init({ map, isOpen: () => !$('windsBox').classList.contains('hidden'),
+  open: () => { $('windsBox').classList.remove('hidden'); syncQuick(); setTWhen(tWhen || current.when); },
+  close: () => { $('windsBox').classList.add('hidden'); syncQuick(); },
+  onPick: p => { windPt = p; if (!$('windsBox').classList.contains('hidden')) setTWhen(tWhen || current.when); }, restoreBanner: () => placeBanner() });
 $('t_close').addEventListener('click', () => { $('windsBox').classList.add('hidden'); syncQuick(); });
 $('t_minus').addEventListener('click', () => setTWhen(shiftWhen(tWhen, -1)));
 $('t_plus').addEventListener('click', () => setTWhen(shiftWhen(tWhen, 1)));
@@ -839,6 +870,7 @@ let namingZone = false;
 map.on('click', e => {
   if (Date.now() < suppressClickUntil) return; // fin d'un déplacement de point : pas un appui
   if ((typeof Photo !== 'undefined') && Photo.onMapClick(e)) return; // calage d'une image en cours
+  if ((typeof WindPick !== 'undefined') && WindPick.onMapClick(e)) return; // point choisi pour le tableau des vents
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (!placing) return;
   if (!current.id) { if (!namingZone) { namingZone = true; askZoneName().then(ok => { namingZone = false; if (ok) map.fire('click', e); }); } return; } // nom d'abord, puis le point

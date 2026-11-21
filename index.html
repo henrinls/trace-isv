@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.5.10">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.6.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.5.10">
+<link rel="stylesheet" href="style.css?v=0.6.0">
 </head>
 <body>
 <div id="map"></div>
@@ -62,6 +62,7 @@
   <div class="when"><button id="t_minus">−1 h</button><input type="date" id="t_date"><select class="hr" id="t_hour" title="Heure"></select><button id="t_plus">+1 h</button></div>
   <p class="hint" id="t_info"></p>
   <div class="tw"><table id="windsTable"><thead><tr><th>Niveau</th><th>Hauteur</th><th>Axe (M)</th><th colspan="2">Force</th><th>Temp.</th><th>Hum.</th></tr></thead><tbody></tbody></table></div>
+  <div class="grid2 pickrow"><button id="t_pick">📍 Point sur la carte</button><button id="t_unpick" class="hidden">↺ Revenir au PTU</button></div>
   <div class="grid2"><button id="t_now">Maintenant</button><button id="t_close" class="primary">Fermer</button></div>
 </div>
 
@@ -275,14 +276,15 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.5.10"></script>
-<script src="vendor/leaflet-rotate.js?v=0.5.10"></script>
-<script src="vendor/mgrs.min.js?v=0.5.10"></script>
-<script src="geo.js?v=0.5.10"></script>
-<script src="clubs.js?v=0.5.10"></script>
-<script src="wmm.js?v=0.5.10"></script>
-<script src="calc.js?v=0.5.10"></script>
-<script src="app.js?v=0.5.10"></script>
-<script src="photo.js?v=0.5.10"></script>
+<script src="vendor/leaflet.js?v=0.6.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.6.0"></script>
+<script src="vendor/mgrs.min.js?v=0.6.0"></script>
+<script src="geo.js?v=0.6.0"></script>
+<script src="clubs.js?v=0.6.0"></script>
+<script src="wmm.js?v=0.6.0"></script>
+<script src="calc.js?v=0.6.0"></script>
+<script src="windpick.js?v=0.6.0"></script>
+<script src="app.js?v=0.6.0"></script>
+<script src="photo.js?v=0.6.0"></script>
 </body>
 </html>
