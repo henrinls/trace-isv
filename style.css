@@ -263,3 +263,5 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .seg.segbm{grid-template-columns:1fr 1fr 1fr}.seg.segbm button{font-size:14px}
 
 #isvZoneSel{font:inherit;font-weight:700;color:#fff;background:#2a2a2a;border:1px solid #666;border-radius:8px;padding:3px 6px;max-width:65%}
+
+#sheet h3{position:sticky;top:var(--h3top,60px);z-index:1;background:#161616;padding:6px 0 5px;margin-bottom:2px}
