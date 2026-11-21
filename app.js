@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1622,14 +1622,17 @@ async function renderPdfCanvas() {
   tx(`Temps de largage ${sgn(sol.relax.before, false)} / ${sgn(sol.relax.after, true)} · ${I.team.length} para${I.team.length > 1 ? 's' : ''}`, col1, l0 + lh * 3.4, '#fff', fs);
   tx(`CAP PARA ${hdg(sol.cap)} · trace ${fmtKm(sol.length)}`, col1, l0 + lh * 4.4, C_TRACE, fs, true);
   tx(`Sous voile ${fmtMin(sol.own.tCanopy)} · dérive sous RSE ${fmtInt(sol.rseLen)} m`, col1, l0 + lh * 5.4, '#eee', fs);
-  // Mis en évidence
+  // Mis en évidence. v0.6.1 (Henri) : à droite, en bleu, dans l'ordre : prise de cap, CDO (4 s ou hauteur d'ouverture), cap para, PTU main ;
+  // au milieu, en jaune : OSO, ALPHA, hauteur de largage.
   const big = fs * 1.55, hi = [
-    `OSO : ${av && av.max ? av.oso : '....'}`, `ALPHA : ${av ? av.alpha : '....'}`,
-    Math.abs(sol.tFall - 4) < 0.05 ? 'Chute : 4 s' : `Ouverture : ${fmtInt(Math.round(sol.hOpen))} m`
-  ], hi2 = [sol.turn ? `Prise de cap à ${sol.turn}` : 'Prise de cap : dans l\'axe', sol.hand ? `PTU main ${sol.hand}` : (I.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
+    `OSO : ${av && av.max ? av.oso : '....'}`, `ALPHA : ${av ? av.alpha : '....'}`, `H. largage : ${av && av.max ? fmtInt(av.hRel) + ' m' : '....'}`
+  ], hi2 = [
+    sol.turn ? `Prise de cap à ${sol.turn}` : 'Prise de cap : dans l\'axe',
+    `CDO : ${sol.openLowered ? fmtInt(Math.ceil(sol.hOpen / 100 - 1e-6) * 100) + ' m' : fmt1(sol.tFall) + ' s'}`,
+    `Cap para : ${hdg(sol.cap)}`,
+    sol.hand ? `PTU main ${sol.hand}` : (I.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
   hi.forEach((t, i) => tx(t, col2, l0 + lh * (0.3 + i * 1.9), '#ffd400', big, true));
-  hi2.forEach((t, i) => tx(t, col3, l0 + lh * (0.3 + i * 1.9), '#00e5ff', big, true));
-  tx(`Hauteur de largage : ${av && av.max ? fmtInt(av.hRel) + ' m' : '....'}`, col3, l0 + lh * 4.1, '#ffd400', fs * 1.15, true);
+  hi2.forEach((t, i) => tx(t, col3, l0 + lh * (0.1 + i * 1.4), '#00e5ff', big, true));
   tx(`${BASEMAPS[basemap].attr} · vents ${wxRec ? wxRec.model.split(' (')[0] : '—'} via Open-Meteo · trace-isv v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
   return { canvas: cv, landscape, fails };
 }
