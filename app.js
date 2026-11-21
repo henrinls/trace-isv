@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.36.0';
+const VERSION = '0.36.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -2520,23 +2520,23 @@ function roundCaps() {
   });
 }
 function fitVec() { if (!sol || !sol.ok) return; const pts = [sol.vec.green, sol.vec.red]; (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p)); closeSheet(); fitBox(pts); }
-const STEPS = [
+const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après les caps, zones intermédiaires juste avant court/long */
   { id: 'zone', z: 1, t: 'Créer la zone', d: 'Crée la zone (☰ › ＋ Nouvelle zone) : ses documents et sa ZMT lui appartiennent.', auto: () => !!current.id, go: () => { closeSheet(); $('btnNewZone').click(); } },
   { id: 'fond', z: 1, t: 'Fond de carte', d: 'Choisis le fond de carte : satellite, IGN France ou photo calée.', go: () => goSec('zones', 'Fond de carte') },
-  { id: 'zrt', z: 1, t: 'ZRT', d: 'Importe la ZRT (KML, KMZ ou GPX). Pas de fichier : passe.', auto: () => current.zrt.length > 0, go: () => goSec('zones', 'ZRT') },
   { id: 'alti', z: 1, t: 'Carte des altitudes', d: 'Import Internet automatique.', go: () => goSec('zones', 'Carte des altitudes') },
+  { id: 'zrt', z: 1, t: 'ZRT', d: 'Importe la ZRT (KML, KMZ ou GPX). Pas de fichier : passe.', auto: () => current.zrt.length > 0, go: () => goSec('zones', 'ZRT') },
   { id: 'wx', z: 1, t: 'Données météo (vents)', d: 'Import Internet automatique : vérifie la date et l\'heure du saut.', auto: () => !!wxRec, go: () => goSec('zones', 'Données météo') },
   { id: 'zmt', z: 1, t: 'Point ZMT', d: 'Pose la zone de posé (ZMT).', auto: () => !!(current.id && current.zmt), go: () => startPlacing('Z') },
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },
   { id: 'team', t: 'Équipe', d: 'Vérifie la composition et la configuration de l\'équipe.', go: () => goSec('isv', 'Équipe') },
   { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points gris (ouverture OSO) et jaunes (arrivée après dérive sous voile). Appui long sur le vecteur : déplacer ou rentrer le long de la trace ; points vert et rouge : pivoter.', go: fitVec },
   { id: 'caps', t: 'Cap para et cap avion', tr: 1, auto: capsRound, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
+  { id: 'oso', t: 'Points OSO', tr: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points jaunes (déclenchement du système OSO) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
-  { id: 'oso', t: 'Points OSO', tr: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points jaunes (déclenchement du système OSO) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
-  { id: 'inter', t: 'Zones de posé intermédiaires', tr: 1, d: 'Parcours la trace et pose autant de zones de posé alternatives que nécessaire.', go: placeAlt, goL: 'Poser' },
   { id: 'zd', t: 'Zones délicates', tr: 1, d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
   { id: 'zdz', t: 'Zone de posé avant chaque zone délicate', tr: 1, chk: 'zd', d: 'Entre le point d\'alerte et le début de chaque zone délicate, il faut une zone de posé.' },
+  { id: 'inter', t: 'Zones de posé intermédiaires', tr: 1, d: 'Parcours la trace et pose autant de zones de posé alternatives que nécessaire.', go: placeAlt, goL: 'Poser' },
   { id: 'cl', t: 'Point court et point long', tr: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).court) && isv().points.some(q => q.kind === 'alt' && altPos(q).long),
     d: 'Pose une zone alternative en amont de la ZMT (COURT) et une en aval, au-delà du PTU (LONG) : elles se nomment toutes seules.', go: placeAlt, goL: 'Poser' },
 ];
