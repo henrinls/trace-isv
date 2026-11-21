@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.39.1';
+const VERSION = '0.39.2';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1448,7 +1448,7 @@ function renderBrief() {
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
   end();
   sec('Chute et ouverture');
-  row('Hauteur d\'action CDO', `${fmtInt(Math.round(s.hCmd))} m`); /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
+  row('Hauteur d\'action CDO', `${fmtInt(Math.ceil(s.hCmd / 100 - 1e-6) * 100)} m`); /* v0.39.2 (Henri) : arrondie (centaine supérieure) dans le Briefing et le PDF ; la valeur réelle est dans Prépa ISV */ /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
   row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
@@ -2268,12 +2268,19 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   const I = isv(), line = (pts, color, w, dash) => { if (!pts || pts.length < 2) return; g.save(); g.beginPath(); pts.forEach((ll, i) => { const q = toC(ll); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.strokeStyle = color; g.lineWidth = w * u; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash(dash ? dash.map(d => d * u) : []); g.stroke(); g.restore(); };
   current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), '#ff2020', 2.2, [10, 6])); });
   if (current.show.relax && sol.circle.R > 0) { const c = toC(sol.circle.c); g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.beginPath(); g.arc(c.x, c.y, sol.circle.R * pxPerM(sol.circle.c), 0, 2 * Math.PI); g.stroke(); g.restore(); }
+  /* v0.39.2 (Henri) : la carte du PDF = celle de l'appli (mêmes couleurs, mêmes étiquettes, pas d'écriture le long du vecteur ni de la trace) */
+  const PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
   line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6);
-  { const cp = toC(I.ptu), MI = traceMini(); sol.trace.forEach((p, i) => { if (i === sol.trace.length - 1) return; const c = dot(p, C_TRACE, i === 0 ? 7 : 4.5); if (i === 0) shadowText(`OUV ${fmtInt(p.h)}${miniTag(MI, i)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); else if (MI[i] != null || Math.hypot(c.x - cp.x, c.y - cp.y) > 26 * u) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x + 9 * u, c.y, C_TRACE, 10); }); }
+  zdSpans().forEach(z => line(traceSlice(sol.trace, z.s0, z.s1), z.stale || PB.ids.has(z.zid) ? 'rgba(255,140,0,.75)' : 'rgba(179,136,255,.75)', 7, [10, 8]));
+  { const MI = traceMini(), k0 = sol.trace.length - 1, TPc = sol.trace.map(toC), flat = Math.abs(TPc[k0].x - TPc[0].x) > Math.abs(TPc[k0].y - TPc[0].y); let last = null;
+    sol.trace.forEach((p, i) => { if (i === k0) return; const mi = MI[i] != null, col = mi ? (MI.stale[i] || PB.ks.has(i) ? C_WARN : C_ZD) : C_TRACE, c = dot(p, col, i === 0 ? 6.5 : mi ? 6 : 4);
+      const far = !last || Math.hypot(c.x - last.x, c.y - last.y) >= (flat ? 26 : 20) * u || i === 0, farPtu = Math.hypot(c.x - TPc[k0].x, c.y - TPc[k0].y) >= 30 * u, show = far && (farPtu || i === 0); if (show) last = c;
+      if (i === 0) shadowText(`OUV ${fmtInt(p.h)}` + miniTag(MI, i), c.x - 12 * u, c.y - 16 * u, col, 11, 'right'); /* à gauche : le vecteur et ses points sont dessus */
+      else if (show || mi) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x + 10 * u, c.y, col, 10); }); }
   line([sol.vec.green, sol.vec.red], 'rgba(255,255,255,.9)', 9); line([sol.vec.green, sol.vec.red], '#000', 4.5);
   sol.vec.exits.forEach(e => dot(e, e.i === sol.dropIdx ? '#fff' : '#000', e.i === sol.dropIdx ? 4.2 : 3));
   dot(sol.vec.green, C_START, 8); dot(sol.vec.red, C_END, 8);
-  { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11);
+  if (!(opts && opts.W)) { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11);
     const t = toC(Calc.pointAt(sol.trace, sol.length / 2)); shadowText(`CAP ${hdg(sol.cap)} · ${fmtKm(sol.length)}`, t.x + 12 * u, t.y, '#fff', 11); }
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
   if (current.zmt) { const bw = barbWind(toC); if (bw) { const bg = barbUnder(bw, u, bw.z.x + 16 * u + 12 * u, bw.z.y - 5 * u); g.save(); g.lineCap = 'round'; /* sous l'étiquette « ZMT » du PDF (écrite à x+16u, y−12u) */
@@ -2281,7 +2288,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
       st('rgba(0,0,0,.55)', 2.6 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = .6 * u; g.stroke(); }); st('#00e5ff', 1.1 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
   if (current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
-  isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = pt.color || '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); if (pt.name) shadowText(pointLabel(pt), c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
+  isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const col = sStale(pt) || PB.ids.has(pt.id) || PB.ids.has(pt.zid) ? C_WARN : pt.auto === 'S' ? C_ZD : pt.color || '#fff', c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = col; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); const lb = pointLabel(pt); if (lb) shadowText(lb, c.x + 12 * u, c.y, col, 11); } });
   (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5));
   (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
   const av = altiVals();
@@ -2293,6 +2300,11 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -30 * u); g.lineTo(-12 * u, 12 * u); g.lineTo(0, 4 * u); g.lineTo(12 * u, 12 * u); g.closePath(); g.fill();
   g.restore();
   shadowText('N', nx + Math.sin(na) * 52 * u, ny - Math.cos(na) * 52 * u, '#fff', 13, 'center');
+  /* v0.39.2 (Henri) : petit cartouche des caps en haut à droite, comme dans l'appli (sans l'altimétrie) */
+  if (opts && opts.W) { const l1 = `Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m`, l2 = `Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}`;
+    g.save(); g.font = `700 ${13 * u}px -apple-system, Helvetica, Arial, sans-serif`; const bw2 = Math.max(g.measureText(l1).width, g.measureText(l2).width) + 28 * u, bh = 52 * u, bx = W - bw2 - 18 * u, by2 = 18 * u;
+    g.fillStyle = 'rgba(20,20,20,.88)'; g.beginPath(); if (g.roundRect) g.roundRect(bx, by2, bw2, bh, 10 * u); else g.rect(bx, by2, bw2, bh); g.fill();
+    g.fillStyle = '#fff'; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(l1, bx + bw2 - 14 * u, by2 + 16 * u); g.fillText(l2, bx + bw2 - 14 * u, by2 + 36 * u); g.restore(); }
 
   // ---- Échelle graphique ----
   const by = H - band;
