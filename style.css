@@ -315,7 +315,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #stepBar .sh{font-weight:700}#stepBar .sh .rc{color:#b34700;font-weight:700}
 #stepBar .sd{margin:2px 0 5px;line-height:1.25}
 #stepBar .sb{display:flex;flex-wrap:wrap;gap:6px}
-#stepBar .sb button{background:#111;color:#ffd400;border:1px solid #111;padding:4px 7px;font-weight:700;border-radius:6px;font-size:9px}
+#stepBar .sb button{background:#111;color:#ffd400;border:1px solid #111;padding:3px 9px;font-weight:700;border-radius:7px;font-size:11px;line-height:1.25}
 #stepBar .sb button.ok{background:#1f7a2e;color:#fff;border-color:#1f7a2e}
 #stepList,.steps{list-style:none;padding:0;margin:4px 0}
 #stepList li,.steps li{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.08)}

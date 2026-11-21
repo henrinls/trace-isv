@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.8';
+const VERSION = '0.35.9';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -792,8 +792,12 @@ function updateInfo() {
 // ---------- Interface ----------
 function $(id) { return document.getElementById(id) || document.createElement('div'); }
 /* v0.35.7 (Henri : bandeaux trop gros) : titre court + bouton ⓘ ; l'explication s'affiche dans une bulle SOUS le bandeau du haut */
+let bannerShut = null; /* v0.35.9 : consigne fermée par sa croix ; elle ne revient que si le texte change */
 function setBanner(t, title) { const b = $('banner'); hideBannerInfo();
-  if (!t) { b.classList.add('hidden'); return; }
+  let pl = null; try { pl = placing; } catch (e) {}
+  if (t !== bannerShut) bannerShut = null;
+  if (!t || (!pl && t === bannerShut)) { b.classList.add('hidden'); return; }
+  b.dataset.t = t;
   if (title && title !== t) { b.innerHTML = '<span class="bt"></span> <button class="sinfo" title="Explication">i</button>'; b.querySelector('.bt').textContent = title; b.querySelector('.sinfo').onclick = e => { e.stopPropagation(); showBannerInfo(t); }; }
   else b.textContent = t;
   b.classList.remove('hidden', 'hasx'); addPlaceCancel(); }
@@ -803,9 +807,10 @@ function hideBannerInfo() { const el = document.getElementById('bannerInfo'); if
 // Pendant un placement (toucher la carte), bouton « ✕ Annuler » dans le bandeau (21 nov. 2026, demande d'Henri)
 function addPlaceCancel() {
   let p = null; try { p = placing; } catch (e) { return; } // placing pas encore déclaré au tout début
-  const b = $('banner'); if (!p || b.querySelector('.bcancel')) return;
-  const c = document.createElement('button'); c.className = 'bcancel'; c.textContent = '✕'; c.title = 'Annuler'; /* Henri : plus de gros bouton Annuler, une croix en haut à droite du bandeau */
-  c.onclick = e => { e.stopPropagation(); cancelPlacing(); toast('Placement annulé'); };
+  const b = $('banner'); if (b.querySelector('.bcancel')) return;
+  const c = document.createElement('button'); c.className = 'bcancel'; c.textContent = '✕'; c.title = p ? 'Annuler' : 'Fermer'; /* Henri : plus de gros bouton Annuler, une croix en haut à droite du bandeau */
+  /* v0.35.9 (Henri) : croix sur TOUS les bandeaux du haut ; en placement = annuler, sinon (« Pose la ZMT, puis le PTU »…) = fermer la consigne */
+  c.onclick = e => { e.stopPropagation(); if (p) { cancelPlacing(); toast('Placement annulé'); } else { bannerShut = b.dataset.t; b.classList.add('hidden'); hideBannerInfo(); } };
   b.classList.add('hasx'); b.append(c);
 }
 function cancelPlacing() { placing = null; ptOpen = false; ptPal = false; placeBanner(); fillInputs(); redraw(); }
