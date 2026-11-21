@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.39.0';
+const VERSION = '0.39.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1328,7 +1328,7 @@ function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const us
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
   setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const ct = ok ? cdoRefT() : null, ec = $('v_cdoRef'); ec.classList.toggle('hidden', ct == null); if (ct != null) ec.innerHTML = `Temps de chute (consigne CDO) : <b>${fmt1(ct)} s</b> (réel ${fmt1(sol.tFall)} s, à cause des arrondis du FL et de la CDO)`; }
-  { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = (I.manual ? `FL minimal de largage pour au moins ${fmt1(+prm.tRef || 4)} s de chute, para au même point de la trace (calculé) :` : `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) :`) + ` <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
+  { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = (I.manual ? `FL minimal de largage pour au moins ${fmt1(+prm.tRef || 4)} s de chute, para au même point de la trace (calculé) :` : `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) :`) + ` <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hCmd) : ''); /* v0.39.1 (Henri) : hauteur d'action CDO (où il tire), plus l'ouverture terminée */
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1362,8 +1362,9 @@ onNum('v_acKt', v => { isv().acMs = Math.round(v / KT * 100) / 100; }, 40, 400);
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
 $('v_hOpen').addEventListener('change', e => {
   const v = numIn(e.target), I = isv(); if (!sol || !sol.ok || isNaN(v)) { fillInputs(); return; }
-  const drop = sol.hRel - v; if (drop < 1 || v <= I.hPtu + 50) { toast('Hauteur d\'ouverture terminée impossible avec ce FL'); fillInputs(); return; }
-  I.tFall = Calc.tFallFor(drop, sol.tas, Math.max(10, +prm.vff), openLossNow(), vzRefNow(), false, Calc.ffK(F, I.ptu, sol.altRel)); changed();
+  const drop = sol.hRel - v; if (drop < 1 || v - openLossNow() <= I.hPtu + 50) { toast('Hauteur d\'action CDO impossible avec ce FL'); fillInputs(); return; }
+  /* v0.39.1 : chute libre jusqu'à la CDO (sans l'ouverture) → temps de chute ; l'ouverture terminée se calcule ensuite (Briefing) */
+  I.tFall = Calc.tFallFor(drop, sol.tas, Math.max(10, +prm.vff), 0, vzRefNow(), true, Calc.ffK(F, I.ptu, sol.altRel)); changed();
 });
 function setCap(m) { const I = isv();
   /* v0.29.0 (Henri) : le vecteur déplacé à la main est prioritaire — on ne le remet plus en automatique : il tourne autour du PTU
@@ -1447,7 +1448,7 @@ function renderBrief() {
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
   end();
   sec('Chute et ouverture');
-  row('Hauteur d\'ouverture', `${fmtInt(Math.round(s.hCmd))} m`); /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
+  row('Hauteur d\'action CDO', `${fmtInt(Math.round(s.hCmd))} m`); /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
   row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
