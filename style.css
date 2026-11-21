@@ -324,3 +324,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .st .si{display:inline-block;width:20px;text-align:center;font-weight:700}
 .st.done .si{color:#3ad25a}.st.skip .si,.st.skip{color:#999}.st.recheck .si,.st.recheck small{color:#ff8c00}.st.todo .si{color:#ffd400}
 .st small{color:#aaa}
+#canList .csub{margin:6px 0 0;font-size:12px;font-weight:700;color:#9ab;text-transform:uppercase;letter-spacing:.04em}

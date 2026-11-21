@@ -94,7 +94,7 @@
   const rhoStd = h => stdP(h) * 100 / (RD * (288.15 - 0.0065 * h));
   /* v0.33.0 (Henri) : hauteur perdue à l'ouverture mesurée par voile, avec la hauteur (altitude) du début d'ouverture ; ramenée à
      1 000 m (même durée d'ouverture, vitesses en √(ρ_ref/ρ)) : perte_ref = perte mesurée × √(ρ(h)/ρ_ref). null si pas de mesure. */
-  function canOpenRef(c) { if (!(+c.lossM >= 0) || c.lossM === '' || c.lossM == null) return null; const h = isFinite(+c.hOpenM) ? +c.hOpenM : 1000; return +c.lossM * Math.sqrt(rhoStd(h) / RHO_REF); }
+  function canOpenRef(c) { if (!(+c.lossM >= 0) || c.lossM === '' || c.lossM == null) return null; const h = isFinite(+c.hOpenM) ? +c.hOpenM : 1000; const m = +c.mteOpenM > 0 ? +c.mteOpenM : MTE_REF; return +c.lossM * Math.sqrt(rhoStd(h) / RHO_REF) * Math.sqrt(MTE_REF / m); } /* v0.34.0 : et ramenée à 150 kg (vitesses en √MTE) */
   function canRef(c) { const h = isFinite(+c.hM) ? +c.hM : 1000, m = +c.mteM > 0 ? +c.mteM : MTE_REF, k = Math.sqrt(rhoStd(h) / RHO_REF) * Math.sqrt(MTE_REF / m); return { vx: +c.vx * k, vz: +c.vz * k }; }
   function rhoAt(F, lat, lng, z) { return pOfZ(F, lat, lng, z) * 100 / (RD * (windAt(F, lat, lng, z).T + 273.15)); }
   const kRho = (F, lat, lng, z) => Math.sqrt(RHO_REF / rhoAt(F, lat, lng, z));
@@ -275,7 +275,7 @@
     const effOf = p => { const c = canOf(p), m0 = MTE_REF, m = +p.mte > 0 ? +p.mte : m0; const r = canRef(c); return { c, id: c.id, name: c.name, vx: r.vx, vz: r.vz, mte: m, mk: Math.sqrt(m / m0), key: c.id + '|' + m }; };
     const used = []; team.forEach(p => { const e = effOf(p); if (!used.some(u => u.key === e.key)) used.push(e); });
     /* perte à l'ouverture : la plus forte des voiles de l'équipe (mesures par voile), sinon la valeur générale */
-    const ols = used.map(u => canOpenRef(u.c)).filter(v => v != null), openLoss = ols.length ? Math.max(...ols) : openLoss0;
+    const ols = used.map(u => { const v = canOpenRef(u.c); return v == null ? null : v * u.mk; }).filter(v => v != null), /* v0.34.0 : × √(MTE du para / 150) */ openLoss = ols.length ? Math.max(...ols) : openLoss0;
     const vzRef = Math.min(...used.map(c => +c.vz)); // fin d'ouverture : vitesse de la voile la plus lente à descendre (effet minime)
 
     // Largage au FL demandé → hauteur d'ouverture

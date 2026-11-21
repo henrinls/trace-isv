@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.33.0';
+const VERSION = '0.34.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200 }; /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200 }; /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -161,8 +161,8 @@ if (!prm.noPbo) { /* v0.4.0 : la PBO d'origine est retirée des données enregis
 prm.canopies.forEach(c => { delete c.mte; });
 if (!prm.openV2) { if (+prm.openLoss === 200) prm.openLoss = 100; prm.openV2 = true; } /* v0.5.0 : 100 m en chute stabilisée à 1 000 m (les 200 m d'origine étaient un ordre de grandeur) */
 function saveProfile() { store.set('isv.profile', prm); }
-prm.canopies.forEach(c => { if (!isFinite(+c.hM)) c.hM = 1000; if (!(+c.mteM > 0)) c.mteM = 150; if (!isFinite(+c.hOpenM)) c.hOpenM = 1000; if (!(+c.lossM >= 0) || c.lossM === null) c.lossM = +prm.openLoss >= 0 ? +prm.openLoss : 100; }); /* v0.33.0 : ouverture mesurée par voile (reprend l'ancienne valeur générale) */
-function openLossNow() { const I = isv(), ids = I.team.map(p => p.canopy), used = prm.canopies.filter(c => ids.includes(c.id)), v = (used.length ? used : prm.canopies).map(c => Calc.canOpenRef(c)).filter(x => x != null); return v.length ? Math.max(...v) : +prm.openLoss || 0; } /* v0.31.0 : anciennes voiles = mesure de référence (1 000 m, 150 kg) */
+prm.canopies.forEach(c => { if (!isFinite(+c.hM)) c.hM = 1000; if (!(+c.mteM > 0)) c.mteM = 150; if (!isFinite(+c.hOpenM)) c.hOpenM = 1000; if (!(+c.lossM >= 0) || c.lossM === null) c.lossM = +prm.openLoss >= 0 ? +prm.openLoss : 100; if (!(+c.mteOpenM > 0)) c.mteOpenM = 150; }); /* v0.33.0 : ouverture mesurée par voile (reprend l'ancienne valeur générale) */
+function openLossNow() { const I = isv(), v = I.team.map(p => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0], r = Calc.canOpenRef(c); return r == null ? null : r * Math.sqrt((+p.mte > 0 ? +p.mte : MTE_DEF) / Calc.MTE_REF); }).filter(x => x != null); return v.length ? Math.max(...v) : +prm.openLoss || 0; } /* la plus forte perte de l'équipe (choix validé par Henri : sécurité), MTE de chaque para comprise */ /* v0.31.0 : anciennes voiles = mesure de référence (1 000 m, 150 kg) */
 { const f0 = window.fetch.bind(window), TILE = /^(server\.arcgisonline\.com|data\.geopf\.fr|s3\.amazonaws\.com)$/;
   window.fetch = (u, o) => { /* v0.31.0 : mode autonome — rien vers Internet ; les tuiles passent au service worker qui ne sert que son cache */
     try { const url = new URL(typeof u === 'string' ? u : u.url, location.href); if (prm.offline && url.origin !== location.origin && !TILE.test(url.hostname)) return Promise.reject(new Error('Mode autonome : pas d\'Internet')); } catch (e) {}
@@ -1793,12 +1793,15 @@ function renderCans() { /* v0.31.0 (Henri) : par voile, hauteur et MTE de la mes
   prm.canopies.forEach(c => {
     const li = document.createElement('li'); li.className = 'can';
     li.innerHTML = `<div class="ch"><input class="cn" value="${esc(c.name)}" placeholder="Nom"><button class="cdel">🗑</button></div>
+      <div class="csub">Vitesses sous voile</div>
       <div class="grid2"><div><label>Hauteur de la mesure (m)</label><input class="chm" inputmode="numeric" value="${fmtInt(+c.hM)}"></div><div><label>MTE de la mesure (kg)</label><input class="cmte" inputmode="numeric" value="${fmtInt(+c.mteM)}"></div></div>
       <div class="grid2"><div><label>Vx mesurée (m/s)</label><input class="cx" inputmode="decimal" value="${fmt1(+c.vx)}"></div><div><label>Vz mesurée (m/s)</label><input class="cz" inputmode="decimal" value="${fmt1(+c.vz)}"></div></div>
-      <div class="grid2"><div><label>Hauteur de début d'ouverture (m)</label><input class="cho" inputmode="numeric" value="${fmtInt(+c.hOpenM)}"></div><div><label>Hauteur perdue à l'ouverture (m)</label><input class="clo" inputmode="numeric" value="${fmtInt(+c.lossM)}"></div></div>`;
+      <div class="csub">Ouverture</div>
+      <div class="grid2"><div><label>Hauteur de début d'ouverture de la mesure (m)</label><input class="cho" inputmode="numeric" value="${fmtInt(+c.hOpenM)}"></div><div><label>MTE de la mesure (kg)</label><input class="cmo" inputmode="numeric" value="${fmtInt(+c.mteOpenM)}"></div></div>
+      <div class="grid2"><div><label>Hauteur perdue à l'ouverture mesurée (m)</label><input class="clo" inputmode="numeric" value="${fmtInt(+c.lossM)}"></div><div></div></div>`;
     li.querySelector('.cn').addEventListener('change', e => { c.name = e.target.value.trim() || c.name; saveProfile(); changed(); });
     const num = (cls, key, min, max, f) => li.querySelector(cls).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || v < min || v > max) { toast('Valeur refusée'); e.target.value = f(+c[key]); return; } c[key] = v; saveProfile(); changed(); });
-    num('.cx', 'vx', 1, 40, fmt1); num('.cz', 'vz', 0.5, 20, fmt1); num('.chm', 'hM', -500, 9000, fmtInt); num('.cmte', 'mteM', 40, 400, fmtInt); num('.cho', 'hOpenM', -500, 9000, fmtInt); num('.clo', 'lossM', 0, 1000, fmtInt);
+    num('.cx', 'vx', 1, 40, fmt1); num('.cz', 'vz', 0.5, 20, fmt1); num('.chm', 'hM', -500, 9000, fmtInt); num('.cmte', 'mteM', 40, 400, fmtInt); num('.cho', 'hOpenM', -500, 9000, fmtInt); num('.clo', 'lossM', 0, 1000, fmtInt); num('.cmo', 'mteOpenM', 40, 400, fmtInt);
     li.querySelector('.cdel').addEventListener('click', async () => {
       if (prm.canopies.length < 2) return toast('Il faut au moins un parachute');
       const used = zones.concat([current]).some(z => z.isvs.some(i => i.team.some(p => p.canopy === c.id)));
@@ -1810,7 +1813,7 @@ function renderCans() { /* v0.31.0 (Henri) : par voile, hauteur et MTE de la mes
     ul.append(li);
   });
 }
-$('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5, hM: 1000, mteM: 150, hOpenM: 1000, lossM: 100 }); saveProfile(); changed(); toast('Parachute ajouté : saisis ses mesures'); });
+$('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }); saveProfile(); changed(); toast('Parachute ajouté : saisis ses mesures'); });
 /* v0.31.0 (Henri) : mode autonome — plus aucune requête vers Internet (sauf les tuiles déjà gardées sur le téléphone, servies par le
    service worker sans réseau). L'appli elle-même se met à jour comme avant (même site). */
 $('p_offline').addEventListener('change', e => { prm.offline = !!e.target.checked; saveProfile(); syncOffline(); toast(prm.offline ? 'Mode autonome : l\'appli ne va plus sur Internet' : 'Internet réactivé'); changed(); });
@@ -2536,10 +2539,20 @@ function syncSteps() {
 }
 function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouverte ; l'alerte « trace a bougé » se pose au-dessus */
   const bar = $('stepBar'), w = $('sumWarn'), hide = !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
-  bar.classList.toggle('off', hide);
+  bar.classList.toggle('off', hide); avoidQuick(bar);
   w.style.bottom = !bar.classList.contains('hidden') && !hide ? `calc(${bar.offsetHeight + 52}px + env(safe-area-inset-bottom))` : '';
+  avoidQuick(w);
+}
+/* v0.34.0 (photo d'Henri sur iPhone) : le bandeau d'étape couvrait le bouton 📏 de la colonne de gauche → s'il chevauche un bouton
+   de la colonne, il démarre à droite de la colonne. Piège : lire la position des BOUTONS, jamais la largeur de #quick (bug Safari). */
+function avoidQuick(el) {
+  if (!el || el.classList.contains('hidden') || el.classList.contains('off')) return;
+  el.style.left = ''; const r = el.getBoundingClientRect(); if (!r.height) return;
+  const bs = [...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect()).filter(b => b.height && b.bottom > r.top - 4 && b.top < r.bottom + 4 && b.left < r.right && b.right > r.left);
+  if (bs.length) el.style.left = `${Math.round(Math.max(...[...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect().right)) + 8)}px`;
 }
 new MutationObserver(syncStepBar).observe($('sheet'), { attributes: true, attributeFilter: ['class'] });
+window.addEventListener('resize', () => setTimeout(syncStepBar, 300));
 new MutationObserver(syncStepBar).observe($('cutBox'), { attributes: true, attributeFilter: ['class'] });
 /* Briefing : étapes non faites en tête */
 function briefSteps() { const el = $('briefSteps'); if (!el) return; const L = STEPS.map((st, k) => ({ st, k, s: stepState(st) })).filter(x => x.s !== 'done');
