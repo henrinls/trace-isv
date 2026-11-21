@@ -246,7 +246,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #btnPlaceZ.on,#btnPlaceP.on{background:#1f6fb2;border-color:#1f6fb2;color:#fff}
 .dot.up b{left:50%;top:auto;bottom:calc(100% + 2px);transform:rotate(-58deg);transform-origin:left bottom}
 #btnZones small{font-size:inherit;color:#ff8bd6}
-#quick #qIsv{border-color:#ff3fb4;color:#fff}
+#quick #qIsv,#quick #qBrief{border-color:#ff3fb4;color:#fff}
 
 /* Outil de mesure actif : les autres points et traits ne captent plus le doigt (on mesure jusque sur eux) */
 .leaflet-container.measuring .leaflet-interactive:not(.measpt){pointer-events:none!important}
@@ -255,7 +255,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 
 /* v0.5.3 : colonne de droite du haut = boutons ronds + cap avion / cap para */
 #top .rightcol{display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:none}#top .rbtns{display:flex;gap:8px}#top .rbtns>*{pointer-events:auto}
-#capInfo{pointer-events:auto;cursor:pointer;background:rgba(20,20,20,.85);border-radius:8px;padding:4px 8px;font-size:13px;line-height:1.35;font-weight:600;color:#fff;text-align:right;white-space:nowrap}
+#capInfo{pointer-events:auto;cursor:pointer;background:rgba(20,20,20,.85);border-radius:8px;padding:4px 7px;font-size:12px;line-height:1.35;font-weight:600;color:#fff;text-align:right;white-space:nowrap}
 #capInfo.hidden{display:none}
 #quick #qAlti{border-color:#ff3fb4;color:#fff;white-space:nowrap}#qAlti .ast{display:inline-block;min-width:13px;margin-left:2px;font-weight:800}#qAlti .ast.ok{color:#2ecc40}#qAlti .ast.wait{color:#bbb}
 #qAlti .ast.err{color:#ff4d4d}
@@ -269,3 +269,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 
 #capInfo .altil{font-size:12px}#capInfo .ast{display:inline-block;min-width:13px;font-weight:800}#capInfo .ast.ok{color:#2ecc40}#capInfo .ast.wait{color:#bbb}#capInfo .ast.err{color:#ff4d4d}
 #briefBody .seept{padding:5px 8px;font-size:13px;white-space:nowrap}
+#top #btnZones{max-width:min(44vw,calc(100vw - 232px))} /* v0.16.0 : le nom ISV (date) allongeait le bouton et poussait les boutons ronds hors de l écran */
