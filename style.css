@@ -340,3 +340,4 @@ h3.hgchk{display:flex;align-items:center;gap:8px}.gchk{display:inline-flex;align
 #banner .sinfo,#stepBar .sinfo{position:absolute;top:31px;right:6px;margin:0}
 #stepBar{padding-right:38px;min-height:60px;box-sizing:border-box}
 #banner:has(.sinfo){padding-right:38px;min-height:58px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.paraBox{border:2px solid #ff3b30;border-radius:10px;padding:0 8px 6px;margin:10px 0}#sheet .paraBox h3{margin:0 -10px 2px;padding-left:10px;padding-right:10px;border-radius:8px 8px 0 0}

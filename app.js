@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.37.0';
+const VERSION = '0.37.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1321,7 +1321,7 @@ onNum('i_tRed', v => { isv().tRed = v; }, 0, 120);
 function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => Calc.canRef(c).vz)); } /* v0.31.0 : Vz ramenée à la référence */
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
-  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) e.innerHTML = `FL minimal de largage pour ouvrir à ${fmtInt(Math.round(sol.hOpen))} m avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) : <b>FL${String(sol.flMin4).padStart(3, '0')}</b>`; } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
+  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) e.innerHTML = `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) : <b>FL${String(sol.flMin4).padStart(3, '0')}</b>`; } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1413,6 +1413,7 @@ function renderBrief() {
     row(`${i + 1}. ${esc(p.name || 'Para ' + (i + 1))}${i === s.dropIdx ? ' · sur le point de largage' : ''}`, `${esc(c.name)} · ${fmtInt(+p.mte || MTE_DEF)} kg · sortie vert +${fmt1(s.ex.te[i])} s`); });
   end();
   const av = altiVals();
+  out.push('<div class="paraBox">'); /* v0.37.1 (Henri) : paragraphe Consignes para encadré en rouge */
   sec('Consignes para');
   row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé');
   row('ALPHA', av ? `${av.alpha} hPa` : '–');
@@ -1421,10 +1422,10 @@ function renderBrief() {
   row('Cap para', hdg(s.cap), true);
   row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`); /* v0.18.1 : en blanc (Henri) */
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
-  end();
+  end(); out.push('</div>');
   sec('Largage');
   row('FL de largage', `FL${s.fl}`, true);
-  if (s.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(s.flMin4).padStart(3, '0')} (même ouverture, ${fmtInt(Math.round(s.hOpen))} m)`); /* v0.37.0 (Henri) */
+  if (s.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(s.flMin4).padStart(3, '0')} (même ouverture terminée, ${fmtInt(Math.round(s.hOpen))} m)`); /* v0.37.0 (Henri) */
   row('Hauteur au-dessus de la ZMT', `${fmtInt(s.hRel)} m`);
   row('Hauteur au-dessus du point haut', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé');
   row('Cap avion au largage', hdg(s.acHeading), true);
@@ -2325,7 +2326,7 @@ function pdfDataPages(doc) {
   const row = (k, v, bold) => { if (y > 285) { doc.addPage('a4', 'portrait'); y = 18; } doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.text(clean(k), 15, y); doc.text(clean(v), 110, y); y += 5.6; };
   title(`${current.name} - ${I.name} - saut du ${fmtWhen(current.when).replace(' ', ' à ')}`);
   row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol de la ZMT`, true);
-  if (sol.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(sol.flMin4).padStart(3, '0')} (même ouverture, ${fmtInt(Math.round(sol.hOpen))} m)`);
+  if (sol.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(sol.flMin4).padStart(3, '0')} (même ouverture terminée, ${fmtInt(Math.round(sol.hOpen))} m)`);
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(sol.tas * KT)} kt vraie`);
   row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol de la ZMT (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
