@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.17.1';
+const VERSION = '0.17.2';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1134,7 +1134,7 @@ onNum('v_acKt', v => { isv().acMs = Math.round(v / KT * 100) / 100; }, 40, 400);
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
 $('v_hOpen').addEventListener('change', e => {
   const v = numIn(e.target), I = isv(); if (!sol || !sol.ok || isNaN(v)) { fillInputs(); return; }
-  const drop = sol.hRel - v; if (drop < 1 || v <= I.hPtu + 50) { toast('Hauteur d\'ouverture impossible avec ce FL'); fillInputs(); return; }
+  const drop = sol.hRel - v; if (drop < 1 || v <= I.hPtu + 50) { toast('Hauteur d\'ouverture terminée impossible avec ce FL'); fillInputs(); return; }
   I.tFall = Calc.tFallFor(drop, sol.tas, Math.max(10, +prm.vff), +prm.openLoss, vzRefNow(), false, Calc.ffK(F, I.ptu, sol.altRel)); changed();
 });
 function setCap(m) { const I = isv(); I.capManual = trueOf(n360(m)); I.manual = null; changed(); }
