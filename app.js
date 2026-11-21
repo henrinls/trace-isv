@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.13.0';
+const VERSION = '0.13.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -256,16 +256,17 @@ async function refreshZmtElev() {
   if ((z.zmtElevKey === k && typeof z.zmtElev === 'number') || zmtElevBusy === k) return;
   zmtElevBusy = k;
   try { const [e] = await fetchElev([c]); if (current !== z || !z.zmt || z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) !== k || typeof e !== 'number') return; z.zmtElev = Math.round(e); z.zmtElevKey = k; persist(); fillInputs(); redraw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); }
-  catch (e) { /* pas de réseau : sol du PTU ou altitude du modèle météo en attendant */ }
+  catch (e) { /* pas de réseau : altitude du modèle météo en attendant */ }
   finally { if (zmtElevBusy === k) zmtElevBusy = null; }
 }
 function zmtElev() { const z = current; return z.zmt && typeof z.zmtElev === 'number' && z.zmtElevKey === z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) ? z.zmtElev : null; }
 /* v0.10.0 (Henri) : toutes les hauteurs sont comptées au-dessus du sol de la ZMT (avant : sol sous le PTU).
-   Sans ZMT, ou en attendant son altitude : sol sous le PTU, sinon altitude du modèle météo. */
+   v0.13.1 : le sol sous le PTU ne sert plus jamais de référence quand il y a une ZMT (en attendant son altitude : modèle météo).
+   Sans ZMT seulement : sol sous le PTU, sinon modèle météo. */
 function elev0() {
   const ze = zmtElev(); if (ze != null) return ze;
   if (current.zmt) refreshZmtElev();
-  const I = isv(); if (typeof I.ptuElev === 'number') return I.ptuElev;
+  const I = isv(); if (!current.zmt && typeof I.ptuElev === 'number') return I.ptuElev;
   const rec = wxCached(current.id, current.when.slice(0, 10)); if (rec && rec.nodes && rec.nodes[4]) return Math.round(rec.nodes[4].elev);
   return 0;
 }
@@ -736,7 +737,7 @@ function renderWinds() {
   const z = current.zmt;
   const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = elev0();
   $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
-  $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol ${z ? 'de la ZMT' : isv().ptu ? 'sous le PTU' : ''} (${fmtInt(e0)} m)`;
+  $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol ${z ? 'de la ZMT ' : ''}(${fmtInt(e0)} m)`;
   const tb = $('windsTable').querySelector('tbody'); tb.innerHTML = '';
   if (!Fx) { tb.innerHTML = '<tr><td colspan="6" class="mut">Pas de donnée pour cette heure.</td></tr>'; return; }
   windRows(Fx, pt, e0).forEach(r => {
@@ -1152,8 +1153,9 @@ function renderBrief() {
   row('Créneau de largage', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true);
   row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`, true);
   row('Vent au largage', `${Math.round(s.windRel.spd * KT)} kt du ${hdg(s.windRel.dir)}`);
-  { const parts = [`S ${fmt1(+I.tGreen)}`].concat(I.team.slice(1).map(p => fmt1(+p.dt))).concat([`S ${fmt1(+I.tRed)}`]);
-    row('Sorties (s)', `<span style="color:${C_GREEN_DOT}">•</span> ${parts.join(' · ')} <span style="color:${C_RED_DOT}">•</span>`); }
+  { /* v0.13.1 (Henri) : « (4s) · 3s · 3s · 3s · (10s) », marges de sécurité entre parenthèses */
+    const sx = v => `${fmt1(v)}s`, parts = [`(${sx(+I.tGreen)})`].concat(I.team.slice(1).map(p => sx(+p.dt))).concat([`(${sx(+I.tRed)})`]);
+    row('Sorties', `<span style="color:${C_GREEN_DOT}">•</span> ${parts.join(' · ')} <span style="color:${C_RED_DOT}">•</span>`); }
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} KIAS) = ${Math.round(s.tas * KT)} kt vraie`);
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
   end();
@@ -1165,7 +1167,7 @@ function renderBrief() {
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
   row('Dérive sous RSE', `${fmtInt(s.rseLen)} m`);
-  row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après le vecteur, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE jusqu'au sol`);
+  row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après le vecteur, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE jusqu'à 1013,25 hPa`);
   end();
   sec('Navigation sous voile');
   row('Trace', `${fmtKm(s.length)} · ${fmtKm(s.direct)} en ligne droite`);
@@ -1177,8 +1179,7 @@ function renderBrief() {
   row('Marge sur le vent', `${prm.margin} %`);
   end();
   sec('Arrivée');
-  { const hp = typeof I.ptuElev === 'number' ? +I.hPtu + s.elev0 - I.ptuElev : null;
-    row('Hauteur d\'arrivée au PTU', hp != null ? `${fmtInt(hp)} m au-dessus du sol du PTU` : `${fmtInt(I.hPtu)} m (sol du PTU en attente)`, true); }
+  row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`, true); /* v0.13.1 : jamais par rapport au sol sous le PTU */
   { const ze = zmtElev(); row('Sol de la ZMT', `${fmtInt(s.elev0)} m${ze == null && current.zmt ? ' (provisoire, relevé en attente)' : ''}`); }
   if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
   end();
@@ -1190,25 +1191,36 @@ function renderBrief() {
   box.innerHTML = out.join('');
   box.querySelectorAll('.seept').forEach(b => b.onclick = () => { const pt = isv().points.find(x => x.id === b.dataset.id); if (pt) seePoint(pt); });
 }
-/* « Voir sur la carte » (v0.13.0, Henri) : point centré, avec la trace qui passe à côté ;
-   zone de posé alternative : avec la ligne des points jaunes (arrivée au sol après ouverture automatique) */
+/* « Voir sur la carte » (v0.13.1, Henri) : le point n'est pas forcément centré, il doit juste être à l'écran avec :
+   - s'il est près des points gris / jaunes (dans le cercle centré sur les points gris et passant par le point de largage) :
+     les points gris, les points jaunes et le vecteur de largage ;
+   - sinon : la trace la plus proche. */
+function nearDrop(pt) {
+  const low = lowPoints(); if (!sol || !sol.ok || !low || !low.length) return false;
+  const c = { lat: low.reduce((a, q) => a + q.lat, 0) / low.length, lng: low.reduce((a, q) => a + q.lng, 0) / low.length };
+  const dp = sol.vec.exits[sol.dropIdx] || sol.vec.attach;
+  return map.distance(LL(c), LL(pt)) <= map.distance(LL(c), LL(dp));
+}
 function seePoint(pt) {
   const pts = [pt];
-  const yel = pt.kind === 'alt' ? greyPoints() : null;
-  if (yel && yel.length) yel.forEach(q => pts.push(q));
-  else if (sol && sol.ok && sol.trace.length > 1) pts.push(Calc.nearestOn(sol.trace, pt).pt);
-  closeSheet(); map.invalidateSize({ animate: false });
-  const R = freeRects()[0], pad = 70; /* marge pour que la trace ne colle pas aux boutons */
-  /* centré sur le point : l'étendue est le double de l'écart le plus grand au point */
-  map.setView(LL(pt), map.getZoom(), { animate: false });
-  for (let k = 0; k < 3; k++) {
-    const c = map.latLngToContainerPoint(LL(pt)), P = pts.map(q => map.latLngToContainerPoint(LL(q)));
-    const dx = Math.max(1, ...P.map(q => Math.abs(q.x - c.x))), dy = Math.max(1, ...P.map(q => Math.abs(q.y - c.y)));
-    const kx = ((R.r - R.l) / 2 - pad) / dx, ky = ((R.b - R.t) / 2 - pad) / dy;
-    const z = Math.min(17, Math.floor((map.getZoom() + Math.log2(Math.min(kx, ky))) * 20) / 20);
-    map.setView(LL(pt), z, { animate: false });
+  if (sol && sol.ok) {
+    if (nearDrop(pt)) { pts.push(sol.vec.green, sol.vec.red); (lowPoints() || []).forEach(q => pts.push(q)); (greyPoints() || []).forEach(q => pts.push(q)); }
+    else if (sol.trace.length > 1) pts.push(Calc.nearestOn(sol.trace, pt).pt);
   }
-  const S = map.getSize(); map.panBy([S.x / 2 - (R.l + R.r) / 2, S.y / 2 - (R.t + R.b) / 2], { animate: false });
+  closeSheet(); map.invalidateSize({ animate: false }); fitBox(pts);
+}
+function fitBox(pts) {
+  const R0 = freeRects()[0], R = { l: R0.l, r: R0.r - 50, t: R0.t, b: R0.b }, pad = 50; /* 50 px de plus à droite : les noms des points sont écrits à droite */
+  for (let k = 0; k < 3; k++) {
+    const P = pts.map(q => map.latLngToContainerPoint(LL(q)));
+    const x0 = Math.min(...P.map(q => q.x)), x1 = Math.max(...P.map(q => q.x)), y0 = Math.min(...P.map(q => q.y)), y1 = Math.max(...P.map(q => q.y));
+    const kk = Math.min((R.r - R.l - 2 * pad) / Math.max(1, x1 - x0), (R.b - R.t - 2 * pad) / Math.max(1, y1 - y0));
+    const z = Math.min(17, Math.floor((map.getZoom() + Math.log2(kk)) * 20) / 20);
+    map.setView(map.containerPointToLatLng([(x0 + x1) / 2, (y0 + y1) / 2]), z, { animate: false });
+  }
+  const P = pts.map(q => map.latLngToContainerPoint(LL(q)));
+  const cx = (Math.min(...P.map(q => q.x)) + Math.max(...P.map(q => q.x))) / 2, cy = (Math.min(...P.map(q => q.y)) + Math.max(...P.map(q => q.y))) / 2;
+  map.panBy([cx - (R.l + R.r) / 2, cy - (R.t + R.b) / 2], { animate: false });
   redraw();
 }
 
