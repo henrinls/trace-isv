@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.17.0';
+const VERSION = '0.17.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1259,8 +1259,11 @@ function fitBox(pts) {
 /* v0.13.0 (Henri) : appui sur le cadre Cap avion / Cap para → onglet Prépa ISV, paragraphe Données de vol */
 $('capInfo').addEventListener('click', () => {
   openSheet('isv');
-  requestAnimationFrame(() => { const s = $('sheet'), h = $('a_vol').nextElementSibling, t = s.querySelector('.tabs');
-    s.scrollTop += h.getBoundingClientRect().top - t.getBoundingClientRect().bottom; });
+  /* v0.17.1 : position calculée depuis l'ancre #a_vol (pas collante) : si l'on avait déjà défilé, le titre « Données de vol »
+     était collé en haut et sa position ne disait plus rien → rien ne bougeait */
+  requestAnimationFrame(() => { const s = $('sheet'), a = $('a_vol'), h = a.nextElementSibling, t = s.querySelector('.tabs');
+    const natural = a.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(h).marginTop) || 0);
+    s.scrollTop += natural - t.getBoundingClientRect().bottom; });
 });
 // ---------- Onglet Altimétrie ----------
 /* Zone de sécurité (v0.3.0, demande d'Henri) : le para n'est pas à la verticale du vecteur quand son système de sécurité
