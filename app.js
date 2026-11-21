@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.7';
+const VERSION = '0.5.8';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -459,6 +459,7 @@ function draw(light) {
     () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
   // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   // Ouverture basse : un point jaune par para
+  (greyPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_GREY, fillOpacity: 1, interactive: false }).addTo(fig));
   (lowPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_LOW, fillOpacity: 1, interactive: false }).addTo(fig));
   // Point le plus haut de la zone de sécurité
   if (I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
@@ -568,7 +569,7 @@ function figurePoints() {
   if (I.zmt) pts.push(I.zmt); if (I.ptu) pts.push(I.ptu);
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
-    (lowPoints() || []).forEach(p => pts.push(p));
+    (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
     if (current.show.relax) [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].forEach(a => pts.push(Calc.fromLocal(sol.circle.c, { x: sol.circle.R * Math.sin(a * Math.PI / 180), y: sol.circle.R * Math.cos(a * Math.PI / 180) })));
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
@@ -1145,6 +1146,25 @@ function lowPoints() {
   }
   lowMem.k = k; lowMem.v = v; return v;
 }
+/* Points gris (v0.5.8, demande d'Henri) : depuis chaque point jaune (voile ouverte à 1 900 ft au-dessus du point haut),
+   dérive sous voile jusqu'à la hauteur du point haut (même « sol » pour tout le monde) : vent seul, sans vitesse propre
+   horizontale de la voile ; descente à la Vz de la voile du para (corrigée de la densité de l'air et de sa MTE). */
+const C_GREY = '#9a9a9a', greyMem = { k: null, v: null };
+function greyPoints() {
+  const low = lowPoints(), av = altiVals(); if (!low || !av || !av.max) return null;
+  const k = lowMem.k; if (greyMem.k === k) return greyMem.v;
+  const I = isv(), z0 = av.max.elev + LOW_FT * 0.3048, z1 = av.max.elev, STEP = 50;
+  const v = low.map((p0, n) => {
+    const ex = sol.vec.exits[n], para = I.team[ex ? ex.i : 0] || I.team[0], can = prm.canopies.find(c => c.id === para.canopy) || prm.canopies[0];
+    const mk = Math.sqrt((+para.mte > 0 ? +para.mte : MTE_DEF) / Calc.MTE_REF); let p = p0;
+    for (let z = z0; z > z1 + 1e-6;) {
+      const z2 = Math.max(z1, z - STEP), zm = (z + z2) / 2, w = Calc.windAt(F, p.lat, p.lng, zm), dt = (z - z2) / (+can.vz * mk * Calc.kRho(F, p.lat, p.lng, zm));
+      p = Calc.fromLocal(p, { x: w.u * dt, y: w.v * dt }); z = z2;
+    }
+    return p;
+  });
+  greyMem.k = k; greyMem.v = v; return v;
+}
 function renderAlti() {
   const tb = $('altiTable').querySelector('tbody'), v = altiVals(); tb.innerHTML = '';
   if (!v) { tb.innerHTML = '<tr><td class="mut">Pas encore de vecteur.</td></tr>'; return; }
@@ -1537,6 +1557,7 @@ async function renderPdfCanvas() {
   if (I.zmt) cible(I.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   current.points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pt.name, c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
+  (greyPoints() || []).forEach(p => dot(p, C_GREY, 4.5));
   (lowPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
   const av = altiVals();
   if (av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
