@@ -1,5 +1,5 @@
 // Service worker : appli disponible hors-ligne + images satellite en cache.
-const APP_CACHE = 'isv-app-v0.5.6';
+const APP_CACHE = 'isv-app-v0.5.7';
 const TILE_CACHE = 'isv-tiles-v1';
 const APP_FILES = ['./', 'index.html', 'style.css', 'geo.js', 'clubs.js', 'wmm.js', 'calc.js', 'app.js', 'photo.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'vendor/leaflet.js', 'vendor/leaflet-rotate.js', 'vendor/leaflet.css', 'vendor/mgrs.min.js', 'vendor/jspdf.umd.min.js',
@@ -16,7 +16,8 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (url.hostname === 'server.arcgisonline.com' || url.hostname === 'data.geopf.fr') {
+  if (url.hostname === 'server.arcgisonline.com' || url.hostname === 'data.geopf.fr' || (url.hostname === 's3.amazonaws.com' && url.pathname.startsWith('/elevation-tiles-prod/'))) {
+    // (v0.5.7 : tuiles d'altitude du point haut gardées aussi, pour pouvoir recalculer sans réseau)
     // Images satellite : cache d'abord, sinon réseau (et mise en cache)
     e.respondWith(caches.open(TILE_CACHE).then(async c => {
       const hit = await c.match(e.request.url);

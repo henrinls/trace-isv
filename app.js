@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.6';
+const VERSION = '0.5.7';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -196,6 +196,30 @@ function parseCoords(s0) {
 }
 
 // ---------- Altitude du terrain (Open-Meteo Elevation : relevé Copernicus 90 m) ----------
+/* v0.5.7 : altitudes du point haut tirées de tuiles d'altitude (Terrarium, AWS Open Data : SRTM / Copernicus, environ 30 m)
+   au lieu de l'API Open-Meteo. Cause du blocage : Open-Meteo compte chaque point comme un appel (limite 600 par minute,
+   10 000 par jour) ; avec 1 600 points par calcul, les demandes étaient refusées et le point haut restait sur « … ».
+   Une zone de sécurité tient en 1 à 4 tuiles : rapide, et les tuiles sont gardées sur le téléphone (service worker). */
+const DEM_Z = 12, DEM_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`, demTiles = new Map();
+async function demTile(x, y) {
+  const k = x + '/' + y; if (demTiles.has(k)) return demTiles.get(k);
+  const pr = (async () => {
+    const r = await fetch(DEM_URL(DEM_Z, x, y), { mode: 'cors' }); if (!r.ok) throw new Error('tuile ' + r.status);
+    const bmp = await createImageBitmap(await r.blob()), c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bmp, 0, 0);
+    return { w: c.width, d: g.getImageData(0, 0, c.width, c.height).data };
+  })();
+  demTiles.set(k, pr); pr.catch(() => demTiles.delete(k)); return pr;
+}
+async function elevTiles(pts) {
+  const n = 2 ** DEM_Z, pos = pts.map(p => { const la = p.lat * Math.PI / 180; return { fx: (p.lng + 180) / 360 * n, fy: (1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n }; });
+  const keys = [...new Set(pos.map(q => Math.floor(q.fx) + '/' + Math.floor(q.fy)))];
+  await Promise.all(keys.map(k => { const [x, y] = k.split('/').map(Number); return demTile(x, y); }));
+  return Promise.all(pos.map(async q => {
+    const x = Math.floor(q.fx), y = Math.floor(q.fy), t = await demTile(x, y), px = Math.min(t.w - 1, Math.floor((q.fx - x) * t.w)), py = Math.min(t.w - 1, Math.floor((q.fy - y) * t.w)), i = (py * t.w + px) * 4;
+    return (t.d[i] * 256 + t.d[i + 1] + t.d[i + 2] / 256) - 32768;
+  }));
+}
 async function fetchElev(pts) {
   /* v0.5.4 : paquets de 100 points demandés 4 par 4 en parallèle (avant : l'un après l'autre, 16 allers-retours pour
      1 600 points). Tout est asynchrone : l'appli reste utilisable pendant le calcul. */
@@ -453,7 +477,8 @@ function capInfo() {
 function altiState() {
   const el = $('altiState'); if (!el) return;
   const I = isv(), ok = !!(sol && sol.ok && I.alti && I.alti.max && I.alti.key === altiKey());
-  el.textContent = ok ? '✓' : '…'; el.className = 'ast ' + (ok ? 'ok' : 'wait');
+  const err = !ok && I.altiErr && !altiBusy; /* échec : « ! » rouge ; le calcul repart tout seul au retour dans l'appli ou du réseau */
+  el.textContent = ok ? '✓' : err ? '!' : '…'; el.className = 'ast ' + (ok ? 'ok' : err ? 'err' : 'wait');
 }
 function freeRect() {
   // marges serrées (20 nov. 2026) : la figure remplit l'écran, ses bords peuvent frôler les boutons.
@@ -883,7 +908,7 @@ function setSheetSize(sz) { sheetSize = sz; $('sheet').classList.toggle('mini', 
   g.addEventListener('mousedown', e => start(e.clientY));
   window.addEventListener('mouseup', e => end(e.clientY));
 })();
-const TABS = ['zones', 'isv', 'vol', 'alti', 'params'];
+const TABS = ['params', 'zones', 'isv', 'vol', 'alti'];
 let lastTab = 'isv';
 function openSheet(tab) {
   lastTab = tab;
@@ -1089,10 +1114,15 @@ async function computeAlti(manual) {
   try {
     let step = 100, g = secGrid(step); while (g.pts.length > SEC_MAX_PTS && step < 400) { step += 20; g = secGrid(step); }
     const o = sol.vec.green, pts = g.pts.map(p => Calc.fromLocal(o, { x: g.a.x * p.s + g.r.x * p.w, y: g.a.y * p.s + g.r.y * p.w }));
-    const el = await fetchElev(pts); let best = -1;
+    let el; I.altiErr = false;
+    try { el = await elevTiles(pts); }
+    catch (e1) { /* secours : Open-Meteo, avec au plus 400 points (limite d'appels) */
+      const k = Math.ceil(pts.length / 400), sub = pts.filter((_, i) => i % k === 0); const e2 = await fetchElev(sub); el = pts.map(() => null); sub.forEach((q, i) => { el[i * k] = e2[i]; });
+    }
+    let best = -1;
     el.forEach((e, i) => { if (typeof e === 'number' && (best < 0 || e > el[best])) best = i; });
     if (best >= 0 && isv() === I) { I.alti = { key, max: { lat: pts[best].lat, lng: pts[best].lng, elev: Math.round(el[best]) }, n: pts.length, step, drift: Math.round(g.drift), t: Date.now() }; persist(); redraw(); if (lastTab === 'alti') renderAlti(); }
-  } catch (e) { if (manual) toast('Altitudes impossibles à télécharger (réseau ?)'); }
+  } catch (e) { I.altiErr = true; if (manual) toast('Altitudes impossibles à télécharger (réseau ?)'); }
   finally { altiBusy = false; altiState(); }
 }
 function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est pas à jour

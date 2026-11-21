@@ -258,3 +258,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #capInfo{pointer-events:none;background:rgba(20,20,20,.85);border-radius:8px;padding:4px 8px;font-size:13px;line-height:1.35;font-weight:600;color:#fff;text-align:right;white-space:nowrap}
 #capInfo.hidden{display:none}
 #quick #qAlti{border-color:#ff3fb4;color:#fff;white-space:nowrap}#qAlti .ast{display:inline-block;min-width:13px;margin-left:2px;font-weight:800}#qAlti .ast.ok{color:#2ecc40}#qAlti .ast.wait{color:#bbb}
+#qAlti .ast.err{color:#ff4d4d}
