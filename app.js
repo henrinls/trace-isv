@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.4.1';
+const VERSION = '0.5.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 200, vff: 50 };
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50 };
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -142,6 +142,7 @@ if (!prm.noPbo) { /* v0.4.0 : la PBO d'origine est retirée des données enregis
   const keep = prm.canopies.filter(c => !(c.id === 'pbo' && c.name === 'PBO')); prm.canopies = keep.length ? keep : clone(DEFAULT_PARAMS.canopies); prm.noPbo = true;
 }
 prm.canopies.forEach(c => { delete c.mte; });
+if (!prm.openV2) { if (+prm.openLoss === 200) prm.openLoss = 100; prm.openV2 = true; } /* v0.5.0 : 100 m en chute stabilisée à 1 000 m (les 200 m d'origine étaient un ordre de grandeur) */
 function saveProfile() { store.set('isv.profile', prm); }
 saveProfile();
 function newZone(center) { return upgrade({ id: null, name: 'Nouvelle zone', center: center || { lat: 46.6, lng: 2.4 }, zoom: center ? 12 : 6 }); }
@@ -993,7 +994,7 @@ onNum('v_ac', v => { isv().acMs = v; }, 20, 200);
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
 $('v_hOpen').addEventListener('change', e => {
   const v = numIn(e.target), I = isv(); if (!sol || !sol.ok || isNaN(v)) { fillInputs(); return; }
-  const drop = sol.hRel - v; if (drop < prm.openLoss - 1 || v <= I.hPtu + 50) { toast('Hauteur d\'ouverture impossible avec ce FL'); fillInputs(); return; }
+  const drop = sol.hRel - v; if (drop < 1 || v <= I.hPtu + 50) { toast('Hauteur d\'ouverture impossible avec ce FL'); fillInputs(); return; }
   I.tFall = Calc.tFallFor(drop, sol.tas, Math.max(10, +prm.vff), +prm.openLoss, vzRefNow(), false, Calc.ffK(F, I.ptu, sol.altRel)); changed();
 });
 function setCap(m) { const I = isv(); I.capManual = trueOf(n360(m)); I.manual = null; changed(); }
@@ -1505,7 +1506,7 @@ function pdfDataPages(doc) {
   title(`${current.name} - ${I.name} - saut du ${fmtWhen(current.when).replace(' ', ' à ')}`);
   row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol sous le PTU`, true);
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(sol.tas * KT)} kt vraie`);
-  row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol sous le PTU (${fmt1(sol.tFall)} s de chute, ${prm.openLoss} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${prm.openLoss} m d'ouverture`, sol.openLowered);
+  row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol sous le PTU (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
   row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol (${fmtInt(sol.elev0)} m)`);
   row('Ouverture terminée (OUV)', fmtPos(sol.ouv));

@@ -111,7 +111,11 @@
 
   // ---------- Chute sous RSE puis ouverture ----------
   // Le para sort à la vitesse de l'avion (vitesse vraie), vitesse verticale nulle ; traînée quadratique (vitesse limite vff).
-  // Puis ouverture : freinage régulier jusqu'à la vitesse de la voile, sur openLoss mètres.
+  // Puis ouverture, sur l'axe de l'air (vitesse horizontale et verticale freinées ensemble jusqu'à la voile) :
+  // elle dure toujours le même temps (v0.5.0), celui qui fait perdre openLoss mètres en chute stabilisée à 1 000 m
+  // (de vff à vzCan : durée = 2 × openLoss / (vff + vzCan)). La perte de hauteur réelle dépend donc de la vitesse
+  // VERTICALE au début de l'ouverture : faible juste après la sortie, forte en chute stabilisée en altitude.
+  // (Avant : perte fixe de openLoss mètres quel que soit le cas, donc une ouverture de 12 s après 4 s de chute.)
   // Renvoie la perte de hauteur, la projection dans l'air (m, dans le sens du vol) et les pas (dz, dt) pour la dérive au vent.
   // kOf (facultatif) : facteur de vitesse selon la profondeur sous l'avion (ffK) ; absent : vitesse stabilisée constante.
   function fall(tFall, tas, vff, openLoss, vzCan, kOf) {
@@ -123,10 +127,11 @@
       if (acc >= 0.25 || i === N - 1) { steps.push({ z: (z0 + z) / 2, dt: acc, s, ze: z }); acc = 0; z0 = z; }
     }
     const dropFF = z, throwFF = s, w1 = w;
-    const tO = openLoss > 0 ? 2 * openLoss / Math.max(1, w1 + vzCan) : 0, M = Math.max(1, Math.round(tO / 0.25));
+    const tO = openLoss > 0 ? 2 * openLoss / Math.max(1, vff + vzCan) : 0, M = Math.max(1, Math.round(tO / 0.25));
+    const vzEnd = vzCan * (kOf ? kOf(z) : 1); // vitesse de la voile à cette hauteur
     for (let i = 0; i < M && tO > 0; i++) {
       const f0 = i / M, f1 = (i + 1) / M, fm = (f0 + f1) / 2, d = tO / M;
-      const wz = w1 + (vzCan - w1) * fm, uu = u * (1 - fm);
+      const wz = w1 + (vzEnd - w1) * fm, uu = u * (1 - fm);
       const zm = z + wz * d / 2; z += wz * d; s += uu * d; steps.push({ z: zm, dt: d, s, ze: z });
     }
     return { drop: z, dropFF, throwFF, throwAir: s, tOpen: tO, time: tFall + tO, steps };
@@ -301,7 +306,7 @@
     const tr = weak.tr, ptsDown = tr.pts.slice().reverse(); // de l'ouverture terminée vers le PTU
     out.cap = n360(weak.cap); out.capAuto = isv.capManual == null && !isv.manual;
     out.trace = ptsDown; out.direct = tr.direct; out.length = tr.length; out.ouv = ptsDown[0];
-    Object.assign(out, { fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, tOpen: st.f.tOpen, elev0, vzRef, margin });
+    Object.assign(out, { fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, openDrop: st.f.drop - st.f.dropFF, tOpen: st.f.tOpen, elev0, vzRef, margin });
 
     // Cap de l'avion : perpendiculaire au premier segment de la trace, sens le plus face au vent (ou cap choisi), ⇅ Sens l'inverse
     const dir1 = traceDir(tr.pts), acHeading = acHeadingOf(F, isv, st, dir1, ptsDown[0]);
