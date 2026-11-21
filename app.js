@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.21.0';
+const VERSION = '0.22.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -469,6 +469,15 @@ function traceMini() {
     if (!(out[v.k] >= m)) out[v.k] = m; });
   return out;
 }
+/* v0.22.0 (Henri) : si la trace a bougé depuis la pose d'un sommet S, bandeau d'alerte sur la carte pour revérifier les sommets
+   (ils ne sont peut-être plus sur le point le plus haut sous la trace). S.sig = empreinte de la trace à la pose (ou à l'acquittement). */
+function traceSig() { if (!sol || !sol.ok) return ''; let h = 0; const s = sol.trace.map(q => q.lat.toFixed(5) + ',' + q.lng.toFixed(5)).join(';'); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); }
+function syncSumWarn() {
+  const sig = traceSig(), S = isv().points.filter(q => q.auto === 'S');
+  if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
+  $('sumWarn').classList.toggle('hidden', !sig || !S.some(q => q.sig !== sig));
+}
+$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S') q.sig = sig; }); persist(); syncSumWarn(); });
 const miniTag = (M, i) => M[i] != null ? `-MINI${M[i]}` : '';
 const ptElevAsked = new Set();
 function ptNum(pt) {
@@ -494,7 +503,7 @@ function draw(light) {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
       : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${pt.color || '#fff'}"></i><b style="color:${pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
-    keep('pt_' + pt.id, pt, ic, 250, ll => { pt.lat = ll.lat; pt.lng = ll.lng; }, () => { persist(); pt.elev = null; pointElev(pt); }, () => pointMenu(pt));
+    keep('pt_' + pt.id, pt, ic, 250, ll => { pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') pt.sig = traceSig(); persist(); pt.elev = null; pointElev(pt); syncSumWarn(); }, () => pointMenu(pt));
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
@@ -507,12 +516,12 @@ function draw(light) {
   L.polyline(T, { color: C_TRACE, weight: 3.6, interactive: false }).addTo(fig);
   const TP = sol.trace.map(p => map.latLngToContainerPoint(LL(p))), k0 = TP.length - 1;
   const flat = Math.abs(TP[k0].x - TP[0].x) > Math.abs(TP[k0].y - TP[0].y); let lastLab = null;
-  const MI = traceMini();
+  const MI = traceMini(); syncSumWarn();
   sol.trace.forEach((p, i) => {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
     const show = far && (farPtu || i === 0); if (show) lastLab = TP[i]; /* hauteurs toujours affichées (bouton Infos retiré en v0.5.3) */
-    L.marker(LL(p), { interactive: false, icon: dotIcon(C_TRACE, i === 0 ? 13 : 8, (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    L.marker(LL(p), { interactive: false, icon: dotIcon(MI[i] != null ? '#ffffff' : C_TRACE, i === 0 ? 13 : MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
   });
   // Vecteur de largage
   const V = sol.vec, vl = [LL(V.green), LL(V.red)];
@@ -860,7 +869,7 @@ async function addPoint(p, spec) {
 function addSummit(p) {
   const I = isv();
   const S = { id: uid('q'), kind: 'free', auto: 'S', name: 'S', lat: p.lat, lng: p.lng, color: '#ffffff', elev: typeof p.z === 'number' ? Math.round(p.z) : null };
-  I.points.push(S);
+  I.points.push(S); compute(); S.sig = traceSig();
   persist(); redraw(); fillInputs(); if (S.elev == null) pointElev(S);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
