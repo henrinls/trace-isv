@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.12';
+const VERSION = '0.35.13';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -798,7 +798,7 @@ function setBanner(t, title) { const b = $('banner'); hideBannerInfo();
   if (t !== bannerShut) bannerShut = null;
   if (!t || (!pl && t === bannerShut)) { b.classList.add('hidden'); return; }
   b.dataset.t = t;
-  if (title && title !== t) { b.innerHTML = '<span class="bt"></span> <button class="sinfo" title="Explication">i</button>'; b.querySelector('.bt').textContent = title; b.querySelector('.sinfo').onclick = e => { e.stopPropagation(); showBannerInfo(t); }; }
+  if (title && title !== t) { b.innerHTML = '<span class="bt"></span> <button class="sinfo" title="Explication">i</button>'; b.querySelector('.bt').textContent = title; b.querySelector('.sinfo').onclick = e => { e.stopPropagation(); if (!$('bannerInfo').classList.contains('hidden')) hideBannerInfo(); else showBannerInfo(t); }; }
   else b.textContent = t;
   b.classList.remove('hidden', 'hasx'); addPlaceCancel(); }
 function showBannerInfo(t) { const el = $('bannerInfo'), b = $('banner'); el.querySelector('span').textContent = t; el.classList.remove('hidden');
@@ -2560,7 +2560,7 @@ function syncSteps() {
   const st = STEPS[i], s = states[i], pr = st.chk ? stepProblems(st.chk) : [];
   /* v0.35.7 (Henri : bandeaux trop gros) : explication derrière un bouton ⓘ (bulle au-dessus du bandeau, ✕ pour fermer) ; seul un contrôle en défaut reste écrit */
   bar.innerHTML = `<div class="sh">Étape ${i + 1}/${n} · ${esc(st.t)}${s === 'recheck' ? ' <span class="rc">à revérifier</span>' : ''} <button class="sinfo" title="Explication">i</button></div><div class="sb"></div>`; /* v0.35.11 (Henri) : plus la liste des défauts dans le bandeau (les points en défaut sont orange sur la carte) ; elle reste dans la bulle ⓘ */
-  bar.querySelector('.sinfo').onclick = () => showStepInfo((s === 'recheck' ? 'À revérifier : la trace a bougé depuis que cette étape a été faite. ' : '') + st.d + (pr.length ? ' En défaut (orange sur la carte) : ' + pr.map(x => x.txt).join(' ; ') : ''));
+  bar.querySelector('.sinfo').onclick = () => !$('stepInfo').classList.contains('hidden') ? hideStepInfo() : showStepInfo( /* v0.35.13 (Henri) : réappui sur ⓘ = fermer */(s === 'recheck' ? 'À revérifier : la trace a bougé depuis que cette étape a été faite. ' : '') + st.d + (pr.length ? ' En défaut (orange sur la carte) : ' + pr.map(x => x.txt).join(' ; ') : ''));
   if (stepInfoFor !== st.id) hideStepInfo(); stepInfoFor = st.id;
   const sb = bar.querySelector('.sb'), btn = (t, f, c) => { const b = document.createElement('button'); b.textContent = t; if (c) b.className = c; b.onclick = f; sb.append(b); };
   if (pr.length) { btn('Reculer le point d\'alerte', () => miniBack(pr[0].k)); btn('Poser une zone', placeAlt); }
