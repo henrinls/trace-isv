@@ -315,7 +315,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #stepBar .sh{font-weight:700}#stepBar .sh .rc{color:#b34700;font-weight:700}
 #stepBar .sd{margin:2px 0 5px;line-height:1.25}
 #stepBar .sb{display:flex;flex-wrap:wrap;gap:6px}
-#stepBar .sb button{background:#111;color:#ffd400;border:1px solid #111;padding:6px 11px;font-weight:700;border-radius:9px;font-size:13px}
+#stepBar .sb button{background:#111;color:#ffd400;border:1px solid #111;padding:4px 7px;font-weight:700;border-radius:6px;font-size:9px}
 #stepBar .sb button.ok{background:#1f7a2e;color:#fff;border-color:#1f7a2e}
 #stepList,.steps{list-style:none;padding:0;margin:4px 0}
 #stepList li,.steps li{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.08)}
@@ -326,3 +326,12 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .st small{color:#aaa}
 #canList .csub{margin:6px 0 0;font-size:12px;font-weight:700;color:#9ab;text-transform:uppercase;letter-spacing:.04em}
 p.calc{margin:4px 0 8px;padding:6px 9px;border-radius:8px;background:#232a33;color:#cfe3ff;font-size:13px}p.calc.hidden{display:none}
+/* v0.35.7 : bandeau d'étape compact, explication dans une bulle (ⓘ) */
+#stepBar .sh{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#banner .sinfo,#stepBar .sinfo{width:22px;height:22px;min-width:22px;border-radius:50%;border:2px solid #111;background:transparent;color:#111;font:italic 700 13px Georgia,serif;padding:0;line-height:18px}
+#stepInfo,#bannerInfo{position:fixed;z-index:999;background:#fff7c2;color:#111;border:2px solid #ffd400;border-radius:10px;padding:8px 30px 8px 10px;font-size:13px;line-height:1.3;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+#stepInfo.hidden,#bannerInfo.hidden{display:none}
+#stepInfo button,#bannerInfo button{position:absolute;top:4px;right:4px;width:24px;height:24px;padding:0;border-radius:6px;background:transparent;border:0;color:#111;font-size:15px;font-weight:700}
+#banner .sinfo{display:inline-block;vertical-align:middle;margin-left:6px}#bannerInfo{z-index:1001}
+#banner.hasx{padding-right:34px}#banner .bcancel{position:absolute;top:4px;right:5px;margin:0;width:24px;height:24px;padding:0;border:none;background:transparent;color:#111;font-size:17px;font-weight:700;line-height:24px;border-radius:50%}
+.gchk{font-size:13px;font-weight:400;margin-left:10px;white-space:nowrap}.gchk input{vertical-align:middle;margin:0 4px 0 0}

@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.6';
+const VERSION = '0.35.7';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -444,16 +444,19 @@ function barbWind(toPx) { /* sens écran du vent au sol et sa force (kt) */
 function barbUnder(bw, s, cx, top) { const g0 = barbGeom(bw.kt, { x: 0, y: 0 }, bw.d, s), b = barbBox(g0), dx = cx - (b.x0 + b.x1) / 2, dy = top - b.y0, mv = q => ({ x: q.x + dx, y: q.y + dy });
   return { lines: g0.lines.map(l => l.map(mv)), tris: g0.tris.map(t => t.map(mv)), calm: g0.calm, T: mv(g0.T) }; }
 let barbMk = null;
-function drawBarb() {
+function drawBarb() { /* v0.35.7 (Henri) : barbule DANS le marqueur ZMT, pile sous le texte « ZMT » — elle suit l'étiquette au zoom, au pincement et au glissement ; elle peut être recouverte */
   if (barbMk) { map.removeLayer(barbMk); barbMk = null; }
+  document.querySelectorAll('.barbIn').forEach(e => e.remove());
+  const el = mk.zmt && mk.zmt.getElement(); if (!el) return;
   const bw = barbWind(ll => map.latLngToContainerPoint(LL(ll))); if (!bw) return;
-  let cx = bw.z.x + 35, top = bw.z.y + 9; /* étiquette « ZMT » : à droite de la cible (34 px + 4 px), 12 px de haut */
-  try { const lb = mk.zmt && mk.zmt.getElement() && mk.zmt.getElement().querySelector('b'); if (lb) { const r = lb.getBoundingClientRect(), c = map.getContainer().getBoundingClientRect(); if (r.width) { cx = (r.left + r.right) / 2 - c.left; top = r.bottom - c.top + 1; } } } catch (e) {}
+  const lb = el.querySelector('b'); let cx = 52, top = 26; /* repli : étiquette à droite de la cible (ancre 17,17) */
+  if (lb && lb.offsetWidth) { const r = lb.getBoundingClientRect(), e = el.getBoundingClientRect(); cx = (r.left + r.right) / 2 - e.left - el.clientLeft; top = r.bottom - e.top - el.clientTop + 1; }
   const g = barbUnder(bw, 1, cx, top), B = barbBox(g), x0 = B.x0 - 2, y0 = B.y0 - 2, x1 = B.x1 + 2, y1 = B.y1 + 2, f = q => `${(q.x - x0).toFixed(1)},${(q.y - y0).toFixed(1)}`;
   const body = g.lines.map(([a, b]) => `M${f(a)}L${f(b)}`).join('');
-  const svg = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible"><path d="${body}" stroke="#000" stroke-width="2.6" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="#000" stroke-width=".6"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.1" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="1.1" fill="none"/>` : ''}</svg>`;
-  const ll = map.containerPointToLatLng([x0, y0]);
-  barbMk = L.marker(ll, { interactive: false, zIndexOffset: -500, icon: L.divIcon({ className: 'barb', iconSize: [x1 - x0, y1 - y0], iconAnchor: [0, 0], html: svg }) }).addTo(map);
+  const d = document.createElement('div'); d.className = 'barbIn';
+  Object.assign(d.style, { position: 'absolute', left: `${x0.toFixed(1)}px`, top: `${y0.toFixed(1)}px`, width: `${(x1 - x0).toFixed(1)}px`, height: `${(y1 - y0).toFixed(1)}px`, pointerEvents: 'none', zIndex: '-1' });
+  d.innerHTML = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible;display:block"><path d="${body}" stroke="#000" stroke-width="2.6" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="#000" stroke-width=".6"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.1" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="1.1" fill="none"/>` : ''}</svg>`;
+  el.appendChild(d);
 }
 const zmtIcon = L.divIcon({ className: 'tgt zmt', iconSize: [34, 34], iconAnchor: [17, 17], html: '<span></span><b>ZMT</b>' });
 const triIcon = L.divIcon({ className: 'tri', iconSize: [22, 20], iconAnchor: [11, 13], html: '<span></span>' });
@@ -776,24 +779,34 @@ function figurePoints() {
 function updateInfo() {
   const I = isv(); let t = null;
   if (placing) return;
-  if (!current.zmt && !I.ptu) t = 'Onglet Zones : place la zone de posé (ZMT), puis le point d\'entrée PTU dans l\'onglet Prépa ISV.';
-  else if (!I.ptu) t = 'Place le point d\'entrée PTU (onglet Prépa ISV).';
-  else if (sol && !sol.ok) t = sol.err;
-  else if (sol && sol.warn) t = '⚠️ ' + sol.warn;
-  else if (!F) t = zeroWind ? null : '⚠️ Pas de prévision de vent pour cette heure : trace calculée SANS VENT.';
-  setBanner(t);
+  let ti = null;
+  if (!current.zmt && !I.ptu) { t = 'Onglet Zones : place la zone de posé (ZMT), puis le point d\'entrée PTU dans l\'onglet Prépa ISV.'; ti = 'Pose la ZMT, puis le PTU'; }
+  else if (!I.ptu) { t = 'Place le point d\'entrée PTU (onglet Prépa ISV).'; ti = 'Pose le PTU'; }
+  else if (sol && !sol.ok) { t = sol.err; ti = 'Calcul impossible'; }
+  else if (sol && sol.warn) { t = '⚠️ ' + sol.warn; ti = '⚠️ Attention'; }
+  else if (!F) { t = zeroWind ? null : '⚠️ Pas de prévision de vent pour cette heure : trace calculée SANS VENT.'; ti = '⚠️ Trace sans vent'; }
+  if (!guideOn() && (ti === 'Pose la ZMT, puis le PTU' || ti === 'Pose le PTU')) t = null; /* guidage seulement ; erreurs et alertes restent */
+  setBanner(t, ti);
 }
 
 // ---------- Interface ----------
 function $(id) { return document.getElementById(id) || document.createElement('div'); }
-function setBanner(t) { const b = $('banner'); if (!t) b.classList.add('hidden'); else { b.textContent = t; b.classList.remove('hidden'); addPlaceCancel(); } }
+/* v0.35.7 (Henri : bandeaux trop gros) : titre court + bouton ⓘ ; l'explication s'affiche dans une bulle SOUS le bandeau du haut */
+function setBanner(t, title) { const b = $('banner'); hideBannerInfo();
+  if (!t) { b.classList.add('hidden'); return; }
+  if (title && title !== t) { b.innerHTML = '<span class="bt"></span> <button class="sinfo" title="Explication">i</button>'; b.querySelector('.bt').textContent = title; b.querySelector('.sinfo').onclick = e => { e.stopPropagation(); showBannerInfo(t); }; }
+  else b.textContent = t;
+  b.classList.remove('hidden', 'hasx'); addPlaceCancel(); }
+function showBannerInfo(t) { const el = $('bannerInfo'), b = $('banner'); el.querySelector('span').textContent = t; el.classList.remove('hidden');
+  const r = b.getBoundingClientRect(); Object.assign(el.style, { left: `${Math.round(r.left)}px`, width: `${Math.round(r.width)}px`, top: `${Math.round(r.bottom + 6)}px` }); }
+function hideBannerInfo() { const el = document.getElementById('bannerInfo'); if (el) el.classList.add('hidden'); }
 // Pendant un placement (toucher la carte), bouton « ✕ Annuler » dans le bandeau (21 nov. 2026, demande d'Henri)
 function addPlaceCancel() {
   let p = null; try { p = placing; } catch (e) { return; } // placing pas encore déclaré au tout début
   const b = $('banner'); if (!p || b.querySelector('.bcancel')) return;
-  const c = document.createElement('button'); c.className = 'bcancel'; c.textContent = '✕ Annuler';
+  const c = document.createElement('button'); c.className = 'bcancel'; c.textContent = '✕'; c.title = 'Annuler'; /* Henri : plus de gros bouton Annuler, une croix en haut à droite du bandeau */
   c.onclick = e => { e.stopPropagation(); cancelPlacing(); toast('Placement annulé'); };
-  b.append(document.createElement('br'), c);
+  b.classList.add('hasx'); b.append(c);
 }
 function cancelPlacing() { placing = null; ptOpen = false; ptPal = false; placeBanner(); fillInputs(); redraw(); }
 let toastT;
@@ -938,9 +951,10 @@ $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.targ
 
 // ---------- Placement de la ZMT, du PTU et des points ----------
 function placeBanner() {
-  if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.'); return; }
+  if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.', 'Type de point ?'); return; }
   setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
-    : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Touche la trace au DÉBUT de la zone délicate.' : 'Touche la trace à la FIN de la zone délicate.') : 'Touche la carte pour placer le point libre.') : null);
+    : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Touche la trace au DÉBUT de la zone délicate.' : 'Touche la trace à la FIN de la zone délicate.') : 'Touche la carte pour placer le point libre.') : null,
+    placing === 'Z' ? 'Pose de la ZMT' : placing === 'P' ? 'Pose du PTU' : placing ? (placing.kind === 'move' ? `Déplacer « ${placing.name} »` : placing.kind === 'alt' ? 'Pose d\'une zone alternative' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Zone délicate : début' : 'Zone délicate : fin') : 'Pose d\'un point libre') : null);
   if (!placing) updateInfo();
 }
 function startPlacing(what) { placing = placing === what ? null : what; stopMeasure(); if (placing) closeSheet(); placeBanner(); fillInputs(); }
@@ -2533,7 +2547,10 @@ function syncSteps() {
   const bar = $('stepBar'); if (!bar) return;
   if (i < 0) { bar.classList.add('hidden'); syncStepBar(); return; }
   const st = STEPS[i], s = states[i], pr = st.chk ? stepProblems(st.chk) : [];
-  bar.innerHTML = `<div class="sh">Étape ${i + 1}/${n} · ${esc(st.t)}${s === 'recheck' ? ' <span class="rc">à revérifier : la trace a bougé</span>' : ''}</div><div class="sd">${esc(pr.length ? pr[0].txt : st.d)}</div><div class="sb"></div>`;
+  /* v0.35.7 (Henri : bandeaux trop gros) : explication derrière un bouton ⓘ (bulle au-dessus du bandeau, ✕ pour fermer) ; seul un contrôle en défaut reste écrit */
+  bar.innerHTML = `<div class="sh">Étape ${i + 1}/${n} · ${esc(st.t)}${s === 'recheck' ? ' <span class="rc">à revérifier</span>' : ''} <button class="sinfo" title="Explication">i</button></div>${pr.length ? `<div class="sd">${esc(pr[0].txt)}</div>` : ''}<div class="sb"></div>`;
+  bar.querySelector('.sinfo').onclick = () => showStepInfo((s === 'recheck' ? 'À revérifier : la trace a bougé depuis que cette étape a été faite. ' : '') + st.d);
+  if (stepInfoFor !== st.id) hideStepInfo(); stepInfoFor = st.id;
   const sb = bar.querySelector('.sb'), btn = (t, f, c) => { const b = document.createElement('button'); b.textContent = t; if (c) b.className = c; b.onclick = f; sb.append(b); };
   if (pr.length) { btn('Reculer le point d\'alerte', () => miniBack(pr[0].k)); btn('Poser une zone', placeAlt); }
   else if (st.go) btn(st.goL || 'Aller', () => st.go(), 'go');
@@ -2541,9 +2558,15 @@ function syncSteps() {
   btn('Passer', () => stepSet(st.id, 'skip'));
   bar.classList.remove('hidden'); syncStepBar();
 }
+let stepInfoFor = null;
+function showStepInfo(t) { const el = $('stepInfo'), bar = $('stepBar'); el.querySelector('span').textContent = t; el.classList.remove('hidden');
+  const r = bar.getBoundingClientRect(); Object.assign(el.style, { left: `${Math.round(r.left)}px`, width: `${Math.round(r.width)}px`, bottom: `${Math.round(innerHeight - r.top + 6)}px` }); }
+function hideStepInfo() { const el = $('stepInfo'); if (el) el.classList.add('hidden'); }
+/* v0.35.7 (Henri) : coche « bandeaux jaunes » à côté du titre Préparation pas à pas — cochée par défaut ; décochée = aucun bandeau de guidage, la liste continue de suivre ce qui est fait */
+function guideOn() { return store.get('isv.guideBar', true) !== false; }
 function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouverte ; l'alerte « trace a bougé » se pose au-dessus */
-  const bar = $('stepBar'), w = $('sumWarn'), hide = !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
-  bar.classList.toggle('off', hide); avoidQuick(bar);
+  const bar = $('stepBar'), w = $('sumWarn'), hide = !guideOn() || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
+  bar.classList.toggle('off', hide); avoidQuick(bar); if (hide || bar.classList.contains('hidden')) hideStepInfo();
   w.style.bottom = !bar.classList.contains('hidden') && !hide ? `calc(${bar.offsetHeight + 52}px + env(safe-area-inset-bottom))` : '';
   avoidQuick(w);
 }
@@ -2563,4 +2586,6 @@ new MutationObserver(syncStepBar).observe($('cutBox'), { attributes: true, attri
 function briefSteps() { const el = $('briefSteps'); if (!el) return; const L = STEPS.map((st, k) => ({ st, k, s: stepState(st) })).filter(x => x.s !== 'done');
   el.innerHTML = L.length ? `<h3>Étapes non faites</h3><ul class="steps">${L.map(x => `<li class="st ${x.s}"><span class="si">${STEP_ICON[x.s]}</span>${x.k + 1}. ${esc(x.st.t)}${x.s === 'recheck' ? ' <small>à revérifier</small>' : x.s === 'skip' ? ' <small>passée</small>' : ''}</li>`).join('')}</ul>` : ''; }
 syncOffline();
+$('stepInfoX').addEventListener('click', hideStepInfo); $('bannerInfoX').addEventListener('click', hideBannerInfo);
+$('guideBar').checked = guideOn(); $('guideBar').addEventListener('change', e => { store.set('isv.guideBar', e.target.checked); redraw(); syncStepBar(); });
 window._stepsReady = true; syncSteps();
