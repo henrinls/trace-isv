@@ -1,5 +1,5 @@
 // Service worker : appli disponible hors-ligne + images satellite en cache.
-const APP_CACHE = 'isv-app-v0.30.0';
+const APP_CACHE = 'isv-app-v0.31.0';
 const TILE_CACHE = 'isv-tiles-v1';
 const APP_FILES = ['./', 'index.html', 'style.css', 'geo.js', 'clubs.js', 'wmm.js', 'calc.js', 'lpmove.js', 'app.js', 'photo.js', 'windpick.js', 'pdfview.js', 'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'vendor/leaflet.js', 'vendor/leaflet-rotate.js', 'vendor/leaflet.css', 'vendor/mgrs.min.js', 'vendor/jspdf.umd.min.js',
@@ -14,6 +14,10 @@ self.addEventListener('activate', e => {
     keys.filter(k => k.startsWith('isv-app-') && k !== APP_CACHE).map(k => caches.delete(k))
   )).then(() => self.clients.claim()));
 });
+/* v0.31.0 : mode autonome (case de Param.) — tuiles servies seulement depuis le cache, jamais de réseau ; drapeau gardé dans un cache */
+let OFFLINE = null;
+const offFlag = async () => { if (OFFLINE === null) { const r = await caches.match('/__isv_offline__'); OFFLINE = !!(r && (await r.text()) === '1'); } return OFFLINE; };
+self.addEventListener('message', e => { if (e.data && 'offline' in e.data) { OFFLINE = !!e.data.offline; caches.open('isv-flags').then(c => c.put('/__isv_offline__', new Response(OFFLINE ? '1' : '0'))); } });
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.hostname === 'server.arcgisonline.com' || url.hostname === 'data.geopf.fr' || (url.hostname === 's3.amazonaws.com' && url.pathname.startsWith('/elevation-tiles-prod/'))) {
@@ -22,6 +26,7 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.open(TILE_CACHE).then(async c => {
       const hit = await c.match(e.request.url);
       if (hit) return hit;
+      if (await offFlag()) return new Response('', { status: 504 });
       try {
         const r = await fetch(e.request);
         if (r.ok || r.type === 'opaque') c.put(e.request.url, r.clone());

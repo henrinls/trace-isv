@@ -89,6 +89,10 @@
   // Pour une voile, elle varie aussi comme racine(MTE du para / 150 kg) (facteur can.mk).
   const RHO_REF = stdP(1000) * 100 / (RD * (288.15 - 6.5)); // 1,112 kg/m3
   const MTE_REF = 150; // kg : MTE pour laquelle les Vx et Vz d'une voile sont données (la MTE n'est PAS une caractéristique de la voile)
+  /* v0.31.0 (Henri) : Vx et Vz d'une voile saisies telles que mesurées, avec la hauteur (altitude, atmosphère standard) et la MTE de la
+     mesure ; ramenées ici aux valeurs de référence (1 000 m, 150 kg) : v_ref = v_mesurée × √(ρ(h mesure) / ρ_ref) × √(150 / MTE mesure) */
+  const rhoStd = h => stdP(h) * 100 / (RD * (288.15 - 0.0065 * h));
+  function canRef(c) { const h = isFinite(+c.hM) ? +c.hM : 1000, m = +c.mteM > 0 ? +c.mteM : MTE_REF, k = Math.sqrt(rhoStd(h) / RHO_REF) * Math.sqrt(MTE_REF / m); return { vx: +c.vx * k, vz: +c.vz * k }; }
   function rhoAt(F, lat, lng, z) { return pOfZ(F, lat, lng, z) * 100 / (RD * (windAt(F, lat, lng, z).T + 273.15)); }
   const kRho = (F, lat, lng, z) => Math.sqrt(RHO_REF / rhoAt(F, lat, lng, z));
   // Facteur de vitesse de chute selon la profondeur z (m) sous l'avion : table par 100 m, remplie à la demande
@@ -265,7 +269,7 @@
     const margin = Math.max(0, +prm.margin || 0) / 100, openLoss = Math.max(0, +prm.openLoss || 0), vff = Math.max(10, +prm.vff || 50);
     const ptu = isv.ptu, hPtu = Math.max(0, +isv.hPtu || 0), ias = Math.max(10, +isv.acMs || 65);
     // Voile « effective » d'un para : sa voile + sa MTE (masse totale équipée du para, saisie dans l'équipe ; 150 kg à défaut)
-    const effOf = p => { const c = canOf(p), m0 = MTE_REF, m = +p.mte > 0 ? +p.mte : m0; return { c, id: c.id, name: c.name, vx: +c.vx, vz: +c.vz, mte: m, mk: Math.sqrt(m / m0), key: c.id + '|' + m }; };
+    const effOf = p => { const c = canOf(p), m0 = MTE_REF, m = +p.mte > 0 ? +p.mte : m0; const r = canRef(c); return { c, id: c.id, name: c.name, vx: r.vx, vz: r.vz, mte: m, mk: Math.sqrt(m / m0), key: c.id + '|' + m }; };
     const used = []; team.forEach(p => { const e = effOf(p); if (!used.some(u => u.key === e.key)) used.push(e); });
     const vzRef = Math.min(...used.map(c => +c.vz)); // fin d'ouverture : vitesse de la voile la plus lente à descendre (effet minime)
 
@@ -390,7 +394,7 @@
     return n360(isv.reversed ? h + 180 : h);
   }
 
-  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
+  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, canRef, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
     tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

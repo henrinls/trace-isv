@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.30.0';
+const VERSION = '0.31.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -161,6 +161,11 @@ if (!prm.noPbo) { /* v0.4.0 : la PBO d'origine est retirée des données enregis
 prm.canopies.forEach(c => { delete c.mte; });
 if (!prm.openV2) { if (+prm.openLoss === 200) prm.openLoss = 100; prm.openV2 = true; } /* v0.5.0 : 100 m en chute stabilisée à 1 000 m (les 200 m d'origine étaient un ordre de grandeur) */
 function saveProfile() { store.set('isv.profile', prm); }
+prm.canopies.forEach(c => { if (!isFinite(+c.hM)) c.hM = 1000; if (!(+c.mteM > 0)) c.mteM = 150; }); /* v0.31.0 : anciennes voiles = mesure de référence (1 000 m, 150 kg) */
+{ const f0 = window.fetch.bind(window), TILE = /^(server\.arcgisonline\.com|data\.geopf\.fr|s3\.amazonaws\.com)$/;
+  window.fetch = (u, o) => { /* v0.31.0 : mode autonome — rien vers Internet ; les tuiles passent au service worker qui ne sert que son cache */
+    try { const url = new URL(typeof u === 'string' ? u : u.url, location.href); if (prm.offline && url.origin !== location.origin && !TILE.test(url.hostname)) return Promise.reject(new Error('Mode autonome : pas d\'Internet')); } catch (e) {}
+    return f0(u, o); }; }
 saveProfile();
 function newZone(center) { return upgrade({ id: null, name: 'Nouvelle zone', center: center || { lat: 46.6, lng: 2.4 }, zoom: center ? 12 : 6 }); }
 let zones = store.get('isv.zones', []).map(upgrade);
@@ -1278,7 +1283,7 @@ onNum('i_tGreen', v => { isv().tGreen = v; }, 0, 120);
 onNum('i_tRed', v => { isv().tRed = v; }, 0, 120);
 
 // ---------- Onglet Vol : données de vol ----------
-function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => +c.vz)); }
+function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => Calc.canRef(c).vz)); } /* v0.31.0 : Vz ramenée à la référence */
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
   setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
@@ -1748,7 +1753,7 @@ function greyPoints() {
     const ex = sol.vec.exits[n], para = I.team[ex ? ex.i : 0] || I.team[0], can = prm.canopies.find(c => c.id === para.canopy) || prm.canopies[0];
     const mk = Math.sqrt((+para.mte > 0 ? +para.mte : MTE_DEF) / Calc.MTE_REF); let p = p0;
     for (let z = z0; z > z1 + 1e-6;) {
-      const z2 = Math.max(z1, z - STEP), zm = (z + z2) / 2, w = Calc.windAt(F, p.lat, p.lng, zm), dt = (z - z2) / (+can.vz * mk * Calc.kRho(F, p.lat, p.lng, zm));
+      const z2 = Math.max(z1, z - STEP), zm = (z + z2) / 2, w = Calc.windAt(F, p.lat, p.lng, zm), dt = (z - z2) / (Calc.canRef(can).vz * mk * Calc.kRho(F, p.lat, p.lng, zm));
       p = Calc.fromLocal(p, { x: w.u * dt, y: w.v * dt }); z = z2;
     }
     return p;
@@ -1781,15 +1786,17 @@ window.addEventListener('online', altiResume);
 window.addEventListener('pageshow', altiResume);
 
 // ---------- Onglet Paramètres : parachutes et calcul ----------
-function renderCans() {
+function renderCans() { /* v0.31.0 (Henri) : par voile, hauteur et MTE de la mesure, Vx et Vz mesurées ; ＋ ajouter, modifier, 🗑 supprimer */
   const ul = $('canList'); if (ul.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
   ul.innerHTML = '';
   prm.canopies.forEach(c => {
     const li = document.createElement('li'); li.className = 'can';
-    li.innerHTML = `<input class="cn" value="${esc(c.name)}" placeholder="Nom"><label>Vx</label><input class="cx" inputmode="decimal" value="${fmt1(+c.vx)}"><label>Vz</label><input class="cz" inputmode="decimal" value="${fmt1(+c.vz)}"><button class="cdel">🗑</button>`;
+    li.innerHTML = `<div class="ch"><input class="cn" value="${esc(c.name)}" placeholder="Nom"><button class="cdel">🗑</button></div>
+      <div class="grid2"><div><label>Hauteur de la mesure (m)</label><input class="chm" inputmode="numeric" value="${fmtInt(+c.hM)}"></div><div><label>MTE de la mesure (kg)</label><input class="cmte" inputmode="numeric" value="${fmtInt(+c.mteM)}"></div></div>
+      <div class="grid2"><div><label>Vx mesurée (m/s)</label><input class="cx" inputmode="decimal" value="${fmt1(+c.vx)}"></div><div><label>Vz mesurée (m/s)</label><input class="cz" inputmode="decimal" value="${fmt1(+c.vz)}"></div></div>`;
     li.querySelector('.cn').addEventListener('change', e => { c.name = e.target.value.trim() || c.name; saveProfile(); changed(); });
-    const num = (cls, key, min, max) => li.querySelector(cls).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || v < min || v > max) { toast('Valeur refusée'); e.target.value = fmt1(+c[key]); return; } c[key] = v; saveProfile(); changed(); });
-    num('.cx', 'vx', 1, 40); num('.cz', 'vz', 0.5, 20);
+    const num = (cls, key, min, max, f) => li.querySelector(cls).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || v < min || v > max) { toast('Valeur refusée'); e.target.value = f(+c[key]); return; } c[key] = v; saveProfile(); changed(); });
+    num('.cx', 'vx', 1, 40, fmt1); num('.cz', 'vz', 0.5, 20, fmt1); num('.chm', 'hM', -500, 9000, fmtInt); num('.cmte', 'mteM', 40, 400, fmtInt);
     li.querySelector('.cdel').addEventListener('click', async () => {
       if (prm.canopies.length < 2) return toast('Il faut au moins un parachute');
       const used = zones.concat([current]).some(z => z.isvs.some(i => i.team.some(p => p.canopy === c.id)));
@@ -1801,7 +1808,11 @@ function renderCans() {
     ul.append(li);
   });
 }
-$('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5 }); saveProfile(); changed(); toast('Parachute ajouté : règle Vx et Vz'); });
+$('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5, hM: 1000, mteM: 150 }); saveProfile(); changed(); toast('Parachute ajouté : saisis sa mesure (hauteur, MTE, Vx, Vz)'); });
+/* v0.31.0 (Henri) : mode autonome — plus aucune requête vers Internet (sauf les tuiles déjà gardées sur le téléphone, servies par le
+   service worker sans réseau). L'appli elle-même se met à jour comme avant (même site). */
+$('p_offline').addEventListener('change', e => { prm.offline = !!e.target.checked; saveProfile(); syncOffline(); toast(prm.offline ? 'Mode autonome : l\'appli ne va plus sur Internet' : 'Internet réactivé'); changed(); });
+function syncOffline() { $('p_offline').checked = !!prm.offline; try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ offline: !!prm.offline }); } catch (e) {} }
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
 onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000);
 
@@ -2237,7 +2248,7 @@ function pdfDataPages(doc) {
   row('Zone de sécurité', `${fmtInt(I.secLong)} m avant et après le vecteur, ${fmtInt(I.secLat)} m de chaque côté,`);
   row('', `prolongée le long de la dérive sous RSE jusqu'à 1013 hPa${I.alti && I.alti.drift != null && I.alti.key === altiKey() ? ` (${fmtInt(I.alti.drift)} m)` : ''}`);
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
-  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} à 1 000 m pour ${MTE_DEF} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : MTE_DEF)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
+  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} mesurées à ${fmtInt(+c.hM)} m pour ${fmtInt(+c.mteM)} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : MTE_DEF)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
   y += 3; title('Points de la trace (hauteur au-dessus du sol de la ZMT)');
   { const MI = traceMini(); sol.trace.forEach((p, i) => row((i === 0 ? `OUV  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`) + (MI[i] != null ? `  (mini ${fmtInt(MI[i])} m alti)` : ''), fmtPos(p))); }
   if (!F) return;
@@ -2479,4 +2490,5 @@ new MutationObserver(syncStepBar).observe($('cutBox'), { attributes: true, attri
 /* Briefing : étapes non faites en tête */
 function briefSteps() { const el = $('briefSteps'); if (!el) return; const L = STEPS.map((st, k) => ({ st, k, s: stepState(st) })).filter(x => x.s !== 'done');
   el.innerHTML = L.length ? `<h3>Étapes non faites</h3><ul class="steps">${L.map(x => `<li class="st ${x.s}"><span class="si">${STEP_ICON[x.s]}</span>${x.k + 1}. ${esc(x.st.t)}${x.s === 'recheck' ? ' <small>à revérifier</small>' : x.s === 'skip' ? ' <small>passée</small>' : ''}</li>`).join('')}</ul>` : ''; }
+syncOffline();
 window._stepsReady = true; syncSteps();

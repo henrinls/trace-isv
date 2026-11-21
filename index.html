@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.30.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.31.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.30.0">
+<link rel="stylesheet" href="style.css?v=0.31.0">
 </head>
 <body>
 <div id="map"></div>
@@ -214,32 +214,44 @@
 
   <!-- ===== Paramètres ===== -->
   <div id="tab-params" class="tab hidden">
+    <!-- v0.31.0 : onglet réorganisé par paragraphes (demande d'Henri) -->
+    <h3>Internet</h3>
+    <label class="chk"><input type="checkbox" id="p_offline"> <b>Mode autonome : ne rien chercher sur Internet</b></label>
+    <p class="hint">Coché : l'appli ne télécharge plus rien (vents, altitudes, fonds de carte, recherche de lieux) ; elle travaille avec ce qui est déjà sur le téléphone et ce que tu importes. Décoché : elle va chercher sur Internet ce dont elle a besoin.</p>
+
     <h3>Parachutes</h3>
     <ul id="canList"></ul>
     <div class="row"><button id="btnAddCan" class="wide">＋ Ajouter un parachute</button></div>
-    <p class="hint">Vx = vitesse horizontale, Vz = vitesse verticale, en m/s : valeurs vraies à 1 000 m (atmosphère standard) pour une MTE de 150 kg. L'appli les corrige à chaque hauteur selon la densité de l'air prévue, et pour chaque para selon sa MTE, saisie dans l'équipe (150 kg par défaut). La finesse ne change pas.</p>
+    <p class="hint">Pour chaque voile, saisis Vx (vitesse horizontale) et Vz (vitesse verticale) en m/s telles que mesurées, avec la hauteur (altitude) et la MTE de la mesure. L'appli les corrige à chaque hauteur selon la densité de l'air prévue, et pour chaque para selon sa MTE saisie dans l'équipe (150 kg par défaut). La finesse ne change pas.</p>
 
-    <h3>Calcul</h3>
+    <h3>Chute et ouverture</h3>
     <div class="grid2">
-      <div><label>Marge de sécurité sur le vent (%)</label><input id="p_margin" inputmode="numeric"></div>
+      <div><label>Vitesse de chute stabilisée à 1 000 m (m/s)</label><input id="p_vff" inputmode="numeric"></div>
       <div><label>Perte de hauteur à l'ouverture, chute stabilisée à 1 000 m (m)</label><input id="p_openLoss" inputmode="numeric"></div>
     </div>
     <div class="grid2">
-      <div><label>Vitesse de chute stabilisée à 1 000 m (m/s)</label><input id="p_vff" inputmode="numeric"></div>
-      <div><label>Déclenchement de l'ouvreur de sécurité OSO (ft au-dessus du point haut)</label><input id="p_osoFt" inputmode="numeric"></div>
+      <div><label>Déclenchement de l'ouvreur de sécurité OSO (ft au-dessus du point haut)</label><input id="p_osoFt" inputmode="numeric"></div><div></div>
     </div>
-    <p class="hint">Ouverture : elle dure toujours le même temps, celui qui fait perdre cette hauteur en chute stabilisée à 1 000 m (100 m : environ 4 s). La perte de hauteur réelle dépend de la vitesse verticale au moment d'ouvrir : moins juste après la sortie, plus en chute stabilisée en altitude.</p>
+    <p class="hint">Ouverture : elle dure toujours le même temps, celui qui fait perdre cette hauteur en chute stabilisée à 1 000 m (100 m : environ 4 s). La perte de hauteur réelle dépend de la vitesse verticale au moment d'ouvrir : moins juste après la sortie, plus en chute stabilisée en altitude. L'ouvreur de sécurité place les points gris (ouverture automatique) et donc les points jaunes.</p>
+
+    <h3>Vent</h3>
+    <div class="grid2">
+      <div><label>Marge de sécurité sur le vent (%)</label><input id="p_margin" inputmode="numeric"></div><div></div>
+    </div>
     <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation affiché tient compte de cette marge : la trace part de son bord et le vecteur ne peut pas en sortir.</p>
 
-    <h3>Sommets, zones délicates, zones de posé</h3>
+    <h3>Sommets et zones délicates</h3>
     <div class="grid2">
-      <div><label>Marge au-dessus d'un sommet ou d'une fin de zone délicate (m)</label><input id="p_sumMargin" inputmode="numeric"></div>
-      <div><label>Point court : à moins de … de la ZMT (km)</label><input id="p_courtKm" inputmode="decimal"></div>
+      <div><label>Marge au-dessus d'un sommet ou d'une fin de zone délicate (m)</label><input id="p_sumMargin" inputmode="numeric"></div><div></div>
     </div>
+    <p class="hint">Un sommet S posé depuis la coupe se place sur le point le plus haut du terrain dans un cercle autour de l'endroit choisi sur la trace (rayon = longueur du vecteur de largage). Le point de la trace avant le sommet ou le début de la zone délicate prend « -MINI » : la hauteur alti minimale pour passer avec cette marge.</p>
+
+    <h3>Zones de posé alternatives</h3>
     <div class="grid2">
-      <div><label>Point OSO : à moins de … du point jaune le plus proche (km)</label><input id="p_osoKm" inputmode="decimal"></div><div></div>
+      <div><label>OSO : à moins de … du point jaune le plus proche (km)</label><input id="p_osoKm" inputmode="decimal"></div>
+      <div><label>COURT : à moins de … de la ZMT (km)</label><input id="p_courtKm" inputmode="decimal"></div>
     </div>
-    <p class="hint">Un sommet S posé depuis la coupe va se placer sur le point le plus haut du terrain dans un cercle autour de l'endroit choisi sur la trace (rayon = longueur du vecteur de largage). Le point de la trace juste avant prend « -MINI » : la hauteur alti minimale pour passer ce sommet avec la marge. Une zone de posé alternative se nomme toute seule OSO si elle est à moins de la distance réglée du point jaune le plus proche, LONG si elle est au-delà du PTU (dans l'axe de la trace), COURT si elle est avant le PTU et à moins de cette distance de la ZMT ; tu peux toujours écrire un autre nom.</p>
+    <p class="hint">Une zone de posé alternative se nomme toute seule OSO, LONG (au-delà du PTU, dans l'axe de la trace) ou COURT (avant le PTU, près de la ZMT) ; tu peux toujours écrire un autre nom.</p>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -303,17 +315,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.30.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.30.0"></script>
-<script src="vendor/mgrs.min.js?v=0.30.0"></script>
-<script src="geo.js?v=0.30.0"></script>
-<script src="clubs.js?v=0.30.0"></script>
-<script src="wmm.js?v=0.30.0"></script>
-<script src="calc.js?v=0.30.0"></script>
-<script src="windpick.js?v=0.30.0"></script>
-<script src="pdfview.js?v=0.30.0"></script>
-<script src="lpmove.js?v=0.30.0"></script>
-<script src="app.js?v=0.30.0"></script>
-<script src="photo.js?v=0.30.0"></script>
+<script src="vendor/leaflet.js?v=0.31.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.31.0"></script>
+<script src="vendor/mgrs.min.js?v=0.31.0"></script>
+<script src="geo.js?v=0.31.0"></script>
+<script src="clubs.js?v=0.31.0"></script>
+<script src="wmm.js?v=0.31.0"></script>
+<script src="calc.js?v=0.31.0"></script>
+<script src="windpick.js?v=0.31.0"></script>
+<script src="pdfview.js?v=0.31.0"></script>
+<script src="lpmove.js?v=0.31.0"></script>
+<script src="app.js?v=0.31.0"></script>
+<script src="photo.js?v=0.31.0"></script>
 </body>
 </html>
