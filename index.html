@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.7.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.8.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.7.0">
+<link rel="stylesheet" href="style.css?v=0.8.0">
 </head>
 <body>
 <div id="map"></div>
@@ -39,7 +39,7 @@
 <nav id="quick">
   <button id="qWhen" title="Date et heure du saut"></button>
   <button id="qWinds" title="Tableau des vents">🌬</button>
-  <button id="qIsv" title="Préparer l'ISV : ZMT, PTU, équipe, exports">ISV</button>
+  <button id="qIsv" title="Préparer l'ISV : PTU, points, équipe, exports">ISV</button>
   <button id="qAlti" title="Altimétrie : point haut, OSO, ALPHA">Alti <span id="altiState" class="ast wait">…</span></button>
   <button id="qRev" title="Inverser le sens de vol de l'avion">⇅ Sens</button>
   <button id="qVecAuto" class="hidden" title="Revenir au vecteur et au cap calculés, avec le temps de chute prévu">Vect. auto</button>
@@ -84,6 +84,10 @@
     <p class="hint">Touche un nom pour ouvrir la zone (tout s'enregistre au fur et à mesure). Tiens ≡ et glisse pour changer l'ordre.</p>
     <ul id="zoneList"></ul>
 
+    <h3>Zone de posé (ZMT) de la zone ouverte</h3>
+    <div class="grid2"><button id="btnPlaceZ">📍 Toucher la carte</button><button id="btnCoordZ">⌨ Coordonnées</button></div>
+    <p class="hint" id="zmtInfo"></p>
+
     <h3>Fond de carte</h3>
     <div class="row seg">
       <button id="bmEsri">🛰 Satellite (monde)</button>
@@ -122,19 +126,15 @@
     <ul id="isvList"></ul>
     <div class="row grid2"><button id="btnNewIsv">＋ Nouvelle ISV</button><button id="btnDupIsv">⧉ Dupliquer l'ISV ouverte</button></div>
 
-    <h3>Zone de posé (ZMT)</h3>
-    <div class="grid2"><button id="btnPlaceZ">📍 Toucher la carte</button><button id="btnCoordZ">⌨ Coordonnées</button></div>
-    <p class="hint" id="zmtInfo"></p>
-
     <h3>Point d'entrée PTU</h3>
     <div class="grid2"><button id="btnPlaceP">📍 Toucher la carte</button><button id="btnCoordP">⌨ Coordonnées</button></div>
     <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m)</label><input id="i_hPtu" inputmode="numeric"></div><div><p class="hint" id="ptuElevInfo"></p></div></div>
     <p class="hint" id="ptuInfo"></p>
 
-    <h3>Points de la zone</h3>
+    <h3>Points de cette ISV</h3>
     <ul id="ptList"></ul>
     <div class="row"><button id="btnAddPt" class="wide">＋ Ajouter un point</button></div>
-    <p class="hint">Zones de posé alternatives et points libres, communs à toutes les ISV de la zone. Touche un nom pour centrer la carte dessus.</p>
+    <p class="hint">Zones de posé alternatives et points libres, propres à cette ISV (une nouvelle ISV part sans point ; « Dupliquer » les recopie). Touche un nom pour centrer la carte dessus.</p>
 
     <h3>Équipe <span id="teamCount" class="mut"></span></h3>
     <ul id="teamList"></ul>
@@ -272,16 +272,16 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.7.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.7.0"></script>
-<script src="vendor/mgrs.min.js?v=0.7.0"></script>
-<script src="geo.js?v=0.7.0"></script>
-<script src="clubs.js?v=0.7.0"></script>
-<script src="wmm.js?v=0.7.0"></script>
-<script src="calc.js?v=0.7.0"></script>
-<script src="windpick.js?v=0.7.0"></script>
-<script src="pdfview.js?v=0.7.0"></script>
-<script src="app.js?v=0.7.0"></script>
-<script src="photo.js?v=0.7.0"></script>
+<script src="vendor/leaflet.js?v=0.8.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.8.0"></script>
+<script src="vendor/mgrs.min.js?v=0.8.0"></script>
+<script src="geo.js?v=0.8.0"></script>
+<script src="clubs.js?v=0.8.0"></script>
+<script src="wmm.js?v=0.8.0"></script>
+<script src="calc.js?v=0.8.0"></script>
+<script src="windpick.js?v=0.8.0"></script>
+<script src="pdfview.js?v=0.8.0"></script>
+<script src="app.js?v=0.8.0"></script>
+<script src="photo.js?v=0.8.0"></script>
 </body>
 </html>

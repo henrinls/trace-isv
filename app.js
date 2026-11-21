@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.7.0';
+const VERSION = '0.8.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -65,7 +65,7 @@ function wxUrl(lats, lngs, date, src, minimal, lite) {
 const wxKey = (zid, date) => `isv.wx.${zid || 'tmp'}.${date}`;
 const wxMem = {};
 function wxCached(zid, date) { const k = wxKey(zid, date); return wxMem[k] || (wxMem[k] = store.get(k, null)); }
-function wxWanted() { const I = isv(); return { center: I.ptu || I.zmt || { lat: current.center.lat, lng: current.center.lng }, halfKm: Math.max(GRID_KM, current.gridKm || 0) }; }
+function wxWanted() { const I = isv(); return { center: I.ptu || current.zmt || { lat: current.center.lat, lng: current.center.lng }, halfKm: Math.max(GRID_KM, current.gridKm || 0) }; }
 function wxFits(rec) { if (!rec || !rec.center) return false; const w = wxWanted(); return Calc.dist(rec.center, w.center) < 5000 && rec.halfKm >= w.halfKm - 0.5; }
 async function wxFetch(z, date) {
   const src = wxSource(date), w = wxWanted(), c = w.center;
@@ -114,22 +114,29 @@ function fieldOf(rec, when) {
 // ---------- Zones, ISV, paramètres ----------
 function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (prm && prm.canopies[0] ? prm.canopies[0].id : 'ph'), mte: MTE_DEF, dt: 3 }; }
 function newIsv(name) {
-  return { id: uid('i'), name: name || 'ISV 1', zmt: null, ptu: null, hPtu: 300, ptuElev: null, team: [newPara(), newPara(), newPara(), newPara()],
+  return { id: uid('i'), name: name || 'ISV 1', ptu: null, hPtu: 300, ptuElev: null, team: [newPara(), newPara(), newPara(), newPara()],
     tGreen: 4, tRed: 10, fl: 295, acMs: 65, tFall: 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
-    secLong: 1000, secLat: 500, alti: null };
+    secLong: 1000, secLat: 500, alti: null, points: [] };
 }
 function upIsv(I) {
   const d = newIsv(I && I.name); if (!I) return d;
   Object.keys(d).forEach(k => { if (I[k] === undefined) I[k] = d[k]; });
   if (!Array.isArray(I.team) || !I.team.length) I.team = [newPara()];
+  if (!Array.isArray(I.points)) I.points = [];
   I.team.forEach(p => { if (!p.id) p.id = uid('p'); if (p.dt === undefined) p.dt = 3; if (p.name === undefined) p.name = ''; if (!(+p.mte > 0)) p.mte = MTE_DEF; if (prm && Array.isArray(prm.canopies) && prm.canopies.length && !prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; });
   return I;
 }
 function upgrade(z) {
   if (!z) return z;
-  z.isvs = (Array.isArray(z.isvs) && z.isvs.length ? z.isvs : [newIsv()]).map(upIsv);
+  z.isvs = Array.isArray(z.isvs) && z.isvs.length ? z.isvs : [newIsv()];
+  /* v0.8.0 : les points (zones de posé alternatives, repères) appartiennent à l'ISV, plus à la zone.
+     Anciens points de zone recopiés une fois dans chaque ISV existante, pour ne rien perdre. */
+  if (Array.isArray(z.points)) { const old = z.points; z.isvs.forEach(i => { if (!Array.isArray(i.points)) i.points = clone(old); }); delete z.points; }
+  /* v0.8.0 : la ZMT appartient à la zone (commune à ses ISV) ; reprise de celle de l'ISV ouverte, sinon de la première qui en a une */
+  if (z.zmt === undefined) { const c = z.isvs.find(i => i.id === z.cur && i.zmt) || z.isvs.find(i => i.zmt); z.zmt = c ? c.zmt : null; }
+  z.isvs.forEach(i => { delete i.zmt; });
+  z.isvs = z.isvs.map(upIsv);
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
-  z.points = Array.isArray(z.points) ? z.points : [];
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
   z.show = Object.assign({ relax: true, label: true }, typeof z.show === 'object' && z.show ? z.show : {});
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
@@ -160,7 +167,7 @@ function persist() {
 // Tous les caps affichés sont magnétiques (cap vrai − déclinaison du lieu) ; la géométrie et les vents restent en vrai
 let _dz = { k: null, v: 0 };
 function declCur() {
-  const I = isv(), c = I.ptu || I.zmt || current.center; if (!c) return 0;
+  const I = isv(), c = I.ptu || current.zmt || current.center; if (!c) return 0;
   const k = c.lat.toFixed(1) + ',' + c.lng.toFixed(1);
   if (_dz.k !== k) { let v = 0; try { v = magDeclination(c.lat, c.lng, new Date()); } catch (e) { v = 0; } _dz = { k, v: isFinite(v) ? v : 0 }; }
   return _dz.v;
@@ -242,6 +249,14 @@ async function refreshPtuElev() {
   try { const [e] = await fetchElev([I.ptu]); if (isv() !== I || !I.ptu || typeof e !== 'number') return; I.ptuElev = Math.round(e); I.ptuElevKey = k; persist(); fillInputs(); redraw(); }
   catch (e) { /* pas de réseau : on garde l'altitude du modèle météo */ }
 }
+/* v0.8.0 : altitude du terrain à la ZMT (tableau des vents à la verticale de la ZMT), gardée dans la zone */
+async function refreshZmtElev() {
+  const z = current, c = z.zmt; if (!c) return; const k = c.lat.toFixed(5) + ',' + c.lng.toFixed(5);
+  if (z.zmtElevKey === k && typeof z.zmtElev === 'number') return;
+  try { const [e] = await fetchElev([c]); if (current !== z || z.zmt !== c || typeof e !== 'number') return; z.zmtElev = Math.round(e); z.zmtElevKey = k; persist(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); }
+  catch (e) { /* pas de réseau : altitude du modèle météo */ }
+}
+function zmtElev() { const z = current; return z.zmt && typeof z.zmtElev === 'number' && z.zmtElevKey === z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) ? z.zmtElev : null; }
 function elev0() {
   const I = isv(); if (typeof I.ptuElev === 'number') return I.ptuElev;
   const rec = wxCached(current.id, current.when.slice(0, 10)); if (rec && rec.nodes && rec.nodes[4]) return Math.round(rec.nodes[4].elev);
@@ -347,7 +362,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 // ---------- Calcul ----------
 function calcInput(I) {
   const di = I.team.findIndex(p => p.id === I.dropId), ri = I.team.findIndex(p => p.id === I.relaxRef);
-  return { ptu: I.ptu, zmt: I.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall,
+  return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall,
     capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
@@ -416,11 +431,11 @@ function draw(light) {
   // ZRT : affichage seulement
   current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
   // ZMT et PTU
-  keep('zmt', I.zmt, zmtIcon, 300, ll => { I.zmt = ll; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); });
+  keep('zmt', current.zmt, zmtIcon, 300, ll => { current.zmt = ll; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); });
   keep('ptu', I.ptu, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); });
-  // Points de la zone
+  // Points de l'ISV
   const seen = {};
-  current.points.forEach(pt => {
+  isv().points.forEach(pt => {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
       : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i style="color:${pt.color || '#fff'}">✚</i><b style="color:${pt.color || '#fff'}">${esc(pt.name || '')}</b>` });
@@ -567,7 +582,7 @@ function fitInto(pts, R) {
 
 function figurePoints() {
   const I = isv(), pts = [];
-  if (I.zmt) pts.push(I.zmt); if (I.ptu) pts.push(I.ptu);
+  if (current.zmt) pts.push(current.zmt); if (I.ptu) pts.push(I.ptu);
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
     (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
@@ -578,7 +593,7 @@ function figurePoints() {
 function updateInfo() {
   const I = isv(); let t = null;
   if (placing) return;
-  if (!I.zmt && !I.ptu) t = 'Onglet ISV : place la zone de posé (ZMT) puis le point d\'entrée PTU.';
+  if (!current.zmt && !I.ptu) t = 'Onglet Zones : place la zone de posé (ZMT), puis le point d\'entrée PTU dans l\'onglet ISV.';
   else if (!I.ptu) t = 'Place le point d\'entrée PTU (onglet ISV).';
   else if (sol && !sol.ok) t = sol.err;
   else if (sol && sol.warn) t = '⚠️ ' + sol.warn;
@@ -610,7 +625,7 @@ function fillInputs() {
   $('zoneName').textContent = current.id ? current.name : 'Nouvelle zone'; $('isvName').textContent = ' · ' + I.name;
   $('ver').textContent = VERSION;
   setVal('i_hPtu', I.hPtu); setVal('i_tGreen', I.tGreen); setVal('i_tRed', I.tRed);
-  $('zmtInfo').textContent = I.zmt ? fmtPos(I.zmt) : 'Pas encore placée.';
+  $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('ptuElevInfo').textContent = I.ptu ? (typeof I.ptuElev === 'number' ? `Sol sous le PTU : ${fmtInt(I.ptuElev)} m` : `Sol sous le PTU : ${fmtInt(elev0())} m (modèle météo, relevé en attente)`) : '';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
@@ -660,7 +675,7 @@ async function ensureWx(force, date) {
   const have = wxCached(current.id, date);
   if (have && !force && wxFits(have) && Date.now() - have.fetched < 3600e3 && have.rh !== undefined) return have; // prévision d'avant l'humidité (rh absent) : retéléchargée
   if (have && !force && !wxFits(have) && navigator.onLine === false) return have;
-  if (!force && !isv().ptu && !isv().zmt) return have; // rien à calculer tant qu'aucun point n'est placé
+  if (!force && !isv().ptu && !current.zmt) return have; // rien à calculer tant qu'aucun point n'est placé
   if (wxBusy) return have; wxBusy = true; $('wxInfo').innerHTML = 'Téléchargement de la prévision…';
   try { const r = await wxFetch(current, date); delete wxFailed[date]; return r; }
   catch (e) { wxFailed[date] = true; toast(have ? 'Pas de réseau : prévision gardée, téléchargée le ' + fmtFetched(have.fetched) : 'Prévision impossible à télécharger (réseau ?)'); return have; }
@@ -675,7 +690,7 @@ $('j_now').addEventListener('click', () => { current.when = nowWhen(); persist()
 $('j_date').addEventListener('change', e => { if (e.target.value) setWhen(e.target.value + current.when.slice(10)); });
 $('j_hour').addEventListener('change', e => setWhen(current.when.slice(0, 11) + e.target.value + ':00'));
 
-// ---------- Tableau des vents, à la verticale du PTU (date et heure indépendantes de la carte) ----------
+// ---------- Tableau des vents, à la verticale de la ZMT (date et heure indépendantes de la carte) ----------
 let tWhen = null;
 /* Point choisi sur la carte pour le tableau (windpick.js, v0.6.0) : prévision d'un seul point, gardée en mémoire (pas sur le téléphone) */
 let windPt = null; const pickMem = {}, pickFailed = {};
@@ -701,6 +716,7 @@ function windRows(Fx, pt, e0) { // une ligne par tranche de 1 000 ft (FL), du so
 }
 function renderWinds() {
   const date = tWhen.slice(0, 10);
+  $('t_unpick').textContent = current.zmt ? '↺ Revenir à la ZMT' : isv().ptu ? '↺ Revenir au PTU' : '↺ Revenir au centre';
   if (windPt) { /* point choisi sur la carte */
     const k = pickKey(windPt, date), rec = pickMem[k], Fx = rec ? fieldOf(rec, tWhen) : null, e0 = rec ? rec.nodes[0].elev : 0;
     $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
@@ -711,9 +727,11 @@ function renderWinds() {
     windRows(Fx, windPt, e0).forEach(r => { const tr = document.createElement('tr'); tr.innerHTML = `<td>${r.lab}</td><td>${fmtInt(r.h)} m</td><td>${hdgN(r.dir)}</td><td>${Math.round(r.spd * KT)} kt</td><td>${fmt1(r.spd)} m/s</td><td>${r.T == null ? '–' : Math.round(r.T) + ' °C'}</td><td>${r.RH == null ? '–' : Math.round(r.RH) + ' %'}</td>`; tb.append(tr); });
     return;
   }
-  const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = wxWanted().center, e0 = elev0();
+  /* v0.8.0 : par défaut à la verticale de la ZMT (demande d'Henri), visible dès la ZMT posée, avant le PTU */
+  const z = current.zmt, ze = z ? zmtElev() : null; if (z && ze == null) refreshZmtElev();
+  const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = z ? (ze != null ? ze : elev0()) : elev0();
   $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
-  $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale du ${isv().ptu ? 'PTU' : 'centre'} · hauteurs au-dessus du sol (${fmtInt(e0)} m)`;
+  $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol (${fmtInt(e0)} m)`;
   const tb = $('windsTable').querySelector('tbody'); tb.innerHTML = '';
   if (!Fx) { tb.innerHTML = '<tr><td colspan="6" class="mut">Pas de donnée pour cette heure.</td></tr>'; return; }
   windRows(Fx, pt, e0).forEach(r => {
@@ -744,7 +762,7 @@ function placeBanner() {
 function startPlacing(what) { placing = placing === what ? null : what; stopMeasure(); if (placing) closeSheet(); placeBanner(); fillInputs(); }
 $('btnPlaceZ').addEventListener('click', () => startPlacing('Z'));
 $('btnPlaceP').addEventListener('click', () => startPlacing('P'));
-function setZmt(p) { const I = isv(); I.zmt = { lat: p.lat, lng: p.lng }; persist(); fillInputs(); draw(); if (!I.ptu) { placing = 'P'; placeBanner(); toast('ZMT placée. Maintenant le point d\'entrée PTU.'); } }
+function setZmt(p) { const I = isv(); current.zmt = { lat: p.lat, lng: p.lng }; persist(); refreshZmtElev(); fillInputs(); draw(); if (!I.ptu) { placing = 'P'; placeBanner(); toast('ZMT placée. Maintenant le point d\'entrée PTU.'); } }
 function setPtu(p) { const I = isv(); I.ptu = { lat: p.lat, lng: p.lng }; I.manual = null; I.ptuElev = null; persist(); fillInputs(); draw(); refreshPtuElev(); ensureWx(false).then(() => { compute(); if (sol && sol.ok) fitFigure(); }); }
 async function askCoords(what) {
   const t = await ask(`Coordonnées ${what} : degrés et minutes décimales (N 44°18,468' E 001°04,865'), MGRS (31T CK 46949 07851) ou degrés décimaux (44.3078 1.0811).`, '');
@@ -767,19 +785,19 @@ async function addPoint(p, spec) {
   const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol sous le PTU est ajouté tout seul, P = plus haut, M = plus bas) :' : 'Nom du point :', '');
   if (n === null) return;
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: null };
-  current.points.push(pt); persist(); redraw(); fillInputs(); if (pt.kind === 'alt') pointElev(pt);
+  isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.kind === 'alt') pointElev(pt);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
 function renderPtList() {
   const ul = $('ptList'); ul.innerHTML = '';
-  if (!current.points.length) { ul.innerHTML = '<li class="mut">Aucun point posé.</li>'; return; }
-  current.points.forEach(pt => {
+  if (!isv().points.length) { ul.innerHTML = '<li class="mut">Aucun point posé.</li>'; return; }
+  isv().points.forEach(pt => {
     const li = document.createElement('li'), alt = pt.kind === 'alt';
     li.innerHTML = `<span class="pic${alt ? ' alt' : ''}" style="color:${alt ? '#ff2020' : (pt.color || '#fff')}">${alt ? '◎' : '✚'}</span><span class="zn">${esc(pointLabel(pt) || '(sans nom)')}<br><small class="mut">${alt ? 'Zone de posé alternative' : 'Point libre'}</small></span>`;
     li.querySelector('.zn').onclick = () => { setSheetSize('mini'); map.setView(LL(pt), Math.max(map.getZoom(), 15)); };
     const ed = document.createElement('button'); ed.textContent = '✏️'; ed.title = 'Modifier'; ed.onclick = () => pointMenu(pt);
     const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Supprimer';
-    del.onclick = async () => { if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; current.points = current.points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
+    del.onclick = async () => { if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; isv().points = isv().points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
     li.append(ed, del); ul.append(li);
   });
 }
@@ -797,7 +815,7 @@ function pointMenu(pt) {
   $('peMove').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw();
     startPlacing({ kind: 'move', id: pt.id, name: pointLabel(pt) || (pt.kind === 'alt' ? 'zone de posé alternative' : 'point libre') }); };
   $('peCancel').onclick = close;
-  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; current.points = current.points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
+  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; isv().points = isv().points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
   $('ptEdit').classList.remove('hidden');
 }
 
@@ -875,7 +893,7 @@ map.on('click', e => {
   const p = { lat: e.latlng.lat, lng: e.latlng.lng }, what = placing;
   placing = null; placeBanner();
   if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
-  else if (what.kind === 'move') { const pt = current.points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; if (pt.kind === 'alt') { pt.elev = null; pointElev(pt); } persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
+  else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; if (pt.kind === 'alt') { pt.elev = null; pointElev(pt); } persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
   else addPoint(p, what);
   fillInputs();
 });
@@ -1289,12 +1307,12 @@ function openIsv(id) { current.cur = id; resetMarkers(); placing = null; closeSh
 $('btnNewIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const n = await ask('Nom de la nouvelle ISV :', `ISV ${current.isvs.length + 1}`); if (!n) return;
-  const I = newIsv(String(n).trim()); current.isvs.push(I); openIsv(I.id); startPlacing('Z');
+  const I = newIsv(String(n).trim()); current.isvs.push(I); openIsv(I.id); startPlacing(current.zmt ? 'P' : 'Z');
 });
 $('btnDupIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const n = await ask('Nom de la copie :', isv().name + ' (copie)'); if (!n) return;
-  const I = clone(isv()); I.id = uid('i'); I.name = String(n).trim(); I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; });
+  const I = clone(isv()); I.id = uid('i'); I.name = String(n).trim(); I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; }); I.points.forEach(pt => { pt.id = uid('q'); });
   current.isvs.push(I); openIsv(I.id);
 });
 function loadZone(id) {
@@ -1465,12 +1483,12 @@ function gpxText() {
   const tn = (p, i) => i === 0 ? 'OUV' : i === s.trace.length - 1 ? 'PTU' : String(Math.round(p.h));
   let o = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="trace-isv ${VERSION}" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">\n` +
     `  <metadata><name>${x(current.name + ' - ' + I.name)}</name><time>${new Date().toISOString()}</time></metadata>\n`;
-  // Points : ZMT, OUV, PTU, début et fin de largage, sorties, points de la zone
-  if (I.zmt) o += wpt(I.zmt, 'ZMT', 'Flag, Red');
+  // Points : ZMT, OUV, PTU, début et fin de largage, sorties, points de l'ISV
+  if (current.zmt) o += wpt(current.zmt, 'ZMT', 'Flag, Red');
   o += wpt(s.trace[0], 'OUV', 'Flag, Blue', s.elev0 + s.trace[0].h) + wpt(I.ptu, 'PTU', 'Flag, Green', s.elev0 + I.hPtu);
   o += wpt(s.vec.green, 'DEBUT LARG', 'Navaid, Green', s.altRel) + wpt(s.vec.red, 'FIN LARG', 'Navaid, Red', s.altRel);
   s.vec.exits.forEach(e => { const p = I.team[e.i]; o += wpt(e, `P${e.i + 1}${p.name ? ' ' + p.name : ''}`, 'Navaid, Black', s.altRel); });
-  current.points.forEach(pt => { o += wpt(pt, pointLabel(pt) || (pt.kind === 'alt' ? 'ZMT ALT' : 'POINT'), pt.kind === 'alt' ? 'Flag, Red' : 'Pin, Blue', pt.elev); });
+  isv().points.forEach(pt => { o += wpt(pt, pointLabel(pt) || (pt.kind === 'alt' ? 'ZMT ALT' : 'POINT'), pt.kind === 'alt' ? 'Flag, Red' : 'Pin, Blue', pt.elev); });
   // Trace : itinéraire à suivre, de l'ouverture terminée au PTU (les points intermédiaires portent leur hauteur)
   o += `  <rte><name>${x('TRACE ' + I.name)}</name>\n` + s.trace.map((p, i) => `    <rtept ${ll(p)}><ele>${Math.round(s.elev0 + p.h)}</ele><name>${tn(p, i)}</name><sym>Waypoint</sym></rtept>\n`).join('') + `  </rte>\n`;
   // Trace et vecteur en simples lignes
@@ -1586,9 +1604,9 @@ async function renderPdfCanvas() {
   { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11);
     const t = toC(Calc.pointAt(sol.trace, sol.length / 2)); shadowText(`CAP ${hdg(sol.cap)} · ${fmtKm(sol.length)}`, t.x + 12 * u, t.y, '#fff', 11); }
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
-  if (I.zmt) cible(I.zmt, C_ZMT, 'ZMT');
+  if (current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
-  current.points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pt.name, c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
+  isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pt.name, c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
   (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5));
   (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
   const av = altiVals();
@@ -1628,7 +1646,7 @@ async function renderPdfCanvas() {
     sol.turn ? `Prise de cap à ${sol.turn}` : 'Prise de cap : dans l\'axe',
     `CDO : ${sol.openLowered ? fmtInt(Math.ceil(sol.hOpen / 100 - 1e-6) * 100) + ' m' : fmt1(sol.tFall) + ' s'}`,
     `Cap para : ${hdg(sol.cap)}`,
-    sol.hand ? `PTU main ${sol.hand}` : (I.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
+    sol.hand ? `PTU main ${sol.hand}` : (current.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
   hi.forEach((t, i) => tx(t, col2, l0 + lh * (0.3 + i * 1.9), '#ffd400', big, true));
   hi2.forEach((t, i) => tx(t, col3, l0 + lh * (0.1 + i * 1.4), '#00e5ff', big, true));
   tx(`${BASEMAPS[basemap].attr} · vents ${wxRec ? wxRec.model.split(' (')[0] : '—'} via Open-Meteo · trace-isv v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
@@ -1648,7 +1666,7 @@ function pdfDataPages(doc) {
   row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol (${fmtInt(sol.elev0)} m)`);
   row('Ouverture terminée (OUV)', fmtPos(sol.ouv));
   row('Début de largage (vert)', fmtPos(sol.vec.green)); row('Fin de largage (rouge)', fmtPos(sol.vec.red));
-  if (I.zmt) row('Zone de posé (ZMT)', fmtPos(I.zmt));
+  if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
   y += 3; title('Altimétrie');
   const av = altiVals();
   row('OSO', av && av.max ? `${av.oso} hPa (point haut ${fmtInt(av.max.elev)} m)` : 'non calculé', true);
