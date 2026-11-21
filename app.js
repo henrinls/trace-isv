@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.2';
+const VERSION = '0.35.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -421,42 +421,37 @@ function pName(i) { const p = isv().team[i]; return p ? `n° ${i + 1}${p.name ? 
    trait dans le sens du vent avec une pointe vers la ZMT, empennage côté au vent : demi-barre = 5 kt, barre = 10 kt, triangle = 50 kt.
    Toujours affichée (carte et PDF), décalée de côté si elle chevauche la trace, le PTU ou le vecteur. */
 function groundWind() { if (!current.zmt || !F) return null; try { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); return isFinite(w.spd) ? w : null; } catch (e) { return null; } }
-function barbGeom(kt, H, d, s) { /* H = bout côté ZMT, d = vecteur unitaire écran dans le sens où va le vent, s = échelle ; renvoie traits et triangles */
-  const n = { x: -d.y, y: d.x }, L0 = 62 * s, T = { x: H.x - d.x * L0, y: H.y - d.y * L0 }, P = (a, k, m) => ({ x: T.x + d.x * a + n.x * m * k, y: T.y + d.y * a + n.y * m * k });
-  const lines = [[H, T], [H, { x: H.x - d.x * 7 * s + n.x * 4 * s, y: H.y - d.y * 7 * s + n.y * 4 * s }], [H, { x: H.x - d.x * 7 * s - n.x * 4 * s, y: H.y - d.y * 7 * s - n.y * 4 * s }]], tris = [];
+/* v0.35.3 (Henri) : barbule juste SOUS l'étiquette « ZMT » ; hampe courte et fine, barres et triangles plus larges pour bien les voir.
+   Géométrie en pixels × s (1 sur la carte, u dans le PDF), centrée sur C ; d = sens où va le vent (écran). */
+function barbGeom(kt, C, d, s) {
+  const n = { x: -d.y, y: d.x }, L0 = 16 * s, T = { x: C.x - d.x * L0 / 2, y: C.y - d.y * L0 / 2 }, H = { x: C.x + d.x * L0 / 2, y: C.y + d.y * L0 / 2 };
+  const P = (a, m) => ({ x: T.x + d.x * a + n.x * m, y: T.y + d.y * a + n.y * m });
+  const lines = [[T, H]], tris = []; /* v0.35.3 (Henri) : plus de pointe de flèche, « inutile » */
   let k5 = Math.round(kt / 5), a = 0; const F50 = Math.floor(k5 / 10); k5 -= F50 * 10; const B10 = Math.floor(k5 / 2), B5 = k5 % 2;
-  if (!F50 && !B10 && !B5) return { lines, tris, calm: true, T };
-  for (let i = 0; i < F50; i++) { tris.push([P(a, s, 0), P(a + 8 * s, 1, 0), P(a, s, 15)]); a += 10 * s; }
-  for (let i = 0; i < B10; i++) { lines.push([P(a, 1, 0), { x: P(a, s, 15).x - d.x * 5 * s, y: P(a, s, 15).y - d.y * 5 * s }]); a += 6 * s; }
-  if (B5) { if (!F50 && !B10) a += 6 * s; lines.push([P(a, 1, 0), { x: P(a, s, 8).x - d.x * 2.5 * s, y: P(a, s, 8).y - d.y * 2.5 * s }]); }
+  if (!F50 && !B10 && !B5) return { lines: [], tris, calm: true, T: C };
+  for (let i = 0; i < F50; i++) { tris.push([P(a, 0), P(a + 4 * s, 0), P(a, 9 * s)]); a += 5 * s; }
+  for (let i = 0; i < B10; i++) { const b = P(a, 9 * s); lines.push([P(a, 0), { x: b.x - d.x * 2.5 * s, y: b.y - d.y * 2.5 * s }]); a += 3.5 * s; }
+  if (B5) { if (!F50 && !B10) a += 3.5 * s; const b = P(a, 5 * s); lines.push([P(a, 0), { x: b.x - d.x * 1.4 * s, y: b.y - d.y * 1.4 * s }]); }
   return { lines, tris, T };
 }
-const BARB_S = 1 / 3; /* v0.35.2 (Henri) : « le plus petit possible, mais visible » (1/6 trop petit) */ // /* v0.35.1 (Henri) : « beaucoup trop gros et trop épais » → 1/6 de la taille d'origine, traits très fins */
-function barbPlace(toPx, s, u, gap) { u = u || 1; gap = gap || 19; /* v0.35.1 : presque collée à la ZMT (juste au-delà de sa croix) */ /* position écran de la barbule : côté au vent, décalée de côté au besoin pour ne rien chevaucher */
-  const w = groundWind(); if (!w) return null;
+function barbBox(g) { const pts = g.lines.flat().concat(g.tris.flat()); if (g.calm) pts.push({ x: g.T.x - 3, y: g.T.y - 3 }, { x: g.T.x + 3, y: g.T.y + 3 }); return { x0: Math.min(...pts.map(q => q.x)), y0: Math.min(...pts.map(q => q.y)), x1: Math.max(...pts.map(q => q.x)), y1: Math.max(...pts.map(q => q.y)) }; }
+function barbWind(toPx) { /* sens écran du vent au sol et sa force (kt) */
+  const w = groundWind(); if (!w || !current.zmt) return null;
   const z = toPx(current.zmt), r = (w.dir + 180) * Math.PI / 180, far = toPx(Calc.fromLocal(current.zmt, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 }));
-  let d = { x: far.x - z.x, y: far.y - z.y }; const l = Math.hypot(d.x, d.y) || 1; d = { x: d.x / l, y: d.y / l };
-  const n = { x: -d.y, y: d.x }, obs = [];
-  if (sol && sol.ok) { const T = sol.trace; for (let i = 1; i < T.length; i++) { const a = toPx(T[i - 1]), b = toPx(T[i]); for (let k = 0; k <= 8; k++) obs.push({ x: a.x + (b.x - a.x) * k / 8, y: a.y + (b.y - a.y) * k / 8 }); } obs.push(toPx(sol.vec.green), toPx(sol.vec.red)); }
-  const I = isv(); if (I.ptu) obs.push(toPx(I.ptu));
-  for (let k = 0; k <= 6; k++) obs.push({ x: z.x + (18 + 7 * k) * u, y: z.y }); /* étiquette « ZMT » à droite de la cible */
-  let best = null;
-  [0, 8, -8, 16, -16].forEach(off => { /* écart à la ZMT et décalage de côté en pixels (pas à l'échelle de la barbule) */
-    /* v0.35.2 (Henri) : SOUS le vent de la ZMT (moins de choses de ce côté) : l'empennage tout près de la cible, la pointe vers l'aval */
-    const T = { x: z.x + d.x * gap * u + n.x * off * u, y: z.y + d.y * gap * u + n.y * off * u }, H = { x: T.x + d.x * 62 * s, y: T.y + d.y * 62 * s };
-    let m = Infinity; obs.forEach(o => { for (let k = 0; k <= 6; k++) { const q = { x: H.x + (T.x - H.x) * k / 6, y: H.y + (T.y - H.y) * k / 6 }; m = Math.min(m, Math.hypot(q.x - o.x, q.y - o.y)); } });
-    const score = Math.min(m, 12 * u) - Math.abs(off) * 0.05; if (!best || score > best.score) best = { score, H };
-  });
-  return { H: best.H, d, kt: w.spd * KT };
+  let d = { x: far.x - z.x, y: far.y - z.y }; const l = Math.hypot(d.x, d.y) || 1; return { z, d: { x: d.x / l, y: d.y / l }, kt: w.spd * KT };
 }
+/* place la barbule centrée sous l'étiquette (cx = milieu de l'étiquette, top = bas de l'étiquette + 2) */
+function barbUnder(bw, s, cx, top) { const g0 = barbGeom(bw.kt, { x: 0, y: 0 }, bw.d, s), b = barbBox(g0), dx = cx - (b.x0 + b.x1) / 2, dy = top - b.y0, mv = q => ({ x: q.x + dx, y: q.y + dy });
+  return { lines: g0.lines.map(l => l.map(mv)), tris: g0.tris.map(t => t.map(mv)), calm: g0.calm, T: mv(g0.T) }; }
 let barbMk = null;
 function drawBarb() {
   if (barbMk) { map.removeLayer(barbMk); barbMk = null; }
-  if (!current.zmt) return; const pl = barbPlace(ll => map.latLngToContainerPoint(LL(ll)), BARB_S); if (!pl) return;
-  const g = barbGeom(pl.kt, pl.H, pl.d, BARB_S), pts = g.lines.flat().concat(g.tris.flat()); if (g.calm) pts.push({ x: g.T.x - 4, y: g.T.y - 4 }, { x: g.T.x + 4, y: g.T.y + 4 });
-  const x0 = Math.min(...pts.map(q => q.x)) - 2, y0 = Math.min(...pts.map(q => q.y)) - 2, x1 = Math.max(...pts.map(q => q.x)) + 2, y1 = Math.max(...pts.map(q => q.y)) + 2, f = q => `${(q.x - x0).toFixed(1)},${(q.y - y0).toFixed(1)}`;
+  const bw = barbWind(ll => map.latLngToContainerPoint(LL(ll))); if (!bw) return;
+  let cx = bw.z.x + 35, top = bw.z.y + 9; /* étiquette « ZMT » : à droite de la cible (34 px + 4 px), 12 px de haut */
+  try { const lb = mk.zmt && mk.zmt.getElement() && mk.zmt.getElement().querySelector('b'); if (lb) { const r = lb.getBoundingClientRect(), c = map.getContainer().getBoundingClientRect(); if (r.width) { cx = (r.left + r.right) / 2 - c.left; top = r.bottom - c.top + 1; } } } catch (e) {}
+  const g = barbUnder(bw, 1, cx, top), B = barbBox(g), x0 = B.x0 - 2, y0 = B.y0 - 2, x1 = B.x1 + 2, y1 = B.y1 + 2, f = q => `${(q.x - x0).toFixed(1)},${(q.y - y0).toFixed(1)}`;
   const body = g.lines.map(([a, b]) => `M${f(a)}L${f(b)}`).join('');
-  const svg = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible"><path d="${body}" stroke="#000" stroke-width="3" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="none"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.3" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="0.9" fill="none"/>` : ''}</svg>`;
+  const svg = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible"><path d="${body}" stroke="#000" stroke-width="2.6" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="#000" stroke-width=".6"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.1" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="1.1" fill="none"/>` : ''}</svg>`;
   const ll = map.containerPointToLatLng([x0, y0]);
   barbMk = L.marker(ll, { interactive: false, zIndexOffset: -500, icon: L.divIcon({ className: 'barb', iconSize: [x1 - x0, y1 - y0], iconAnchor: [0, 0], html: svg }) }).addTo(map);
 }
@@ -606,8 +601,8 @@ function draw(light) {
   // ZRT : affichage seulement
   current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
   // ZMT et PTU
-  drawBarb();
   keep('zmt', current.zmt, zmtIcon, 300, ll => { current.zmt = ll; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); });
+  drawBarb(); /* v0.35.3 : après la ZMT (on lit la position de son étiquette) */
   keep('ptu', I.ptu, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); });
   // Points de l'ISV
   const seen = {}, PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
@@ -2234,9 +2229,9 @@ async function renderPdfCanvas() {
   { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11);
     const t = toC(Calc.pointAt(sol.trace, sol.length / 2)); shadowText(`CAP ${hdg(sol.cap)} · ${fmtKm(sol.length)}`, t.x + 12 * u, t.y, '#fff', 11); }
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
-  if (current.zmt) { const pl = barbPlace(toC, BARB_S * u, u, 15); if (pl) { const bg = barbGeom(pl.kt, pl.H, pl.d, BARB_S * u); g.save(); g.lineCap = 'round';
+  if (current.zmt) { const bw = barbWind(toC); if (bw) { const bg = barbUnder(bw, u, bw.z.x + 16 * u + 12 * u, bw.z.y - 5 * u); g.save(); g.lineCap = 'round'; /* sous l'étiquette « ZMT » du PDF (écrite à x+16u, y−12u) */
       const st = (col, w) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); bg.lines.forEach(([a, b]) => { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }); if (bg.calm) { g.moveTo(bg.T.x + 2.5 * u, bg.T.y); g.arc(bg.T.x, bg.T.y, 2.5 * u, 0, 7); } g.stroke(); };
-      st('rgba(0,0,0,.55)', 3 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); }); st('#00e5ff', 1.3 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
+      st('rgba(0,0,0,.55)', 2.6 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = .6 * u; g.stroke(); }); st('#00e5ff', 1.1 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
   if (current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = pt.color || '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); if (pt.name) shadowText(pointLabel(pt), c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
