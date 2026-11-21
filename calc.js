@@ -380,7 +380,7 @@
     /* v0.37.0 (Henri) : sur l'ouverture RÉELLE (vecteur rentré à la main = ouverture abaissée compris), et « 4 s » réglable (isv.tRef) */
     const tRef = +isv.tRef > 0 ? +isv.tRef : 4;
     if (Math.abs(st.tFall - tRef) > 0.05) { let lo = 0, hi = 600; const target = st.hOpen;
-      if (relState(hi, tRef).hOpen >= target) { for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (relState(m, tRef).hOpen >= target) hi = m; else lo = m; } out.flMin4 = Math.ceil(hi / 5 - 1e-9) * 5; } }
+      if (relState(hi, tRef).hOpen >= target) { for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (relState(m, tRef).hOpen >= target) hi = m; else lo = m; } out.flMin4 = Math.ceil(hi / 5 - 1e-9) * 5; if (out.flMin4 >= st.fl) out.flMin4 = null; } } /* v0.38.1 : rien à proposer si ce n'est pas plus bas */
     out.weakTime = tr.time; out.kOpen = weak.c.mk * kRho(F, ptsDown[0].lat, ptsDown[0].lng, elev0 + st.hOpen); out.weakEff = { vx: weak.c.vx, vz: weak.c.vz, mk: weak.c.mk };
 
     // Prise de cap : le para sort dos au sens de vol ; côté où il tourne pour se mettre au cap para
