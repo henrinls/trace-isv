@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.22.0';
+const VERSION = '0.23.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -463,21 +463,23 @@ const SUM_MARGIN = 300; /* marge au-dessus d'un sommet (m), Henri 21 nov. 2026 *
    Recalculé à chaque fois (la trace bouge avec le vent, le PTU…), rien n'est stocké. */
 function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if (n.f < 1e-3 && k > 0) k--; return { k: Math.max(0, k), h: n.h }; }
 function traceMini() {
-  const out = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
+  const out = []; out.stale = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
   isv().points.forEach(S => { if (S.auto !== 'S' || typeof S.elev !== 'number') return;
     const v = sumVertex(sol.trace, S), m = Math.ceil(S.elev + SUM_MARGIN - elev0() + (sol.trace[v.k].h - v.h));
-    if (!(out[v.k] >= m)) out[v.k] = m; });
+    if (!(out[v.k] >= m)) out[v.k] = m; if (sStale(S)) out.stale[v.k] = true; });
   return out;
 }
 /* v0.22.0 (Henri) : si la trace a bougé depuis la pose d'un sommet S, bandeau d'alerte sur la carte pour revérifier les sommets
    (ils ne sont peut-être plus sur le point le plus haut sous la trace). S.sig = empreinte de la trace à la pose (ou à l'acquittement). */
 function traceSig() { if (!sol || !sol.ok) return ''; let h = 0; const s = sol.trace.map(q => q.lat.toFixed(5) + ',' + q.lng.toFixed(5)).join(';'); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); }
+const C_WARN = '#ff8c00'; /* v0.23.0 : sommet S pas revérifié depuis que la trace a bougé (et son point de passage) → orange */
+function sStale(q) { if (q.auto !== 'S' || !q.sig) return false; const s = traceSig(); return !!s && q.sig !== s; }
 function syncSumWarn() {
   const sig = traceSig(), S = isv().points.filter(q => q.auto === 'S');
   if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
   $('sumWarn').classList.toggle('hidden', !sig || !S.some(q => q.sig !== sig));
 }
-$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S') q.sig = sig; }); persist(); syncSumWarn(); });
+$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S') q.sig = sig; }); persist(); syncSumWarn(); redraw(); });
 const miniTag = (M, i) => M[i] != null ? `-MINI${M[i]}` : '';
 const ptElevAsked = new Set();
 function ptNum(pt) {
@@ -502,8 +504,8 @@ function draw(light) {
   isv().points.forEach(pt => {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
-      : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${pt.color || '#fff'}"></i><b style="color:${pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
-    keep('pt_' + pt.id, pt, ic, 250, ll => { pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') pt.sig = traceSig(); persist(); pt.elev = null; pointElev(pt); syncSumWarn(); }, () => pointMenu(pt));
+      : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${sStale(pt) ? C_WARN : pt.color || '#fff'}"></i><b style="color:${sStale(pt) ? C_WARN : pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
+    keep('pt_' + pt.id, pt, ic, 250, ll => { if (pt.auto === 'S' && sol && sol.ok && sol.trace.length > 1) { ll = Calc.nearestOn(sol.trace, ll).pt; if (mk['pt_' + pt.id]) mk['pt_' + pt.id].setLatLng(LL(ll)); } /* v0.23.0 (Henri) : un sommet S reste sur la trace (projeté à la perpendiculaire) */ pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') pt.sig = traceSig(); persist(); pt.elev = null; pointElev(pt); syncSumWarn(); redraw(); }, () => pointMenu(pt));
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
@@ -521,7 +523,7 @@ function draw(light) {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
     const show = far && (farPtu || i === 0); if (show) lastLab = TP[i]; /* hauteurs toujours affichées (bouton Infos retiré en v0.5.3) */
-    L.marker(LL(p), { interactive: false, icon: dotIcon(MI[i] != null ? '#ffffff' : C_TRACE, i === 0 ? 13 : MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    L.marker(LL(p), { interactive: false, icon: dotIcon(MI[i] != null ? (MI.stale[i] ? C_WARN : '#ffffff') : C_TRACE, i === 0 ? 13 : MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
   });
   // Vecteur de largage
   const V = sol.vec, vl = [LL(V.green), LL(V.red)];
@@ -1402,12 +1404,16 @@ function drawCut() {
   g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.z - c.e0); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
   /* trace */
   if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
+    /* v0.23.0 (Henri) : tous les points ronds de la trace (de 500 en 500) sur la coupe : roses, blancs s'ils portent un -MINI (orange si à revérifier) */
+    const MI = traceMini(); { let dv = 0; c.line.forEach((v, i) => { if (i) dv += c.seg[i - 1]; if (dv < c.v0 - 1 || dv > c.v1 + 1) return;
+      g.fillStyle = MI[i] != null ? (MI.stale[i] ? C_WARN : '#fff') : '#ff3fb4'; g.strokeStyle = '#111'; g.lineWidth = 1.2; g.beginPath(); g.arc(X(dv), Y(v.h), MI[i] != null ? 4.5 : 3.2, 0, 7); g.fill(); g.stroke(); }); }
     /* v0.20.0 : sommets S et points de passage en blanc sur la trace, avec leur nom */
-    const MI = traceMini(), cutMarks = isv().points.filter(q => q.auto === 'S').map(q => ({ q, t: pointLabel(q), below: true }))
-      .concat(sol.trace.map((v, i) => MI[i] != null ? { q: v, t: String(Math.round(v.h)) + miniTag(MI, i), below: false } : null).filter(Boolean)); /* v0.21.0 : S sous la trace, points « -MINI » de la trace au-dessus */
-    cutMarks.forEach(({ q, t, below }) => { const n = Calc.nearestOn(sol.trace, q), d = n.s * c.tot / Math.max(1, sol.trace.reduce((s, _, i, T) => i ? s + map.distance(LL(T[i - 1]), LL(T[i])) : 0, 0));
-      if (d < c.v0 - 1 || d > c.v1 + 1) return; const x = X(d), y = Y(n.h);
-      g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 4.5, 0, 7); g.fill(); g.stroke();
+    const cutMarks = isv().points.filter(q => q.auto === 'S').map(q => ({ q, t: pointLabel(q), below: true, warn: sStale(q) }))
+      .concat(sol.trace.map((v, i) => MI[i] != null ? { q: v, t: String(Math.round(v.h)) + miniTag(MI, i), below: false, warn: !!MI.stale[i] } : null).filter(Boolean)); /* v0.21.0 : S sous la trace, points « -MINI » de la trace au-dessus */
+    cutMarks.forEach(({ q, t, below, warn }) => { let d = cutDOf(q), h = Calc.nearestOn(sol.trace, q).h;
+      if (c.dragS && c.dragS.S === q) { const j = cutNear(c.dragS.d); d = c.dragS.d; h = cutAt(c, d).h; warn = false; if (c.pts[j]) t = 'S-' + Math.round(h + c.e0 - c.pts[j].z); } /* v0.23.0 : sommet en cours de déplacement sur la coupe */
+      if (d < c.v0 - 1 || d > c.v1 + 1) return; const x = X(d), y = Y(h);
+      g.fillStyle = warn ? C_WARN : '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 4.5, 0, 7); g.fill(); g.stroke();
       g.font = 'bold 11px -apple-system,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.8)'; const ty = below ? y + 17 : y - 9; g.strokeText(t, x, ty); g.fillText(t, x, ty); g.font = '10px -apple-system,system-ui,sans-serif'; });
     g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
   /* curseur */
@@ -1418,9 +1424,14 @@ function drawCut() {
 }
 /* v0.19.2 (Henri) : doigt levé → bouton punaise blanche en haut du pointillé ; un appui dessus montre l'endroit sur la carte */
 function cutPin(x) {
-  const b = $('cutPin'), cv = $('cutCv'); if (x == null) { b.classList.add('hidden'); return; }
+  const b = $('cutPin'), s = $('cutAddS'), cv = $('cutCv'); if (x == null) { b.classList.add('hidden'); s.classList.add('hidden'); return; }
   b.classList.remove('hidden'); b.style.left = `${Math.round(cv.offsetLeft + x - b.offsetWidth / 2)}px`; b.style.top = `${Math.round(cv.offsetTop - 2)}px`;
+  /* v0.23.0 (Henri) : bouton « +S » sous la punaise : ajoute un sommet S à cet endroit de la trace, sans quitter la coupe */
+  s.classList.toggle('hidden', !cutData || cutData.mode !== 'trace');
+  s.style.left = `${Math.round(cv.offsetLeft + x - s.offsetWidth / 2)}px`; s.style.top = `${Math.round(cv.offsetTop + 38)}px`;
 }
+function cutAddS() { const c = cutData; if (!c || c.mode !== 'trace' || c.cur == null || !c.pts[c.cur]) return; const q = c.pts[c.cur];
+  addSummit({ lat: q.lat, lng: q.lng, z: q.z }); drawCut(); cutText(c.cur); }
 function cutGo() { const c = cutData; if (!c || c.cur == null || !c.pts[c.cur]) return; const q = c.pts[c.cur]; closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14)); }
 function cutText(i) {
   const c = cutData; if (!c) return;
@@ -1435,6 +1446,15 @@ function cutText(i) {
     ? `À ${fmtKm(q.d)} de l'OUV : <b>hauteur terrain ${fmtInt(q.h + c.e0 - q.z)} m</b> · hauteur alti ${fmtInt(q.h)} m · altitude terrain ${fmtInt(q.z)} m` /* v0.19.3 (Henri) : hauteur alti = lue à l'altimètre calé sur le sol de la ZMT */
     : `À ${fmtDist(q.d)} du 1er point : terrain <b>${fmtInt(q.z)} m</b> d'altitude (${fmtInt(q.z - c.e0)} m par rapport à la ZMT)`;
 }
+/* v0.23.0 (Henri) : déplacer un sommet S le long de la coupe (le prendre, glisser, relâcher = nouvelle place) */
+function cutDOf(q) { const c = cutData, T = sol.trace; let L0 = 0; for (let i = 1; i < T.length; i++) L0 += map.distance(LL(T[i - 1]), LL(T[i])); return Calc.nearestOn(T, q).s * c.tot / Math.max(1, L0); }
+function cutNear(d) { const c = cutData; let bi = 0; c.pts.forEach((q, i) => { if (Math.abs(q.d - d) < Math.abs(c.pts[bi].d - d)) bi = i; }); return bi; }
+function cutHitS(clientX, clientY) {
+  const c = cutData; if (!c || c.mode !== 'trace' || !sol || !sol.ok) return null;
+  const r = $('cutCv').getBoundingClientRect(), G = cutGeom(), x = clientX - r.left, y = clientY - r.top; let best = null, bd = 20;
+  isv().points.forEach(S => { if (S.auto !== 'S') return; const d = cutDOf(S), h = Calc.nearestOn(sol.trace, S).h, dd = Math.hypot(G.X(d) - x, G.Y(h) - y); if (dd < bd) { bd = dd; best = { S, d }; } });
+  return best;
+}
 function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $('cutCv').getBoundingClientRect(), G = cutGeom(), d = G.D(clientX - r.left);
   let bi = 0; c.pts.forEach((q, i) => { if (Math.abs(q.d - d) < Math.abs(c.pts[bi].d - d)) bi = i; }); return bi; }
 (function () {
@@ -1443,6 +1463,7 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
   cv.addEventListener('pointerdown', e => {
     if (!cutData) return; ptr.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { cv.setPointerCapture(e.pointerId); } catch (er) {}
     if (ptr.size === 2) { const [p1, p2] = [...ptr.values()]; pinch = { dist: Math.abs(p1.x - p2.x) || 1, mid: (p1.x + p2.x) / 2, v0: cutData.v0, v1: cutData.v1 }; down = null; return; }
+    const hit = cutHitS(e.clientX, e.clientY); if (hit) { cutData.dragS = hit; down = null; cutData.lock = false; cutData.cur = cutNear(hit.d); drawCut(); cutText(cutData.cur); return; }
     down = { x: e.clientX, y: e.clientY, t: Date.now() }; cutData.lock = false; const i = cutIndex(e.clientX); if (i != null) { cutData.cur = i; drawCut(); cutText(i); }
   });
   cv.addEventListener('pointermove', e => {
@@ -1452,10 +1473,15 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
       const span = (pinch.v1 - pinch.v0) * pinch.dist / dist, fr = (pinch.mid - r.left - G.pad.l) / w, dMid = pinch.v0 + fr * (pinch.v1 - pinch.v0);
       const fr2 = (mid - r.left - G.pad.l) / w, a = dMid - fr2 * span; cutView(a, a + span); return;
     }
+    if (cutData.dragS) { const d = Math.max(0, Math.min(cutData.tot, dAt(e.clientX))); cutData.dragS.d = d; cutData.cur = cutNear(d); drawCut(); cutText(cutData.cur); return; }
     if (!down && (e.pointerType !== 'mouse' || cutData.lock)) return; const i = cutIndex(e.clientX); if (i != null && i !== cutData.cur) { cutData.cur = i; drawCut(); cutText(i); }
   });
   const end = e => {
-    ptr.delete(e.pointerId); if (pinch) { if (ptr.size < 2) pinch = null; down = null; return; }
+    ptr.delete(e.pointerId);
+    if (cutData && cutData.dragS) { const { S, d } = cutData.dragS, q = cutData.pts[cutNear(d)]; cutData.dragS = null; /* relâché : nouvelle place du sommet, sur la trace, altitude du terrain de la coupe ; compte comme revérifié */
+      if (q) { S.lat = q.lat; S.lng = q.lng; S.elev = Math.round(q.z); S.val = null; S.sig = traceSig(); persist(); redraw(); syncSumWarn(); }
+      cutData.lock = true; drawCut(); cutText(cutData.cur); return; }
+    if (pinch) { if (ptr.size < 2) pinch = null; down = null; return; }
     const d0 = down; down = null; if (!d0 || !cutData) return;
     cutData.lock = true; drawCut(); /* doigt levé (ou clic) : le curseur reste là, avec la punaise pour aller sur la carte */
   };
@@ -1472,6 +1498,7 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
 $('qCut').addEventListener('click', () => { if (!$('cutBox').classList.contains('hidden')) closeCut(); else openCut(); });
 $('cutClose').addEventListener('click', closeCut);
 $('cutPin').addEventListener('click', cutGo);
+$('cutAddS').addEventListener('click', cutAddS);
 $('cutIn').addEventListener('click', () => { const c = cutData; if (c) cutZoomAt(2, (c.v0 + c.v1) / 2); });
 $('cutOut').addEventListener('click', () => { const c = cutData; if (c) cutZoomAt(0.5, (c.v0 + c.v1) / 2); });
 $('cutReset').addEventListener('click', () => { const c = cutData; if (c) { c.pts = c.full; cutView(0, c.tot); } });

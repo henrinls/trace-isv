@@ -290,7 +290,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #cutBox .cuthead{display:flex;align-items:center;gap:8px}#cutBox .cuthead b{flex:1;color:#ddd;font-size:14px}
 #cutBox .cuthead button{height:34px;min-width:40px;border-radius:9px;background:#2a2a2a;border:1px solid #555;color:#fff}
 #cutCv{display:block;width:100%;height:min(42vh,280px);touch-action:none;margin:6px 0 2px}
-#cutBox #cutInfo{margin:4px 0 0;min-height:2.6em}
+#cutBox #cutInfo{margin:4px 0 0;min-height:5.4em} /* v0.23.0 : hauteur fixe, sinon le texte qui change de longueur faisait bouger la coupe sous le doigt */
 #quick #qCut{border-color:#d9a066;color:#fff}#quick #qCut.on{background:#d9a066;color:#111}
 .tmppt span{position:absolute;inset:3px;border-radius:50%;background:#fff;border:3px solid #d9a066;box-shadow:0 0 0 2px #000,0 0 10px #fff}
 
@@ -304,3 +304,5 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #sumWarn.hidden{display:none}
 #sumWarn button{flex:none;background:#111;color:#ff8c00;border:1px solid #111;padding:6px 16px;font-weight:700;border-radius:9px}
 #banner:not(.hidden)~#sumWarn{display:none}
+#cutAddS{position:absolute;width:36px;height:30px;padding:0;border-radius:10px;background:rgba(30,30,30,.95);border:2px solid #fff;color:#fff;font-weight:800;font-size:14px;z-index:2;touch-action:manipulation}
+#cutAddS.hidden{display:none}
