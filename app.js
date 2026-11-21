@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.16.0';
+const VERSION = '0.17.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -30,7 +30,7 @@ const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 function nowWhen() { const d = new Date(); return `${dayStr(d)}T${pad2(d.getHours())}:00`; }
 function shiftWhen(w, hours) { const d = new Date(w + ':00'); d.setHours(d.getHours() + hours); return `${dayStr(d)}T${pad2(d.getHours())}:00`; }
-const isvAutoName = I => `${I.when.slice(0, 10)}-${I.when.slice(11, 16)}`;
+const isvAutoName = I => `${I.when.slice(0, 10).replace(/-/g, '')}-${I.when.slice(11, 16)}`; /* « 20261122-20:00 » (v0.17.0 : date collée, Henri) */
 function fmtWhenY(w) { const d = new Date(w + ':00'); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} à ${pad2(d.getHours())}h`; }
 function fmtWhen(w) { const d = new Date(w + ':00'); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}h`; }
 const fmt1 = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
@@ -310,7 +310,7 @@ map.on('rotate', () => { syncCompass(); current.bearing = map.getBearing(); clea
 
 const fig = L.layerGroup().addTo(map);     // tracé recalculé à chaque dessin
 const handles = L.layerGroup().addTo(map); // points déplaçables, gardés d'un dessin à l'autre
-let placing = null, posMarker = null;      // placing : null | 'Z' (ZMT) | 'P' (PTU) | { kind, color } (point)
+let placing = null, posMarker = null, ptOpen = false, ptPal = false; /* ptOpen / ptPal : choix du type de point ouvert, palette ouverte (v0.17.0) */      // placing : null | 'Z' (ZMT) | 'P' (PTU) | { kind, color } (point)
 let sol = null, solKey = '', F = null, wxRec = null;
 function dotIcon(color, size, label, cls) {
   return L.divIcon({
@@ -638,7 +638,7 @@ function addPlaceCancel() {
   c.onclick = e => { e.stopPropagation(); cancelPlacing(); toast('Placement annulé'); };
   b.append(document.createElement('br'), c);
 }
-function cancelPlacing() { placing = null; placeBanner(); fillInputs(); redraw(); }
+function cancelPlacing() { placing = null; ptOpen = false; ptPal = false; placeBanner(); fillInputs(); redraw(); }
 let toastT;
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), 3200); }
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
@@ -669,7 +669,8 @@ function syncQuick() {
   $('qRev').classList.toggle('on', !!I.reversed);
   $('qVecAuto').classList.toggle('hidden', !(I.manual || I.vecHeading != null || I.capManual != null));
   $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
-  $('qPoint').classList.toggle('on', !!(placing && typeof placing === 'object'));
+  $('qPoint').classList.toggle('on', ptOpen || !!(placing && typeof placing === 'object' && placing.kind !== 'move'));
+  if (typeof syncPtPop === 'function') try { syncPtPop(); } catch (e) {}
 }
 function quick(fn) { fn(); persist(); fillInputs(); redraw(); }
 $('qRelax').addEventListener('click', () => quick(() => { current.show.relax = !current.show.relax; }));
@@ -780,6 +781,7 @@ $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.targ
 
 // ---------- Placement de la ZMT, du PTU et des points ----------
 function placeBanner() {
+  if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.'); return; }
   setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
     : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : 'Touche la carte pour placer le point libre.') : null);
   if (!placing) updateInfo();
@@ -798,13 +800,26 @@ $('btnCoordP').addEventListener('click', async () => { if (!(await askZoneName()
 // Points : zone de posé alternative (rouge, cible) ou point libre (croix, couleur au choix)
 const PT_COLORS = ['#ffffff', '#ffd400', '#1ec83c', '#00e5ff', '#2f80ff', '#ff3fb4', '#ff8c00', '#000000'];
 let ptColor = PT_COLORS[1];
+/* v0.17.0 (Henri) : ＋ Point ouvre deux boutons à droite (zone de posé alternative, point libre + rond de couleur qui ouvre
+   la palette), comme les repères de l'appli PA ; pas de fenêtre ; réappui sur ＋ Point ou appui sur un autre bouton = sortie */
 $('ptColors').innerHTML = PT_COLORS.map(c => `<button data-c="${c}" style="background:${c}"></button>`).join('');
-function syncPtColors() { $('ptColors').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === ptColor)); }
-$('ptColors').addEventListener('click', e => { const c = e.target && e.target.dataset && e.target.dataset.c; if (c) { ptColor = c; syncPtColors(); } });
-$('qPoint').addEventListener('click', () => { if (placing && typeof placing === 'object') { placing = null; placeBanner(); fillInputs(); return; } syncPtColors(); $('ptDlg').classList.remove('hidden'); });
-$('ptCancel').addEventListener('click', () => $('ptDlg').classList.add('hidden'));
-$('ptAlt').addEventListener('click', () => { $('ptDlg').classList.add('hidden'); startPlacing({ kind: 'alt' }); });
-$('ptFree').addEventListener('click', () => { $('ptDlg').classList.add('hidden'); startPlacing({ kind: 'free', color: ptColor }); });
+function syncPtColors() { $('ptColors').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === ptColor)); $('ptCol').querySelector('span').style.background = ptColor; }
+function syncPtPop() {
+  const pop = $('ptPop'); pop.classList.toggle('hidden', !ptOpen); $('ptColors').classList.toggle('hidden', !(ptOpen && ptPal));
+  if (!ptOpen) return;
+  const k = placing && typeof placing === 'object' ? placing.kind : null;
+  $('ptAlt').classList.toggle('on', k === 'alt'); $('ptFree').classList.toggle('on', k === 'free'); syncPtColors();
+  const r = $('qPoint').getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(r.top + r.height / 2 - 22)}px`;
+}
+function openPtPop() { stopMeasure(); closeSheet(); ptOpen = true; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
+function closePtPop() { ptOpen = false; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
+$('qPoint').addEventListener('click', () => { if (ptOpen) closePtPop(); else openPtPop(); });
+$('ptAlt').addEventListener('click', () => { ptPal = false; placing = { kind: 'alt' }; placeBanner(); fillInputs(); syncPtPop(); });
+$('ptFree').addEventListener('click', () => { ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
+$('ptCol').addEventListener('click', () => { ptPal = !ptPal; syncPtPop(); });
+$('ptColors').addEventListener('click', e => { const c = e.target && e.target.dataset && e.target.dataset.c; if (!c) return; ptColor = c; ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
+/* un autre bouton de la colonne ferme le choix */
+$('quick').addEventListener('click', e => { const b = e.target.closest('button'); if (ptOpen && b && b.id !== 'qPoint') closePtPop(); }, true);
 async function pointElev(pt) { try { const [e] = await fetchElev([pt]); if (typeof e === 'number') { pt.elev = Math.round(e); persist(); redraw(); } } catch (e) {} }
 async function addPoint(p, spec) {
   const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol de la ZMT est ajouté tout seul, P = plus haut, N = plus bas) :' : 'Nom du point :', '');
@@ -826,7 +841,7 @@ function renderPtList() {
     li.append(ed, del); ul.append(li);
   });
 }
-$('btnAddPt').addEventListener('click', async () => { if (!(await askZoneName())) return; if (placing && typeof placing === 'object') { placing = null; placeBanner(); } syncPtColors(); $('ptDlg').classList.remove('hidden'); });
+$('btnAddPt').addEventListener('click', async () => { if (!(await askZoneName())) return; openPtPop(); });
 function pointMenu(pt) {
   let col = pt.color || PT_COLORS[1];
   $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
@@ -919,7 +934,7 @@ map.on('click', e => {
   placing = null; placeBanner();
   if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
   else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; if (pt.kind === 'alt') { pt.elev = null; pointElev(pt); } persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
-  else addPoint(p, what);
+  else { ptOpen = false; ptPal = false; addPoint(p, what); }
   fillInputs();
 });
 map.on('zoomend', redraw);

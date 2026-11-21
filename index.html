@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.16.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.17.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.16.0">
+<link rel="stylesheet" href="style.css?v=0.17.0">
 </head>
 <body>
 <div id="map"></div>
@@ -48,6 +48,12 @@
   <button id="qZero" title="Essai : vent forcé à 0 partout">Vent 0</button>
   <button id="qMeasure" title="Mesurer cap et distance entre deux points">📏</button>
 </nav>
+
+<!-- v0.17.0 : ＋ Point comme les repères de l'appli PA : choix du type à côté du bouton, pas de fenêtre -->
+<div id="ptPop" class="hidden">
+  <button id="ptAlt" title="Zone de posé alternative"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="7" fill="none" stroke="#000" stroke-width="5"/><circle cx="12" cy="12" r="7" fill="none" stroke="#ff2020" stroke-width="3"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6" stroke="#ff2020" stroke-width="2.4"/></svg></button>
+  <div class="prow"><button id="ptFree" title="Point libre"><svg viewBox="0 0 24 24" width="22" height="22"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#fff" stroke="#111" stroke-width="2"/></svg></button><button id="ptCol" title="Couleur du point libre"><span></span></button><div id="ptColors" class="hidden"></div></div>
+</div>
 
 <div id="jumpBox" class="hidden">
   <div class="when"><input type="date" id="j_date"></div>
@@ -245,16 +251,6 @@
   </div>
 </div>
 
-<div id="ptDlg" class="hidden">
-  <div class="box">
-    <p><b>Nouveau point</b></p>
-    <button id="ptAlt" class="wide">🎯 Zone de posé alternative</button>
-    <button id="ptFree" class="wide">✚ Point libre</button>
-    <div id="ptColors" class="colors"></div>
-    <button id="ptCancel" class="wide">Annuler</button>
-  </div>
-</div>
-
 <div id="ptEdit" class="hidden">
   <div class="box">
     <p id="peText"></p>
@@ -281,16 +277,16 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.16.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.16.0"></script>
-<script src="vendor/mgrs.min.js?v=0.16.0"></script>
-<script src="geo.js?v=0.16.0"></script>
-<script src="clubs.js?v=0.16.0"></script>
-<script src="wmm.js?v=0.16.0"></script>
-<script src="calc.js?v=0.16.0"></script>
-<script src="windpick.js?v=0.16.0"></script>
-<script src="pdfview.js?v=0.16.0"></script>
-<script src="app.js?v=0.16.0"></script>
-<script src="photo.js?v=0.16.0"></script>
+<script src="vendor/leaflet.js?v=0.17.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.17.0"></script>
+<script src="vendor/mgrs.min.js?v=0.17.0"></script>
+<script src="geo.js?v=0.17.0"></script>
+<script src="clubs.js?v=0.17.0"></script>
+<script src="wmm.js?v=0.17.0"></script>
+<script src="calc.js?v=0.17.0"></script>
+<script src="windpick.js?v=0.17.0"></script>
+<script src="pdfview.js?v=0.17.0"></script>
+<script src="app.js?v=0.17.0"></script>
+<script src="photo.js?v=0.17.0"></script>
 </body>
 </html>

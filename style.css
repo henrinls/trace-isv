@@ -239,8 +239,8 @@ table.vals td:first-child{color:#aaa;width:52%}table.vals td:last-child{color:#f
 table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .hint.big{font-size:14px;color:#ddd;line-height:1.5}
 .stepper input{flex:1;min-width:0}.stepper button.on{background:#1f6fb2;border-color:#1f6fb2;color:#fff}
-#ptDlg,#ptEdit{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
-#ptDlg .box,#ptEdit .box{background:#1d1d1d;border-radius:14px;padding:16px;width:100%;max-width:380px}#ptDlg .box>*,#ptEdit .box>*{margin-top:8px}
+#ptEdit{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
+#ptEdit .box{background:#1d1d1d;border-radius:14px;padding:16px;width:100%;max-width:380px}#ptEdit .box>*{margin-top:8px}
 .colors{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 .colors button{width:32px;height:32px;border-radius:50%;border:2px solid #666;padding:0}.colors button.on{border-color:#fff;box-shadow:0 0 0 2px #1f6fb2}
 #btnPlaceZ.on,#btnPlaceP.on{background:#1f6fb2;border-color:#1f6fb2;color:#fff}
@@ -270,3 +270,16 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #capInfo .altil{font-size:12px}#capInfo .ast{display:inline-block;min-width:13px;font-weight:800}#capInfo .ast.ok{color:#2ecc40}#capInfo .ast.wait{color:#bbb}#capInfo .ast.err{color:#ff4d4d}
 #briefBody .seept{padding:5px 8px;font-size:13px;white-space:nowrap}
 #top #btnZones{max-width:min(44vw,calc(100vw - 232px))} /* v0.16.0 : le nom ISV (date) allongeait le bouton et poussait les boutons ronds hors de l écran */
+
+/* ＋ Point : choix du type à côté du bouton (v0.17.0) */
+#ptPop{position:fixed;z-index:960;display:flex;flex-direction:column;gap:6px}
+#ptPop.hidden{display:none}
+#ptPop .prow{display:flex;gap:6px;align-items:center;position:relative}
+#ptPop button{width:44px;height:44px;padding:0;border-radius:11px;background:rgba(20,20,20,.88);border:2px solid #fff;display:flex;align-items:center;justify-content:center;touch-action:manipulation}
+#ptPop button.on{background:#1f6fb2;border-color:#1f6fb2}
+#ptPop #ptCol{width:36px;height:36px;border-radius:50%;border-color:#888}
+#ptPop #ptCol span{display:block;width:22px;height:22px;border-radius:50%;border:2px solid #111}
+#ptColors{position:absolute;left:0;top:calc(100% + 6px);display:grid;grid-template-columns:repeat(4,30px);gap:6px;background:rgba(20,20,20,.92);padding:6px;border-radius:12px}
+#ptColors.hidden{display:none}
+#ptColors button{width:30px;height:30px;border-radius:50%;border:2px solid #666}
+#ptColors button.on{border-color:#fff;box-shadow:0 0 0 2px #1f6fb2}
