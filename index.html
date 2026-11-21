@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.13.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.14.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.13.1">
+<link rel="stylesheet" href="style.css?v=0.14.0">
 </head>
 <body>
 <div id="map"></div>
@@ -133,8 +133,8 @@
 
     <h3>Point d'entrée PTU</h3>
     <div class="grid2"><button id="btnPlaceP">📍 Toucher la carte</button><button id="btnCoordP">⌨ Coordonnées</button></div>
-    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m, sol ZMT)</label><input id="i_hPtu" inputmode="numeric"></div><div></div></div>
     <p class="hint" id="ptuInfo"></p>
+    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m, sol ZMT)</label><input id="i_hPtu" inputmode="numeric"></div><div></div></div>
 
     <h3>Équipe <span id="teamCount" class="mut"></span></h3>
     <ul id="teamList"></ul>
@@ -152,7 +152,11 @@
     <h3>Données de vol</h3>
     <div class="grid2">
       <div><label>Largage (FL)</label><input id="v_fl" inputmode="numeric"></div>
-      <div><label>Vitesse de largage (m/s, badin)</label><input id="v_ac" inputmode="decimal"></div>
+      <div></div>
+    </div>
+    <div class="grid2">
+      <div><label>Vitesse de largage (m/s badin)</label><input id="v_ac" inputmode="decimal"></div>
+      <div><label>Vitesse de largage (KIAS)</label><input id="v_acKt" inputmode="numeric"></div>
     </div>
     <div class="grid2">
       <div><label>Temps de chute (s)</label><input id="v_tFall" inputmode="decimal"></div>
@@ -167,10 +171,6 @@
       <div><label>Point de relaxation</label><select id="v_relax"></select></div>
     </div>
     <p class="hint" id="v_warn"></p>
-
-    <h3>Export</h3>
-    <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
-    <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
 
     <h3>Altimétrie</h3>
     <div class="grid2">
@@ -190,6 +190,10 @@
 
   <!-- ===== Briefing (v0.12.0) : tout ce qui est calculé, en lecture seule ===== -->
   <div id="tab-brief" class="tab hidden">
+    <h3>Export</h3>
+    <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
+    <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
+
     <div id="briefBody"></div>
   </div>
 
@@ -276,16 +280,16 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.13.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.13.1"></script>
-<script src="vendor/mgrs.min.js?v=0.13.1"></script>
-<script src="geo.js?v=0.13.1"></script>
-<script src="clubs.js?v=0.13.1"></script>
-<script src="wmm.js?v=0.13.1"></script>
-<script src="calc.js?v=0.13.1"></script>
-<script src="windpick.js?v=0.13.1"></script>
-<script src="pdfview.js?v=0.13.1"></script>
-<script src="app.js?v=0.13.1"></script>
-<script src="photo.js?v=0.13.1"></script>
+<script src="vendor/leaflet.js?v=0.14.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.14.0"></script>
+<script src="vendor/mgrs.min.js?v=0.14.0"></script>
+<script src="geo.js?v=0.14.0"></script>
+<script src="clubs.js?v=0.14.0"></script>
+<script src="wmm.js?v=0.14.0"></script>
+<script src="calc.js?v=0.14.0"></script>
+<script src="windpick.js?v=0.14.0"></script>
+<script src="pdfview.js?v=0.14.0"></script>
+<script src="app.js?v=0.14.0"></script>
+<script src="photo.js?v=0.14.0"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.13.1';
+const VERSION = '0.14.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -30,6 +30,8 @@ const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 function nowWhen() { const d = new Date(); return `${dayStr(d)}T${pad2(d.getHours())}:00`; }
 function shiftWhen(w, hours) { const d = new Date(w + ':00'); d.setHours(d.getHours() + hours); return `${dayStr(d)}T${pad2(d.getHours())}:00`; }
+const isvAutoName = I => `${I.when.slice(0, 10)}-${I.when.slice(11, 16)}`;
+function fmtWhenY(w) { const d = new Date(w + ':00'); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} à ${pad2(d.getHours())}h`; }
 function fmtWhen(w) { const d = new Date(w + ':00'); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}h`; }
 const fmt1 = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
 const fmtInt = v => Math.round(v).toLocaleString('fr-FR');
@@ -116,13 +118,15 @@ function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (p
 function newIsv(name) {
   return { id: uid('i'), name: name || 'ISV 1', ptu: null, hPtu: 300, ptuElev: null, team: [newPara(), newPara(), newPara(), newPara()],
     tGreen: 4, tRed: 10, fl: 295, acMs: 65, tFall: 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
-    secLong: 1000, secLat: 500, alti: null, points: [] };
+    secLong: 1000, secLat: 500, alti: null, points: [], when: null };
 }
 function upIsv(I) {
   const d = newIsv(I && I.name); if (!I) return d;
   Object.keys(d).forEach(k => { if (I[k] === undefined) I[k] = d[k]; });
   if (!Array.isArray(I.team) || !I.team.length) I.team = [newPara()];
   if (!Array.isArray(I.points)) I.points = [];
+  /* v0.14.0 : nom par défaut = date et heure du saut (« 2026-11-22-20:00 ») tant que l'utilisateur ne l'a pas forcé */
+  if (I.nameAuto === undefined) I.nameAuto = /^ISV \d+( \(copie\))?$/.test(String(I.name || ''));
   I.team.forEach(p => { if (!p.id) p.id = uid('p'); if (p.dt === undefined) p.dt = 3; if (p.name === undefined) p.name = ''; if (!(+p.mte > 0)) p.mte = MTE_DEF; if (prm && Array.isArray(prm.canopies) && prm.canopies.length && !prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; });
   return I;
 }
@@ -140,6 +144,9 @@ function upgrade(z) {
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
   z.show = Object.assign({ relax: true, label: true }, typeof z.show === 'object' && z.show ? z.show : {});
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
+  /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
+  z.isvs.forEach(i => { if (typeof i.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(i.when)) i.when = z.when; if (i.nameAuto) i.name = isvAutoName(i); });
+  { const c = z.isvs.find(i => i.id === z.cur) || z.isvs[0]; z.when = c.when; }
   return z;
 }
 let prm = store.get('isv.profile', null) || {};
@@ -495,7 +502,7 @@ function draw(light) {
 function capInfo() {
   const el = $('capInfo'); if (!el) return;
   if (!sol || !sol.ok) { el.classList.add('hidden'); el.innerHTML = ''; return; }
-  el.innerHTML = `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div><div class="altil">Alti : <span id="altiState" class="ast wait">…</span></div>`;
+  el.innerHTML = `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div><div class="altil">Altimétrie : <span id="altiState" class="ast wait">…</span></div>`;
   el.classList.remove('hidden'); altiState(); /* v0.13.0 : l'état du point haut (… / ✓ / !) remplace le bouton Alti */
 }
 /* Bouton Alti : « … » tant que le point haut n'est pas calculé pour le vecteur actuel, coche verte quand c'est fait (v0.5.3) */
@@ -687,12 +694,12 @@ async function ensureWx(force, date) {
   catch (e) { wxFailed[date] = true; toast(have ? 'Pas de réseau : prévision gardée, téléchargée le ' + fmtFetched(have.fetched) : 'Prévision impossible à télécharger (réseau ?)'); return have; }
   finally { wxBusy = false; fillInputs(); redraw(); }
 }
-function setWhen(w) { current.when = w; persist(); fillInputs(); redraw(); ensureWx(false); }
+function setWhen(w) { current.when = w; const I = isv(); I.when = w; if (I.nameAuto) I.name = isvAutoName(I); persist(); fillInputs(); redraw(); ensureWx(false); }
 $('qWhen').addEventListener('click', () => { $('jumpBox').classList.toggle('hidden'); syncJump(); });
 $('jumpOk').addEventListener('click', () => { $('jumpBox').classList.add('hidden'); });
 $('j_minus').addEventListener('click', () => setWhen(shiftWhen(current.when, -1)));
 $('j_plus').addEventListener('click', () => setWhen(shiftWhen(current.when, 1)));
-$('j_now').addEventListener('click', () => { current.when = nowWhen(); persist(); fillInputs(); ensureWx(true); });
+$('j_now').addEventListener('click', () => { setWhen(nowWhen()); ensureWx(true); });
 $('j_date').addEventListener('change', e => { if (e.target.value) setWhen(e.target.value + current.when.slice(10)); });
 $('j_hour').addEventListener('change', e => setWhen(current.when.slice(0, 11) + e.target.value + ':00'));
 
@@ -1066,7 +1073,7 @@ onNum('i_tRed', v => { isv().tRed = v; }, 0, 120);
 function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => +c.vz)); }
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
-  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
+  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1096,6 +1103,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
 }
 onNum('v_fl', v => { isv().fl = Math.round(v); }, 20, 400);
 onNum('v_ac', v => { isv().acMs = v; }, 20, 200);
+onNum('v_acKt', v => { isv().acMs = Math.round(v / KT * 100) / 100; }, 40, 400); /* v0.14.0 : saisie en KIAS, convertie en m/s badin */
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
 $('v_hOpen').addEventListener('change', e => {
   const v = numIn(e.target), I = isv(); if (!sol || !sol.ok || isNaN(v)) { fillInputs(); return; }
@@ -1123,8 +1131,10 @@ function renderBrief() {
   const row = (k, v, hi) => out.push(`<tr${hi ? ' class="hi"' : ''}><td>${k}</td><td>${v}</td></tr>`);
   const pname = i => I.team[i] && I.team[i].name ? esc(I.team[i].name) : `n° ${i + 1}`;
   sec('Saut');
-  row('Zone', esc(current.id ? current.name : 'Nouvelle zone')); row('ISV', esc(I.name));
-  row('Date et heure', fmtWhen(current.when).replace(' ', ' à '));
+  { const ze = zmtElev(), e0 = elev0(); /* v0.14.0 : coordonnées et sol de la ZMT avec le nom de la zone (plus de paragraphe Arrivée) */
+    row('Zone', `${esc(current.id ? current.name : 'Nouvelle zone')}${current.zmt ? ` (${fmtPos(current.zmt)} · ${fmtInt(e0)} m${ze == null ? ' provisoire' : ''})` : ''}`); }
+  row('ISV', esc(I.name));
+  row('Date et heure', fmtWhenY(current.when));
   row('Météo', wxRec ? `${esc(wxRec.model.split(' (')[0])}, prévision du ${fmtFetched(wxRec.fetched)}` : '<b class="warn">aucune prévision : calcul sans vent</b>');
   if (zeroWind) row('', '<b class="warn">ESSAI VENT 0</b>');
   if (current.zmt && F) { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); row('Vent au sol (ZMT)', `${Math.round(w.spd * KT)} kt du ${hdg(w.dir)}`); }
@@ -1137,11 +1147,12 @@ function renderBrief() {
   end();
   const av = altiVals();
   sec('Consignes para');
-  row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé', true);
-  row('ALPHA', av ? `${av.alpha} hPa` : '–', true);
+  row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé');
+  row('ALPHA', av ? `${av.alpha} hPa` : '–');
   row('Prise de cap', s.turn ? `à ${s.turn}` : 'dans l\'axe', true);
   row('CDO', s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmt1(s.tFall)} s`, true);
   row('Cap para', hdg(s.cap), true);
+  row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`, true);
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
   end();
   sec('Largage');
@@ -1151,7 +1162,7 @@ function renderBrief() {
   row('Cap avion au largage', hdg(s.acHeading), true);
   row('Point de relaxation', fmtPos(s.relax.pt), true);
   row('Créneau de largage', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true);
-  row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`, true);
+  row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`);
   row('Vent au largage', `${Math.round(s.windRel.spd * KT)} kt du ${hdg(s.windRel.dir)}`);
   { /* v0.13.1 (Henri) : « (4s) · 3s · 3s · 3s · (10s) », marges de sécurité entre parenthèses */
     const sx = v => `${fmt1(v)}s`, parts = [`(${sx(+I.tGreen)})`].concat(I.team.slice(1).map(p => sx(+p.dt))).concat([`(${sx(+I.tRed)})`]);
@@ -1160,9 +1171,7 @@ function renderBrief() {
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
   end();
   sec('Chute et ouverture');
-  { const hCmd = s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmtInt(Math.round((s.hOpen + s.openDrop) / 10) * 10)} m`;
-    if (s.openLowered) { row('Hauteur d\'ouverture', hCmd, true); row('Temps de chute', `${fmt1(s.tFall)} s`); }
-    else { row('Temps de chute', `${fmt1(s.tFall)} s`, true); row('Hauteur d\'ouverture', hCmd); } }
+  row('Hauteur d\'ouverture', s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmtInt(Math.round((s.hOpen + s.openDrop) / 10) * 10)} m`); /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
   row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
@@ -1170,18 +1179,14 @@ function renderBrief() {
   row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après le vecteur, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE jusqu'à 1013,25 hPa`);
   end();
   sec('Navigation sous voile');
-  row('Trace', `${fmtKm(s.length)} · ${fmtKm(s.direct)} en ligne droite`);
-  row('Temps sous voile', fmtMin(s.own.tCanopy), true);
+  row('Trace', fmtKm(s.length));
+  row('Distance en ligne droite', fmtKm(s.direct), true);
+  row('Temps sous voile', fmtMin(s.own.tCanopy));
   if (s.own.t180 != null) row('Passage du FL180, depuis le vert', fmtMin(s.own.t180), true);
   if (s.own.t120 != null) row('Passage du FL120, depuis le vert', fmtMin(s.own.t120), true);
   { const w = s.weak, i = w.idx >= 0 ? w.idx : 0, nm = I.team[i] && I.team[i].name;
     row('Para le moins performant', nm ? `${esc(nm)} (${esc(w.canopy.name)}, n° ${i + 1})` : `n° ${i + 1} (${esc(w.canopy.name)})`); }
   row('Marge sur le vent', `${prm.margin} %`);
-  end();
-  sec('Arrivée');
-  row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`, true); /* v0.13.1 : jamais par rapport au sol sous le PTU */
-  { const ze = zmtElev(); row('Sol de la ZMT', `${fmtInt(s.elev0)} m${ze == null && current.zmt ? ' (provisoire, relevé en attente)' : ''}`); }
-  if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
   end();
   if (I.points.length) {
     sec('Points de l\'ISV');
@@ -1412,7 +1417,14 @@ function renderIsvList() {
     const li = document.createElement('li'); li.className = I.id === current.cur ? 'cur' : '';
     li.innerHTML = `<span class="zn">${esc(I.name)} <small class="mut">${I.team.length} para${I.team.length > 1 ? 's' : ''} · FL${I.fl}</small></span>`;
     li.querySelector('.zn').onclick = () => openIsv(I.id);
-    const ren = document.createElement('button'); ren.textContent = '✎'; ren.onclick = async () => { const n = await ask('Nom de l\'ISV :', I.name); if (!n) return; I.name = n; persist(); fillInputs(); };
+    const ren = document.createElement('button'); ren.textContent = '✎'; ren.onclick = async () => {
+      /* v0.14.0 : un nom saisi arrête le nommage automatique ; bouton pour revenir au nom par défaut (date et heure) */
+      const dd = $('dlgDel'); dd.classList.remove('danger');
+      const n = await ask('Nom de l\'ISV :', I.name, I.nameAuto ? '' : '↺ Nom par défaut (date et heure)');
+      dd.classList.add('danger');
+      if (n === 'DELETE') { I.nameAuto = true; I.name = isvAutoName(I); }
+      else if (n) { I.nameAuto = n === isvAutoName(I); I.name = n; } else return;
+      persist(); fillInputs(); };
     const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => {
       if (current.isvs.length < 2) return toast('Une zone garde au moins une ISV');
       if (!(await ask(`Supprimer l'ISV « ${I.name} » ?`))) return;
@@ -1421,16 +1433,14 @@ function renderIsvList() {
     li.append(ren, del); ul.append(li);
   });
 }
-function openIsv(id) { current.cur = id; resetMarkers(); placing = null; closeSheet(); persist(); fillInputs(); draw(); if (sol && sol.ok) fitFigure(); ensureWx(false); refreshPtuElev(); toast(`ISV « ${isv().name} »`); }
+function openIsv(id) { current.cur = id; current.when = isv().when || current.when; resetMarkers(); placing = null; closeSheet(); persist(); fillInputs(); draw(); if (sol && sol.ok) fitFigure(); ensureWx(false); refreshPtuElev(); toast(`ISV « ${isv().name} »`); }
 $('btnNewIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
-  const n = await ask('Nom de la nouvelle ISV :', `ISV ${current.isvs.length + 1}`); if (!n) return;
-  const I = newIsv(String(n).trim()); current.isvs.push(I); openIsv(I.id); startPlacing(current.zmt ? 'P' : 'Z');
+  const I = newIsv(); I.when = current.when; I.nameAuto = true; I.name = isvAutoName(I); current.isvs.push(I); openIsv(I.id); startPlacing(current.zmt ? 'P' : 'Z');
 });
 $('btnDupIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
-  const n = await ask('Nom de la copie :', isv().name + ' (copie)'); if (!n) return;
-  const I = clone(isv()); I.id = uid('i'); I.name = String(n).trim(); I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; }); I.points.forEach(pt => { pt.id = uid('q'); });
+  const I = clone(isv()); I.id = uid('i'); if (!I.nameAuto) I.name = I.name + ' (copie)'; I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; }); I.points.forEach(pt => { pt.id = uid('q'); });
   current.isvs.push(I); openIsv(I.id);
 });
 function loadZone(id, keepIsvTab) {
@@ -1917,4 +1927,20 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   const s = document.getElementById('sheet'), t = s && s.querySelector('.tabs'); if (!t) return;
   const f = () => { if (t.offsetHeight) s.style.setProperty('--h3top', ((parseFloat(getComputedStyle(t).top) || 0) + t.offsetHeight) + 'px'); };
   if (window.ResizeObserver) new ResizeObserver(f).observe(t); window.addEventListener('resize', f); f();
+})();
+
+/* Zoom au pincement du trackpad (Mac) : le navigateur l'envoie en « wheel » avec ctrlKey, et Leaflet le divise
+   tellement (deltaY / 6 sur Mac) que le zoom est très lent. On le traite ici, plus réactif (21 nov. 2026, commun aux applis carte).
+   Sans effet sur iPhone (pincement tactile) ni sur la molette de la souris. */
+(function () {
+  const el = map.getContainer(); let acc = 0, pt = null, raf = 0;
+  el.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    acc += -e.deltaY * (e.deltaMode === 1 ? 0.25 : 0.012); pt = map.mouseEventToContainerPoint(e);
+    if (!raf) raf = requestAnimationFrame(() => {
+      raf = 0; const z = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), map.getZoom() + acc)); acc = 0;
+      if (Math.abs(z - map.getZoom()) > 1e-3) map.setZoomAround(pt, z, { animate: false });
+    });
+  }, { capture: true, passive: false });
 })();
