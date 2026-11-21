@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.24.0';
+const VERSION = '0.25.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -461,7 +461,17 @@ function ptSuffix(pt) {
    hauteur alti (altimètre calé sur le sol de la ZMT) minimale en passant ce point pour passer S avec 300 m de marge
    = altitude du sommet + 300 − sol ZMT + descente prévue de la trace entre ce point et S. Plusieurs sommets → la plus grande valeur.
    Recalculé à chaque fois (la trace bouge avec le vent, le PTU…), rien n'est stocké. */
-function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if (n.f < 1e-3 && k > 0) k--; return { k: Math.max(0, k), h: n.h }; }
+function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if (n.f < 1e-3 && k > 0) k--; return { k: Math.max(0, k - (S.back || 0)), h: n.h }; } /* v0.25.0 : S.back = nombre de points remontés vers l'OUV */
+/* v0.25.0 (Henri) : appui sur un point de passage -MINI de la carte → proposer de basculer le MINI sur le point de la trace d'avant
+   (il reprend son nom d'origine ; le précédent prend -MINI recalculé pour sa propre hauteur). Répétable jusqu'à l'OUV. */
+async function miniBack(i) {
+  if (!sol || !sol.ok) return; const T = sol.trace, S = isv().points.filter(q => q.auto === 'S' && typeof q.elev === 'number' && sumVertex(T, q).k === i);
+  if (!S.length) return;
+  if (i === 0) { toast('C\'est déjà le point d\'ouverture : impossible de remonter plus loin'); return; }
+  const M = traceMini();
+  if (!(await ask(`Basculer la hauteur mini (${fmtInt(M[i])} m alti) sur le point de la trace d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}) ? Celui-ci reprend son nom d'origine.`, undefined, null, 'Basculer'))) return;
+  S.forEach(q => { q.back = (q.back || 0) + 1; }); persist(); redraw();
+}
 function traceMini() {
   const out = []; out.stale = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
   isv().points.forEach(S => { if (S.auto !== 'S' || typeof S.elev !== 'number') return;
@@ -523,7 +533,8 @@ function draw(light) {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
     const show = far && (farPtu || i === 0); if (show) lastLab = TP[i]; /* hauteurs toujours affichées (bouton Infos retiré en v0.5.3) */
-    L.marker(LL(p), { interactive: false, icon: dotIcon(MI[i] != null ? (MI.stale[i] ? C_WARN : '#ffffff') : C_TRACE, i === 0 ? 13 : MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    const vm = L.marker(LL(p), { interactive: MI[i] != null, icon: dotIcon(MI[i] != null ? (MI.stale[i] ? C_WARN : '#ffffff') : C_TRACE, i === 0 ? 13 : MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    if (MI[i] != null) vm.on('click', () => { if (Date.now() < suppressClickUntil) return; miniBack(i); });
   });
   // Vecteur de largage
   const V = sol.vec, vl = [LL(V.green), LL(V.red)];
@@ -886,7 +897,7 @@ async function placeSummit(S, p) { /* p = point choisi sur la trace (avec son al
   const hi = await findSummit(c);
   if (hi) { S.lat = hi.lat; S.lng = hi.lng; S.elev = Math.round(hi.z); }
   else { S.lat = c.lat; S.lng = c.lng; S.elev = typeof p.z === 'number' ? Math.round(p.z) : null; toast('Relief indisponible : sommet posé sur la trace'); }
-  S.val = null; S.sig = traceSig(); persist(); redraw(); fillInputs(); syncSumWarn(); if (cutData) { drawCut(); cutText(cutData.cur); }
+  S.val = null; S.back = 0; /* v0.25.0 : sommet déplacé → le MINI revient sur le point juste avant */ S.sig = traceSig(); persist(); redraw(); fillInputs(); syncSumWarn(); if (cutData) { drawCut(); cutText(cutData.cur); }
   if (S.elev == null) pointElev(S);
 }
 async function addSummit(p) {
