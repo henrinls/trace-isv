@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.25.1';
+const VERSION = '0.27.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -30,7 +30,8 @@ const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 function nowWhen() { const d = new Date(); return `${dayStr(d)}T${pad2(d.getHours())}:00`; }
 function shiftWhen(w, hours) { const d = new Date(w + ':00'); d.setHours(d.getHours() + hours); return `${dayStr(d)}T${pad2(d.getHours())}:00`; }
-const isvAutoName = I => `${I.when.slice(0, 10).replace(/-/g, '')}-${I.when.slice(11, 16)}`; /* « 20261122-20:00 » (v0.17.0 : date collée, Henri) */
+const isvAutoBase = I => `${I.when.slice(0, 10).replace(/-/g, '')}-${I.when.slice(11, 16)}`; /* « 20261122-20:00 » (v0.17.0 : date collée, Henri) */
+const isvAutoName = I => isvAutoBase(I) + (I.autoSuf ? '-' + I.autoSuf : ''); /* v0.26.0 : ISV dupliquées « 20261122-20:00-1 », « -2 »… */
 function fmtWhenY(w) { const d = new Date(w + ':00'); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} à ${pad2(d.getHours())}h`; }
 function fmtWhen(w) { const d = new Date(w + ':00'); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}h`; }
 const fmt1 = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
@@ -308,7 +309,7 @@ function syncCompass() {
   $('btnNorth').classList.toggle('rotated', Math.abs(((b % 360) + 360) % 360) > 0.5);
 }
 let rotT = 0;
-map.on('rotate', () => { syncCompass(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && current.zmt) drawBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
 
 const fig = L.layerGroup().addTo(map);     // tracé recalculé à chaque dessin
 const handles = L.layerGroup().addTo(map); // points déplaçables, gardés d'un dessin à l'autre
@@ -343,7 +344,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
   };
   const down = e => {
     if (e.touches && e.touches.length > 1) return; // deux doigts : c'est pour la carte
-    const p = pt(e); start = { x: p.clientX, y: p.clientY };
+    const p = pt(e); start = { x: p.clientX, y: p.clientY }; marker._lpMoved = false;
     clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null; marker._lpDragging = true; if (onStart) onStart();
@@ -362,6 +363,8 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
       return;
     }
     e.preventDefault();
+    /* 21 nov. 2026 : rien ne bouge tant que le doigt n'a pas glissé (sinon, relâché sur place = menu « Déplacer », lpmove.js) */
+    if (!marker._lpMoved) { if (Math.hypot(p.clientX - start.x, p.clientY - start.y) <= MOVE_TOL) return; marker._lpMoved = true; }
     const r = map.getContainer().getBoundingClientRect();
     const ll = map.containerPointToLatLng([p.clientX - r.left, p.clientY - r.top]);
     marker.setLatLng(ll); onMove({ lat: ll.lat, lng: ll.lng });
@@ -370,7 +373,11 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
     clearTimeout(timer); timer = null; off();
     if (marker._lpDragging) {
       marker._lpDragging = false; el.classList.remove('lifting'); map.dragging.enable();
-      suppressClickUntil = Date.now() + 400; onEnd();
+      suppressClickUntil = Date.now() + 400;
+      if (marker._lpMoved || typeof LPMove === 'undefined') onEnd();
+      else { /* relâché sans glisser : menu « Déplacer » (puis toucher la carte), ou les choix propres à l'objet (marker._lpMenu) */
+        const r = map.getContainer().getBoundingClientRect(), q = map.containerPointToLatLng([start.x - r.left, start.y - r.top]), P = { lat: q.lat, lng: q.lng };
+        LPMove.open(start.x, start.y, marker._lpMenu ? marker._lpMenu(P) : LPMove.defaultItems(marker, P, onMove, onEnd, onStart)); }
     }
   };
   el.addEventListener('touchstart', down, { passive: true }); el.addEventListener('mousedown', down);
@@ -402,11 +409,57 @@ function compute() {
 function pName(i) { const p = isv().team[i]; return p ? `n° ${i + 1}${p.name ? ' ' + p.name : ''}` : ''; }
 
 // ---------- Dessin ----------
+/* v0.26.0 (Henri) : barbule du vent au sol de la ZMT (pictogramme des cartes aéronautiques / Windy), en cyan, côté au vent de la ZMT :
+   trait dans le sens du vent avec une pointe vers la ZMT, empennage côté au vent : demi-barre = 5 kt, barre = 10 kt, triangle = 50 kt.
+   Toujours affichée (carte et PDF), décalée de côté si elle chevauche la trace, le PTU ou le vecteur. */
+function groundWind() { if (!current.zmt || !F) return null; try { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); return isFinite(w.spd) ? w : null; } catch (e) { return null; } }
+function barbGeom(kt, H, d, s) { /* H = bout côté ZMT, d = vecteur unitaire écran dans le sens où va le vent, s = échelle ; renvoie traits et triangles */
+  const n = { x: -d.y, y: d.x }, L0 = 62 * s, T = { x: H.x - d.x * L0, y: H.y - d.y * L0 }, P = (a, k, m) => ({ x: T.x + d.x * a + n.x * m * k, y: T.y + d.y * a + n.y * m * k });
+  const lines = [[H, T], [H, { x: H.x - d.x * 7 * s + n.x * 4 * s, y: H.y - d.y * 7 * s + n.y * 4 * s }], [H, { x: H.x - d.x * 7 * s - n.x * 4 * s, y: H.y - d.y * 7 * s - n.y * 4 * s }]], tris = [];
+  let k5 = Math.round(kt / 5), a = 0; const F50 = Math.floor(k5 / 10); k5 -= F50 * 10; const B10 = Math.floor(k5 / 2), B5 = k5 % 2;
+  if (!F50 && !B10 && !B5) return { lines, tris, calm: true, T };
+  for (let i = 0; i < F50; i++) { tris.push([P(a, s, 0), P(a + 8 * s, 1, 0), P(a, s, 15)]); a += 10 * s; }
+  for (let i = 0; i < B10; i++) { lines.push([P(a, 1, 0), { x: P(a, s, 15).x - d.x * 5 * s, y: P(a, s, 15).y - d.y * 5 * s }]); a += 6 * s; }
+  if (B5) { if (!F50 && !B10) a += 6 * s; lines.push([P(a, 1, 0), { x: P(a, s, 8).x - d.x * 2.5 * s, y: P(a, s, 8).y - d.y * 2.5 * s }]); }
+  return { lines, tris, T };
+}
+function barbPlace(toPx, s) { /* position écran de la barbule : côté au vent, décalée de côté au besoin pour ne rien chevaucher */
+  const w = groundWind(); if (!w) return null;
+  const z = toPx(current.zmt), r = (w.dir + 180) * Math.PI / 180, far = toPx(Calc.fromLocal(current.zmt, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 }));
+  let d = { x: far.x - z.x, y: far.y - z.y }; const l = Math.hypot(d.x, d.y) || 1; d = { x: d.x / l, y: d.y / l };
+  const n = { x: -d.y, y: d.x }, obs = [];
+  if (sol && sol.ok) { const T = sol.trace; for (let i = 1; i < T.length; i++) { const a = toPx(T[i - 1]), b = toPx(T[i]); for (let k = 0; k <= 8; k++) obs.push({ x: a.x + (b.x - a.x) * k / 8, y: a.y + (b.y - a.y) * k / 8 }); } obs.push(toPx(sol.vec.green), toPx(sol.vec.red)); }
+  const I = isv(); if (I.ptu) obs.push(toPx(I.ptu));
+  let best = null;
+  [0, 34, -34, 68, -68, 102, -102].forEach(off => {
+    const H = { x: z.x - d.x * 26 * s + n.x * off * s, y: z.y - d.y * 26 * s + n.y * off * s }, T = { x: H.x - d.x * 62 * s, y: H.y - d.y * 62 * s };
+    let m = Infinity; obs.forEach(o => { for (let k = 0; k <= 6; k++) { const q = { x: H.x + (T.x - H.x) * k / 6, y: H.y + (T.y - H.y) * k / 6 }; m = Math.min(m, Math.hypot(q.x - o.x, q.y - o.y)); } });
+    const score = Math.min(m, 40 * s) - Math.abs(off) * 0.05; if (!best || score > best.score) best = { score, H };
+  });
+  return { H: best.H, d, kt: w.spd * KT };
+}
+let barbMk = null;
+function drawBarb() {
+  if (barbMk) { map.removeLayer(barbMk); barbMk = null; }
+  if (!current.zmt) return; const pl = barbPlace(ll => map.latLngToContainerPoint(LL(ll)), 1); if (!pl) return;
+  const g = barbGeom(pl.kt, pl.H, pl.d, 1), pts = g.lines.flat().concat(g.tris.flat()); if (g.calm) pts.push({ x: g.T.x - 9, y: g.T.y - 9 }, { x: g.T.x + 9, y: g.T.y + 9 });
+  const x0 = Math.min(...pts.map(q => q.x)) - 4, y0 = Math.min(...pts.map(q => q.y)) - 4, x1 = Math.max(...pts.map(q => q.x)) + 4, y1 = Math.max(...pts.map(q => q.y)) + 4, f = q => `${(q.x - x0).toFixed(1)},${(q.y - y0).toFixed(1)}`;
+  const body = g.lines.map(([a, b]) => `M${f(a)}L${f(b)}`).join('');
+  const svg = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible"><path d="${body}" stroke="#000" stroke-width="5" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="#000" stroke-width="1.2"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="2.4" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="7" stroke="#00e5ff" stroke-width="2.4" fill="none"/>` : ''}</svg>`;
+  const ll = map.containerPointToLatLng([x0, y0]);
+  barbMk = L.marker(ll, { interactive: false, zIndexOffset: -500, icon: L.divIcon({ className: 'barb', iconSize: [x1 - x0, y1 - y0], iconAnchor: [0, 0], html: svg }) }).addTo(map);
+}
 const zmtIcon = L.divIcon({ className: 'tgt zmt', iconSize: [34, 34], iconAnchor: [17, 17], html: '<span></span><b>ZMT</b>' });
 const triIcon = L.divIcon({ className: 'tri', iconSize: [22, 20], iconAnchor: [11, 13], html: '<span></span>' });
 const lbl = (ll, html, cls) => L.marker(LL(ll), { interactive: false, icon: L.divIcon({ className: cls || 'glabel', iconSize: [0, 0], html: `<span>${html}</span>` }) });
 const mk = {}; // marqueurs gardés : zmt, ptu, drop, rot, et un par point (pt_<id>)
 let vecHit = null;
+function vecMoveFn(ll) {
+      if (!sol || !sol.ok) return; const I2 = isv();
+      if (!vecHit.off) vecHit.off = Calc.toLocal(ll, sol.vec.attach); // écart entre le doigt et le point de largage, gardé pendant tout le glissement
+      I2.manual = clampToCircle(Calc.fromLocal(ll, vecHit.off)); I2.capManual = null; dragRecalc();
+}
+const vecEndFn = () => { vecHit.off = null; persist(); fillInputs(); redraw(); toast(sol && sol.ok ? `${sol.openLowered ? 'Ouverture à ' + fmtInt(sol.hOpen) + ' m' : fmt1(sol.tFall) + ' s de chute'} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || ''); };
 function vecHitLine(V, I) {
   const pts = [LL(V.green), LL(V.red)];
   if (!vecHit) {
@@ -418,12 +471,14 @@ function vecHitLine(V, I) {
      (piège connu, voir Setup PSV / vecteur-largage : jamais de simple booléen « déjà branché ») */
   if (vecHit.line._path && vecHit.el !== vecHit.line._path) {
     vecHit.el = vecHit.line._path;
-    longPressDrag(vecHit.h, ll => {
-      if (!sol || !sol.ok) return; const I2 = isv();
-      if (!vecHit.off) vecHit.off = Calc.toLocal(ll, sol.vec.attach); // écart entre le doigt et le point de largage, gardé pendant tout le glissement
-      I2.manual = clampToCircle(Calc.fromLocal(ll, vecHit.off)); I2.capManual = null; dragRecalc();
-    }, () => { vecHit.off = null; persist(); fillInputs(); redraw(); toast(sol && sol.ok ? `${sol.openLowered ? 'Ouverture à ' + fmtInt(sol.hOpen) + ' m' : fmt1(sol.tFall) + ' s de chute'} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || ''); },
-    () => { vecHit.off = null; });
+    /* v0.26.0 (Henri) : appui long relâché sur le vecteur → « Déplacer » (toucher la carte : le vecteur va là) ou « Rentrer »
+       (le vecteur glisse le long de l'axe de la trace jusqu'au point le plus proche de l'endroit touché : la trace ne change pas de cap) */
+    vecHit.h._lpMenu = P => [
+      { label: '✥ Déplacer', fn: () => LPMove.pick('Touche la carte : le vecteur va là', ll => LPMove.replay(vecHit.h, P, ll, vecMoveFn, vecEndFn, () => { vecHit.off = null; })) },
+      { label: '⇢ Rentrer le long de la trace', fn: () => LPMove.pick('Touche la carte : le vecteur glisse le long de la trace jusque-là', ll => {
+        if (!sol || !sol.ok) return; const T = sol.trace, a = Calc.toLocal(T[0], T[T.length - 1]), la = Math.hypot(a.x, a.y) || 1, u = { x: a.x / la, y: a.y / la }, d = Calc.toLocal(P, ll), k = d.x * u.x + d.y * u.y;
+        const I2 = isv(); I2.manual = clampToCircle(Calc.fromLocal(sol.vec.attach, { x: u.x * k, y: u.y * k })); I2.capManual = null; vecEndFn(); }) }];
+    longPressDrag(vecHit.h, vecMoveFn, vecEndFn, () => { vecHit.off = null; });
   }
 }
 function keep(key, ll, icon, z, onMove, onEnd, onClick) {
@@ -449,6 +504,7 @@ function ptSuffix(pt) {
   if (pt.kind === 'alt') { if (typeof pt.elev !== 'number' || (zmtElev() == null && typeof I.ptuElev !== 'number' && !wxRec)) return ''; const d = Math.round(pt.elev - elev0()); return `${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`; }
   /* v0.20.0 (Henri) : sommet S créé depuis la coupe : hauteur de la trace au-dessus du terrain à cet endroit.
      v0.21.0 : plus de point P séparé, c'est le point précédent de la trace qui prend « -MINIxxxx » (traceMini) */
+  if (pt.kind === 'zd') return pt.role === 'deb' ? 'DEB' : 'FIN'; /* v0.27.0 : ZD-DEB / ZD-FIN (ZD1-DEB… si plusieurs zones) */
   if (pt.auto === 'S') {
     if (typeof pt.elev !== 'number') { if (!ptElevAsked.has(pt.id)) { ptElevAsked.add(pt.id); pointElev(pt); } return pt.val != null ? String(pt.val) : ''; }
     if (sol && sol.ok && sol.trace.length > 1) pt.val = Math.round(Calc.nearestOn(sol.trace, pt).h + elev0() - pt.elev);
@@ -465,31 +521,47 @@ function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if
 /* v0.25.0 (Henri) : appui sur un point de passage -MINI de la carte → proposer de basculer le MINI sur le point de la trace d'avant
    (il reprend son nom d'origine ; le précédent prend -MINI recalculé pour sa propre hauteur). Répétable jusqu'à l'OUV. */
 async function miniBack(i) {
-  if (!sol || !sol.ok) return; const T = sol.trace, S = isv().points.filter(q => q.auto === 'S' && typeof q.elev === 'number' && sumVertex(T, q).k === i);
+  if (!sol || !sol.ok) return; const T = sol.trace, M = traceMini(), S = M.src[i] || [];
   if (!S.length) return;
   if (i === 0) { toast('C\'est déjà le point d\'ouverture : impossible de remonter plus loin'); return; }
-  const M = traceMini();
   if (!(await ask(`Basculer la hauteur mini (${fmtInt(M[i])} m alti) sur le point de la trace d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}) ? Celui-ci reprend son nom d'origine.`, undefined, null, 'Basculer'))) return;
   S.forEach(q => { q.back = (q.back || 0) + 1; }); persist(); redraw();
 }
+/* v0.27.0 (Henri) : zones délicates = deux points sur la trace (ZD-DEB, ZD-FIN). Le point de la trace avant le début prend
+   « -MINI » = hauteur alti mini pour arriver à la fin de la zone avec la marge (même calcul qu'un sommet, avec l'altitude du terrain
+   à la fin). Un sommet S situé dans la zone utilise le point d'alerte de la zone : le nom affiche la plus grande des deux valeurs.
+   Bascule vers l'arrière comme pour les sommets (deb.back). */
+const C_ZD = '#b388ff'; /* violet : distinct de l'orange « à revérifier » et du rose de la trace */
+function traceSlice(T, s0, s1) { /* morceau de la trace entre les abscisses s0 et s1 (m) */
+  const out = [Calc.pointAt(T, s0)]; let acc = 0;
+  for (let i = 1; i < T.length; i++) { const a = Calc.toLocal(T[i - 1], T[i]); acc += Math.hypot(a.x, a.y); if (acc > s0 && acc < s1) out.push(T[i]); }
+  out.push(Calc.pointAt(T, s1)); return out;
+}
+function zdSpans() { if (!sol || !sol.ok) return []; const T = sol.trace; return zdPairs().map(z => { const a = Calc.nearestOn(T, z.d).s, b = Calc.nearestOn(T, z.f).s; return { s0: Math.min(a, b), s1: Math.max(a, b) }; }); }
+function zdPairs() { const P = isv().points; return P.filter(q => q.kind === 'zd' && q.role === 'deb').map(d => ({ d, f: P.find(q => q.kind === 'zd' && q.role === 'fin' && q.zid === d.zid) })).filter(z => z.f); }
 function traceMini() {
-  const out = []; out.stale = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
+  const out = []; out.stale = []; out.src = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
+  const T = sol.trace, mg = +prm.sumMargin || 0, e0 = elev0();
+  const add = (k, m, stale, src) => { if (!(out[k] >= m)) out[k] = m; if (stale) out.stale[k] = true; (out.src[k] = out.src[k] || []).includes(src) || out.src[k].push(src); };
+  const Z = zdPairs().map(z => { const nd = Calc.nearestOn(T, z.d), nf = Calc.nearestOn(T, z.f), k = sumVertex(T, nd.s <= nf.s ? z.d : z.f).k;
+    return { z, s0: Math.min(nd.s, nf.s), s1: Math.max(nd.s, nf.s), k, deb: nd.s <= nf.s ? z.d : z.f, fin: nd.s <= nf.s ? z.f : z.d, hf: nd.s <= nf.s ? nf.h : nd.h }; });
+  Z.forEach(Q => { if (typeof Q.fin.elev === 'number') add(Q.k, Math.ceil(Q.fin.elev + mg - e0 + (T[Q.k].h - Q.hf)), sStale(Q.deb) || sStale(Q.fin), Q.deb); });
   isv().points.forEach(S => { if (S.auto !== 'S' || typeof S.elev !== 'number') return;
-    const v = sumVertex(sol.trace, S), m = Math.ceil(S.elev + (+prm.sumMargin || 0) - elev0() + (sol.trace[v.k].h - v.h));
-    if (!(out[v.k] >= m)) out[v.k] = m; if (sStale(S)) out.stale[v.k] = true; });
+    const n = Calc.nearestOn(T, S), Q = Z.find(q => n.s >= q.s0 - 1 && n.s <= q.s1 + 1), k = Q ? Q.k : sumVertex(T, S).k;
+    add(k, Math.ceil(S.elev + mg - e0 + (T[k].h - n.h)), sStale(S), Q ? Q.deb : S); });
   return out;
 }
 /* v0.22.0 (Henri) : si la trace a bougé depuis la pose d'un sommet S, bandeau d'alerte sur la carte pour revérifier les sommets
    (ils ne sont peut-être plus sur le point le plus haut sous la trace). S.sig = empreinte de la trace à la pose (ou à l'acquittement). */
 function traceSig() { if (!sol || !sol.ok) return ''; let h = 0; const s = sol.trace.map(q => q.lat.toFixed(5) + ',' + q.lng.toFixed(5)).join(';'); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); }
 const C_WARN = '#ff8c00'; /* v0.23.0 : sommet S pas revérifié depuis que la trace a bougé (et son point de passage) → orange */
-function sStale(q) { if (q.auto !== 'S' || !q.sig) return false; const s = traceSig(); return !!s && q.sig !== s; }
+function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig) return false; const s = traceSig(); return !!s && q.sig !== s; }
 function syncSumWarn() {
-  const sig = traceSig(), S = isv().points.filter(q => q.auto === 'S');
+  const sig = traceSig(), S = isv().points.filter(q => q.auto === 'S' || q.kind === 'zd');
   if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
   $('sumWarn').classList.toggle('hidden', !sig || !S.some(q => q.sig !== sig));
 }
-$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S') q.sig = sig; }); persist(); syncSumWarn(); redraw(); });
+$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S' || q.kind === 'zd') q.sig = sig; }); persist(); syncSumWarn(); redraw(); });
 const miniTag = (M, i) => M[i] != null ? `-MINI${M[i]}` : '';
 const ptElevAsked = new Set();
 function ptNum(pt) {
@@ -507,6 +579,7 @@ function draw(light) {
   // ZRT : affichage seulement
   current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
   // ZMT et PTU
+  drawBarb();
   keep('zmt', current.zmt, zmtIcon, 300, ll => { current.zmt = ll; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); });
   keep('ptu', I.ptu, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); });
   // Points de l'ISV
@@ -515,7 +588,7 @@ function draw(light) {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
       : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${sStale(pt) ? C_WARN : pt.color || '#fff'}"></i><b style="color:${sStale(pt) ? C_WARN : pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
-    keep('pt_' + pt.id, pt, ic, 250, ll => { if (pt.auto === 'S' && sol && sol.ok && sol.trace.length > 1) { ll = Calc.nearestOn(sol.trace, ll).pt; if (mk['pt_' + pt.id]) mk['pt_' + pt.id].setLatLng(LL(ll)); } /* v0.23.0 (Henri) : un sommet S reste sur la trace (projeté à la perpendiculaire) */ pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') { placeSummit(pt, { lat: pt.lat, lng: pt.lng }); return; } persist(); pt.elev = null; pointElev(pt); syncSumWarn(); redraw(); }, () => pointMenu(pt));
+    keep('pt_' + pt.id, pt, ic, 250, ll => { if ((pt.auto === 'S' || pt.kind === 'zd') && sol && sol.ok && sol.trace.length > 1) { ll = Calc.nearestOn(sol.trace, ll).pt; if (mk['pt_' + pt.id]) mk['pt_' + pt.id].setLatLng(LL(ll)); } /* v0.23.0 (Henri) : un sommet S reste sur la trace (projeté à la perpendiculaire) */ pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') { placeSummit(pt, { lat: pt.lat, lng: pt.lng }); return; } if (pt.kind === 'zd') pt.sig = traceSig(); persist(); pt.elev = null; pointElev(pt); syncSumWarn(); redraw(); }, () => pointMenu(pt));
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
@@ -526,6 +599,7 @@ function draw(light) {
   const T = sol.trace.map(LL);
   L.polyline(T, { color: '#000', weight: 7, opacity: .55, interactive: false }).addTo(fig);
   L.polyline(T, { color: C_TRACE, weight: 3.6, interactive: false }).addTo(fig);
+  zdSpans().forEach(z => L.polyline(traceSlice(sol.trace, z.s0, z.s1).map(LL), { color: C_ZD, weight: 7, opacity: .75, dashArray: '10 8', interactive: false }).addTo(fig)); /* v0.27.0 : zones délicates */
   const TP = sol.trace.map(p => map.latLngToContainerPoint(LL(p))), k0 = TP.length - 1;
   const flat = Math.abs(TP[k0].x - TP[0].x) > Math.abs(TP[k0].y - TP[0].y); let lastLab = null;
   const MI = traceMini(); syncSumWarn();
@@ -541,7 +615,6 @@ function draw(light) {
   L.polyline(vl, { color: '#fff', weight: 9, opacity: .9, interactive: false }).addTo(fig);
   L.polyline(vl, { color: '#000', weight: 4.5, interactive: false }).addTo(fig);
   V.exits.forEach(e => L.marker(LL(e), { interactive: false, icon: L.divIcon({ className: 'exitp' + (e.i === sol.dropIdx ? ' ref' : ''), iconSize: [12, 12], iconAnchor: [6, 6], html: '<span></span>' }) }).addTo(fig));
-  L.marker(LL(V.red), { interactive: false, icon: dotIcon(C_END, 15, '', 'big') }).addTo(fig);
   // Poignées : point de largage (déplacer le vecteur), point vert (le faire tourner)
   // v0.5.6 (Henri) : plus de rond blanc ; poignée invisible tout le long du vecteur (trait épais transparent, comme dans les
   // autres applis) : appui long n'importe où sur le vecteur puis glisser = déplacer. Le point attrapé reste sous le doigt.
@@ -549,6 +622,10 @@ function draw(light) {
   vecHitLine(V, I);
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
+    () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
+  /* v0.26.0 (Henri) : le point rouge fait aussi pivoter le vecteur (cap du point de largage vers le doigt) */
+  keep('rotR', V.red, dotIcon(C_END, 15, '', 'big'), 650,
+    ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(sol.vec.attach, ll); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
     () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
   // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   // Ouverture basse : un point jaune par para
@@ -834,7 +911,7 @@ $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.targ
 function placeBanner() {
   if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.'); return; }
   setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
-    : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : 'Touche la carte pour placer le point libre.') : null);
+    : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Touche la trace au DÉBUT de la zone délicate.' : 'Touche la trace à la FIN de la zone délicate.') : 'Touche la carte pour placer le point libre.') : null);
   if (!placing) updateInfo();
 }
 function startPlacing(what) { placing = placing === what ? null : what; stopMeasure(); if (placing) closeSheet(); placeBanner(); fillInputs(); }
@@ -858,7 +935,7 @@ function syncPtPop() {
   const pop = $('ptPop'); pop.classList.toggle('hidden', !ptOpen);
   if (!ptOpen) return;
   const k = placing && typeof placing === 'object' ? placing.kind : null;
-  $('ptAlt').classList.toggle('on', k === 'alt'); $('ptFree').classList.toggle('on', k === 'free'); syncPtColors();
+  $('ptAlt').classList.toggle('on', k === 'alt'); $('ptFree').classList.toggle('on', k === 'free'); $('ptZd').classList.toggle('on', k === 'zd'); syncPtColors();
   const r = $('qPoint').getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(r.top + r.height / 2 - 22)}px`;
 }
 function openPtPop() { closeSheet(); /* v0.19.0 : la mesure reste affichée pour poser un point sur un de ses bouts */ ptOpen = true; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
@@ -866,6 +943,14 @@ function closePtPop() { ptOpen = false; ptPal = false; if (placing && typeof pla
 $('qPoint').addEventListener('click', () => { if (ptOpen) closePtPop(); else openPtPop(); });
 $('ptAlt').addEventListener('click', () => { ptPal = false; placing = { kind: 'alt' }; placeBanner(); fillInputs(); syncPtPop(); });
 $('ptFree').addEventListener('click', () => { ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
+$('ptZd').addEventListener('click', () => { ptPal = false; if (!sol || !sol.ok) { toast('Il faut d\'abord une trace (ZMT et PTU)'); return; } placing = { kind: 'zd', stage: 'deb' }; placeBanner(); fillInputs(); syncPtPop(); });
+function addZd(p, what) { /* v0.27.0 : début puis fin d'une zone délicate, posés exactement sur la trace */
+  if (!sol || !sol.ok) return; const q = Calc.nearestOn(sol.trace, p).pt, zid = what.zid || uid('z');
+  const pt = { id: uid('q'), kind: 'zd', auto: 'ZD', role: what.stage, zid, name: 'ZD', lat: q.lat, lng: q.lng, color: C_ZD, elev: null, sig: traceSig() };
+  isv().points.push(pt); pointElev(pt);
+  if (what.stage === 'deb') { placing = { kind: 'zd', stage: 'fin', zid }; ptOpen = true; } 
+  persist(); redraw(); placeBanner(); fillInputs(); syncPtPop();
+}
 /* un autre bouton de la colonne ferme le choix */
 $('quick').addEventListener('click', e => { const b = e.target.closest('button'); if (ptOpen && b && b.id !== 'qPoint') closePtPop(); }, true);
 async function pointElev(pt) { /* v0.19.4 : tuiles d'altitude d'abord (même relief que la coupe), Open-Meteo en secours */
@@ -905,13 +990,13 @@ async function addSummit(p) {
   isv().points.push(S); await placeSummit(S, p);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
-function delPoint(pt) { isv().points = isv().points.filter(x => x.id !== pt.id && x.sum !== pt.id); persist(); redraw(); fillInputs(); } /* v0.20.0 : supprimer un sommet S supprime son point de passage P */
+function delPoint(pt) { isv().points = isv().points.filter(x => x.id !== pt.id && x.sum !== pt.id && !(pt.zid && x.zid === pt.zid)); /* v0.27.0 : une zone délicate part avec ses deux points */ persist(); redraw(); fillInputs(); } /* v0.20.0 : supprimer un sommet S supprime son point de passage P */
 function renderPtList() {
   const ul = $('ptList'); ul.innerHTML = '';
   if (!isv().points.length) { ul.innerHTML = '<li class="mut">Aucun point posé.</li>'; return; }
   isv().points.forEach(pt => {
     const li = document.createElement('li'), alt = pt.kind === 'alt';
-    li.innerHTML = `<span class="pic${alt ? ' alt' : ''}" style="color:${alt ? '#ff2020' : (pt.color || '#fff')}">${alt ? '◎' : '◆'}</span><span class="zn">${esc(pointLabel(pt) || '(sans nom)')}<br><small class="mut">${alt ? 'Zone de posé alternative' : 'Point libre'}</small></span>`;
+    li.innerHTML = `<span class="pic${alt ? ' alt' : ''}" style="color:${alt ? '#ff2020' : (pt.color || '#fff')}">${alt ? '◎' : '◆'}</span><span class="zn">${esc(pointLabel(pt) || '(sans nom)')}<br><small class="mut">${alt ? 'Zone de posé alternative' : pt.kind === 'zd' ? 'Zone délicate' : pt.auto === 'S' ? 'Sommet' : 'Point libre'}</small></span>`;
     li.querySelector('.zn').onclick = () => { setSheetSize('mini'); map.setView(LL(pt), Math.max(map.getZoom(), 15)); };
     const ed = document.createElement('button'); ed.textContent = '✏️'; ed.title = 'Modifier'; ed.onclick = () => pointMenu(pt);
     const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Supprimer';
@@ -921,7 +1006,7 @@ function renderPtList() {
 }
 $('btnAddPt').addEventListener('click', async () => { if (!(await askZoneName())) return; openPtPop(); });
 function pointMenu(pt) {
-  $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
+  $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : pt.kind === 'zd' ? 'Zone délicate' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
   $('peName').value = pt.name || ''; $('peName').readOnly = !!pt.auto; /* v0.20.0 : S et P nommés tout seuls, pas de renommage */
   const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = $('peMove').onclick = null; };
   $('peOk').onclick = () => { if (!pt.auto) pt.name = $('peName').value.trim(); close(); persist(); redraw(); fillInputs(); };
@@ -1010,7 +1095,7 @@ map.on('click', e => {
   placing = null; placeBanner();
   if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
   else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; pt.elev = typeof p.z === 'number' ? Math.round(p.z) : null; if (pt.elev == null) pointElev(pt); persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
-  else { ptOpen = false; ptPal = false; if (what.kind === 'free' && sn.temp) addSummit(p); else addPoint(p, what); }
+  else { ptOpen = false; ptPal = false; if (what.kind === 'zd') addZd(p, what); else if (what.kind === 'free' && sn.temp) addSummit(p); else addPoint(p, what); }
   fillInputs();
 });
 map.on('zoomend', redraw);
@@ -1435,6 +1520,10 @@ function drawCut() {
   /* trace */
   if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
     /* v0.23.0 (Henri) : tous les points ronds de la trace (de 500 en 500) sur la coupe : roses, blancs s'ils portent un -MINI (orange si à revérifier) */
+    { let L0 = 0; const T = sol.trace; for (let i = 1; i < T.length; i++) L0 += map.distance(LL(T[i - 1]), LL(T[i])); /* v0.27.0 : zones délicates en bande violette */
+      zdPairs().forEach(z => { const a = Calc.nearestOn(T, z.d).s * c.tot / Math.max(1, L0), b = Calc.nearestOn(T, z.f).s * c.tot / Math.max(1, L0), x0 = X(Math.min(a, b)), x1 = X(Math.max(a, b));
+        g.fillStyle = 'rgba(179,136,255,.18)'; g.fillRect(x0, pad.t, x1 - x0, H - pad.b - pad.t); g.strokeStyle = C_ZD; g.lineWidth = 1.5; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(x0, pad.t); g.lineTo(x0, H - pad.b); g.moveTo(x1, pad.t); g.lineTo(x1, H - pad.b); g.stroke(); g.setLineDash([]);
+        g.font = 'bold 10px -apple-system,system-ui,sans-serif'; g.fillStyle = C_ZD; g.textAlign = 'center'; g.fillText(pointLabel(z.d).replace('-DEB', ''), (x0 + x1) / 2, pad.t + 11); g.font = '10px -apple-system,system-ui,sans-serif'; }); }
     const MI = traceMini(); { let dv = 0; c.line.forEach((v, i) => { if (i) dv += c.seg[i - 1]; if (dv < c.v0 - 1 || dv > c.v1 + 1) return;
       g.fillStyle = MI[i] != null ? (MI.stale[i] ? C_WARN : '#fff') : '#ff3fb4'; g.strokeStyle = '#111'; g.lineWidth = 1.2; g.beginPath(); g.arc(X(dv), Y(v.h), MI[i] != null ? 4.5 : 3.2, 0, 7); g.fill(); g.stroke(); }); }
     /* v0.20.0 : sommets S et points de passage en blanc sur la trace, avec leur nom */
@@ -1737,7 +1826,12 @@ $('btnNewIsv').addEventListener('click', async () => {
 });
 $('btnDupIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
-  const I = clone(isv()); I.id = uid('i'); if (!I.nameAuto) I.name = I.name + ' (copie)'; I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; }); I.points.forEach(pt => { pt.id = uid('q'); });
+  const src = isv(), I = clone(src); I.id = uid('i');
+  /* v0.26.0 (Henri) : nom par défaut → l'originale devient « …-1 », la copie « …-2 » (puis -3, -4…) ; nom forcé → l'originale garde son nom,
+     la copie prend le nom par défaut (date et heure) */
+  if (src.nameAuto) { if (!src.autoSuf) src.autoSuf = 1; const base = isvAutoBase(src); I.autoSuf = 1 + Math.max(...current.isvs.filter(x => x.nameAuto && isvAutoBase(x) === base).map(x => x.autoSuf || 0)); src.name = isvAutoName(src); }
+  else { I.nameAuto = true; I.autoSuf = 0; }
+  I.name = isvAutoName(I); I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; }); I.points.forEach(pt => { pt.id = uid('q'); });
   current.isvs.push(I); openIsv(I.id);
 });
 function loadZone(id, keepIsvTab) {
@@ -2030,6 +2124,9 @@ async function renderPdfCanvas() {
   { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11);
     const t = toC(Calc.pointAt(sol.trace, sol.length / 2)); shadowText(`CAP ${hdg(sol.cap)} · ${fmtKm(sol.length)}`, t.x + 12 * u, t.y, '#fff', 11); }
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
+  if (current.zmt) { const pl = barbPlace(toC, u); if (pl) { const bg = barbGeom(pl.kt, pl.H, pl.d, u); g.save(); g.lineCap = 'round';
+      const st = (col, w) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); bg.lines.forEach(([a, b]) => { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }); if (bg.calm) { g.moveTo(bg.T.x + 7 * u, bg.T.y); g.arc(bg.T.x, bg.T.y, 7 * u, 0, 7); } g.stroke(); };
+      st('rgba(0,0,0,.55)', 5 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.2 * u; g.stroke(); }); st('#00e5ff', 2.4 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
   if (current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = pt.color || '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); if (pt.name) shadowText(pointLabel(pt), c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
