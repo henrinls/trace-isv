@@ -293,3 +293,6 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #cutBox #cutInfo{margin:4px 0 0;min-height:2.6em}
 #quick #qCut{border-color:#d9a066;color:#fff}#quick #qCut.on{background:#d9a066;color:#111}
 .tmppt span{position:absolute;inset:3px;border-radius:50%;background:#fff;border:3px solid #d9a066;box-shadow:0 0 0 2px #000,0 0 10px #fff}
+
+/* Point libre : losange de sa couleur, bord noir, comme les repères de prepo-PA (v0.19.1) */
+.crossp i.dia{position:absolute;left:7.5px;top:7.5px;width:11px;height:11px;border:2px solid #111;transform:rotate(45deg);font-size:0}

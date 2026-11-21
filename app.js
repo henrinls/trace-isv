@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.19.0';
+const VERSION = '0.19.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -125,6 +125,7 @@ function upIsv(I) {
   Object.keys(d).forEach(k => { if (I[k] === undefined) I[k] = d[k]; });
   if (!Array.isArray(I.team) || !I.team.length) I.team = [newPara()];
   if (!Array.isArray(I.points)) I.points = [];
+  I.points.forEach(q => { if (q.kind !== 'alt') q.color = '#ffffff'; }); /* v0.19.1 : points libres tous blancs */
   /* v0.14.0 : nom par défaut = date et heure du saut (« 2026-11-22-20:00 ») tant que l'utilisateur ne l'a pas forcé */
   if (I.nameAuto === undefined) I.nameAuto = /^ISV \d+( \(copie\))?$/.test(String(I.name || ''));
   I.team.forEach(p => { if (!p.id) p.id = uid('p'); if (p.dt === undefined) p.dt = 3; if (p.name === undefined) p.name = ''; if (!(+p.mte > 0)) p.mte = MTE_DEF; if (prm && Array.isArray(prm.canopies) && prm.canopies.length && !prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; });
@@ -465,7 +466,7 @@ function draw(light) {
   isv().points.forEach(pt => {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
-      : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i style="color:${pt.color || '#fff'}">✚</i><b style="color:${pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` });
+      : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${pt.color || '#fff'}"></i><b style="color:${pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
     keep('pt_' + pt.id, pt, ic, 250, ll => { pt.lat = ll.lat; pt.lng = ll.lng; }, () => { persist(); if (pt.kind === 'alt') pointElev(pt); }, () => pointMenu(pt));
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
@@ -797,15 +798,14 @@ async function askCoords(what) {
 }
 $('btnCoordZ').addEventListener('click', async () => { if (!(await askZoneName())) return; const c = await askCoords('de la zone de posé'); if (!c) return; map.setView(LL(c), Math.max(map.getZoom(), 13)); setZmt(c); });
 $('btnCoordP').addEventListener('click', async () => { if (!(await askZoneName())) return; const c = await askCoords('du point d\'entrée PTU'); if (!c) return; map.setView(LL(c), Math.max(map.getZoom(), 13)); setPtu(c); });
-// Points : zone de posé alternative (rouge, cible) ou point libre (croix, couleur au choix)
+// Points : zone de posé alternative (rouge, cible) ou point libre (losange blanc)
 const PT_COLORS = ['#ffffff', '#ffd400', '#1ec83c', '#00e5ff', '#2f80ff', '#ff3fb4', '#ff8c00', '#000000'];
-let ptColor = PT_COLORS[1];
+let ptColor = '#ffffff'; /* v0.19.1 : plus de choix de couleur (le GPX n'en garde pas) : point libre toujours blanc, comme les repères de prepo-PA */
 /* v0.17.0 (Henri) : ＋ Point ouvre deux boutons à droite (zone de posé alternative, point libre + rond de couleur qui ouvre
    la palette), comme les repères de l'appli PA ; pas de fenêtre ; réappui sur ＋ Point ou appui sur un autre bouton = sortie */
-$('ptColors').innerHTML = PT_COLORS.map(c => `<button data-c="${c}" style="background:${c}"></button>`).join('');
-function syncPtColors() { $('ptColors').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === ptColor)); $('ptCol').querySelector('span').style.background = ptColor; }
+function syncPtColors() {}
 function syncPtPop() {
-  const pop = $('ptPop'); pop.classList.toggle('hidden', !ptOpen); $('ptColors').classList.toggle('hidden', !(ptOpen && ptPal));
+  const pop = $('ptPop'); pop.classList.toggle('hidden', !ptOpen);
   if (!ptOpen) return;
   const k = placing && typeof placing === 'object' ? placing.kind : null;
   $('ptAlt').classList.toggle('on', k === 'alt'); $('ptFree').classList.toggle('on', k === 'free'); syncPtColors();
@@ -816,8 +816,6 @@ function closePtPop() { ptOpen = false; ptPal = false; if (placing && typeof pla
 $('qPoint').addEventListener('click', () => { if (ptOpen) closePtPop(); else openPtPop(); });
 $('ptAlt').addEventListener('click', () => { ptPal = false; placing = { kind: 'alt' }; placeBanner(); fillInputs(); syncPtPop(); });
 $('ptFree').addEventListener('click', () => { ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
-$('ptCol').addEventListener('click', () => { ptPal = !ptPal; syncPtPop(); });
-$('ptColors').addEventListener('click', e => { const c = e.target && e.target.dataset && e.target.dataset.c; if (!c) return; ptColor = c; ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
 /* un autre bouton de la colonne ferme le choix */
 $('quick').addEventListener('click', e => { const b = e.target.closest('button'); if (ptOpen && b && b.id !== 'qPoint') closePtPop(); }, true);
 async function pointElev(pt) { try { const [e] = await fetchElev([pt]); if (typeof e === 'number') { pt.elev = Math.round(e); persist(); redraw(); } } catch (e) {} }
@@ -833,7 +831,7 @@ function renderPtList() {
   if (!isv().points.length) { ul.innerHTML = '<li class="mut">Aucun point posé.</li>'; return; }
   isv().points.forEach(pt => {
     const li = document.createElement('li'), alt = pt.kind === 'alt';
-    li.innerHTML = `<span class="pic${alt ? ' alt' : ''}" style="color:${alt ? '#ff2020' : (pt.color || '#fff')}">${alt ? '◎' : '✚'}</span><span class="zn">${esc(pointLabel(pt) || '(sans nom)')}<br><small class="mut">${alt ? 'Zone de posé alternative' : 'Point libre'}</small></span>`;
+    li.innerHTML = `<span class="pic${alt ? ' alt' : ''}" style="color:${alt ? '#ff2020' : (pt.color || '#fff')}">${alt ? '◎' : '◆'}</span><span class="zn">${esc(pointLabel(pt) || '(sans nom)')}<br><small class="mut">${alt ? 'Zone de posé alternative' : 'Point libre'}</small></span>`;
     li.querySelector('.zn').onclick = () => { setSheetSize('mini'); map.setView(LL(pt), Math.max(map.getZoom(), 15)); };
     const ed = document.createElement('button'); ed.textContent = '✏️'; ed.title = 'Modifier'; ed.onclick = () => pointMenu(pt);
     const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Supprimer';
@@ -843,16 +841,11 @@ function renderPtList() {
 }
 $('btnAddPt').addEventListener('click', async () => { if (!(await askZoneName())) return; openPtPop(); });
 function pointMenu(pt) {
-  let col = pt.color || PT_COLORS[1];
   $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
   $('peName').value = pt.name || '';
-  const cs = $('peColors'); cs.classList.toggle('hidden', pt.kind === 'alt');
-  const sync = () => cs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === col));
-  cs.innerHTML = PT_COLORS.map(c => `<button data-c="${c}" style="background:${c}"></button>`).join(''); sync();
-  cs.onclick = e => { const c = e.target && e.target.dataset && e.target.dataset.c; if (c) { col = c; sync(); } };
   const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = $('peMove').onclick = null; };
-  $('peOk').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw(); fillInputs(); };
-  $('peMove').onclick = () => { pt.name = $('peName').value.trim(); if (pt.kind !== 'alt') pt.color = col; close(); persist(); redraw();
+  $('peOk').onclick = () => { pt.name = $('peName').value.trim(); close(); persist(); redraw(); fillInputs(); };
+  $('peMove').onclick = () => { pt.name = $('peName').value.trim(); close(); persist(); redraw();
     startPlacing({ kind: 'move', id: pt.id, name: pointLabel(pt) || (pt.kind === 'alt' ? 'zone de posé alternative' : 'point libre') }); };
   $('peCancel').onclick = close;
   $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; isv().points = isv().points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
@@ -1287,20 +1280,26 @@ function snapPlace(q) {
   cand.forEach(([c, t]) => { const d = P.distanceTo(map.latLngToContainerPoint(LL(c))); if (d < bd) { bd = d; best = { p: { lat: c.lat, lng: c.lng }, temp: t }; } });
   return best;
 }
-function cutPath() { /* [{lat, lng, d (m depuis le début), h (hauteur de la trace, sol ZMT) ou null}] */
-  const N = 300, line = [];
-  if (meas.a && meas.b) { line.push({ lat: meas.a.lat, lng: meas.a.lng, h: null }, { lat: meas.b.lat, lng: meas.b.lng, h: null }); }
+function cutPath() { /* tracé de la coupe : polyligne (trace OUV → PTU avec ses hauteurs, ou les deux bouts de la mesure) */
+  const line = [];
+  if (meas.a && meas.b) line.push({ lat: meas.a.lat, lng: meas.a.lng, h: null }, { lat: meas.b.lat, lng: meas.b.lng, h: null });
   else if (sol && sol.ok && sol.trace.length > 1) sol.trace.forEach(q => line.push({ lat: q.lat, lng: q.lng, h: q.h }));
   else return null;
   const seg = []; let tot = 0;
   for (let i = 1; i < line.length; i++) { const L0 = map.distance(LL(line[i - 1]), LL(line[i])); seg.push(L0); tot += L0; }
-  const out = [];
-  for (let k = 0; k <= N; k++) {
-    let d = tot * k / N, i = 0; while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
-    const f = seg[i] ? Math.min(1, d / seg[i]) : 0, a = line[i], b = line[i + 1];
-    out.push({ lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f, d: tot * k / N, h: a.h == null ? null : a.h + (b.h - a.h) * f });
-  }
-  return { pts: out, tot, mode: meas.a && meas.b ? 'meas' : 'trace' };
+  return { line, seg, tot, mode: meas.a && meas.b ? 'meas' : 'trace' };
+}
+function cutAt(c, D) { /* point du tracé à la distance D (m) depuis le début */
+  let d = Math.max(0, Math.min(c.tot, D)), i = 0; while (i < c.seg.length - 1 && d > c.seg[i]) { d -= c.seg[i]; i++; }
+  const f = c.seg[i] ? Math.min(1, d / c.seg[i]) : 0, a = c.line[i], b = c.line[i + 1];
+  return { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f, d: Math.max(0, Math.min(c.tot, D)), h: a.h == null ? null : a.h + (b.h - a.h) * f };
+}
+async function cutSample(c, d0, d1, N) { /* N+1 échantillons entre d0 et d1, avec l'altitude du terrain */
+  const pts = []; for (let k = 0; k <= N; k++) pts.push(cutAt(c, d0 + (d1 - d0) * k / N));
+  let el = null;
+  try { el = await elevTiles(pts); } catch (e) { try { const sub = pts.filter((q, i) => i % 3 === 0 || i === pts.length - 1); const e2 = await fetchElev(sub); el = pts.map((q, i) => e2[Math.min(sub.length - 1, Math.round(i / 3))]); } catch (e3) {} }
+  if (!el || el.some(v => typeof v !== 'number' || isNaN(v))) return null;
+  pts.forEach((q, i) => { q.z = el[i]; }); return pts;
 }
 async function openCut() {
   setTempPt(null); closeSheet();
@@ -1309,47 +1308,64 @@ async function openCut() {
   $('cutBox').classList.remove('hidden'); $('qCut').classList.add('on');
   $('cutTitle').textContent = c.mode === 'meas' ? 'Coupe le long de la mesure' : 'Coupe le long de la trace (OUV → PTU)';
   $('cutInfo').textContent = 'Relevé du terrain…'; cutData = null; drawCut();
-  let el = null;
-  try { el = await elevTiles(c.pts); } catch (e) { try { const sub = c.pts.filter((q, i) => i % 3 === 0 || i === c.pts.length - 1); const e2 = await fetchElev(sub); el = c.pts.map((q, i) => e2[Math.min(sub.length - 1, Math.round(i / 3))]); } catch (e3) {} }
+  const pts = await cutSample(c, 0, c.tot, 300);
   if ($('cutBox').classList.contains('hidden')) return;
-  if (!el || el.some(v => typeof v !== 'number' || isNaN(v))) { $('cutInfo').textContent = 'Terrain impossible à relever (réseau ?).'; return; }
-  c.pts.forEach((q, i) => { q.z = el[i]; });
-  c.e0 = elev0(); cutData = c; cutData.cur = null; drawCut(); cutText(null);
+  if (!pts) { $('cutInfo').textContent = 'Terrain impossible à relever (réseau ?).'; return; }
+  c.full = pts; c.pts = pts; c.v0 = 0; c.v1 = c.tot; c.e0 = elev0(); c.cur = null; cutData = c; drawCut(); cutText(null);
 }
 function closeCut() { $('cutBox').classList.add('hidden'); $('qCut').classList.remove('on'); cutData = null; }
+/* v0.19.1 : zoom sur la coupe (pincement à deux doigts, pincement du trackpad, molette avec Ctrl, boutons － / ＋ / ⤢) ;
+   la hauteur s'ajuste à la partie visible et le terrain est relevé finement pour cette partie */
+let cutResT = 0;
+function cutView(v0, v1) {
+  const c = cutData; if (!c) return;
+  const span = Math.max(Math.min(200, c.tot), Math.min(c.tot, v1 - v0)), mid = (v0 + v1) / 2;
+  let a = mid - span / 2, b = mid + span / 2; if (a < 0) { b -= a; a = 0; } if (b > c.tot) { a -= b - c.tot; b = c.tot; } a = Math.max(0, a);
+  c.v0 = a; c.v1 = b; c.cur = null; c.pts = c.pts.filter(q => q.d >= a && q.d <= b);
+  if (c.pts.length < 2) c.pts = [cutAt(c, a), cutAt(c, b)].map(q => Object.assign(q, { z: nearestZ(c, q.d) }));
+  drawCut(); cutText(null);
+  clearTimeout(cutResT); cutResT = setTimeout(async () => { const k = c.v0 + '|' + c.v1; const pts = await cutSample(c, c.v0, c.v1, 300); if (pts && cutData === c && k === c.v0 + '|' + c.v1) { c.pts = pts; drawCut(); } }, 180);
+}
+function nearestZ(c, d) { let best = c.full[0]; c.full.forEach(q => { if (Math.abs(q.d - d) < Math.abs(best.d - d)) best = q; }); return best.z; }
+function cutZoomAt(f, dAt) { const c = cutData; if (!c) return; const s = (c.v1 - c.v0) / f; const r = (dAt - c.v0) / (c.v1 - c.v0); cutView(dAt - s * r, dAt - s * r + s); }
 function cutGeom() {
   const cv = $('cutCv'), W = cv.clientWidth, H = cv.clientHeight, c = cutData, pad = { l: 46, r: 8, t: 10, b: 22 };
   let lo = Infinity, hi = -Infinity;
-  c.pts.forEach(q => { const t = q.z - c.e0; lo = Math.min(lo, t); hi = Math.max(hi, t); if (q.h != null) hi = Math.max(hi, q.h); });
-  if (c.mode === 'meas') { const m = Math.max(20, (hi - lo) * 0.15); lo -= m; hi += m; } else { lo = Math.min(lo, 0) - 50; hi += 200; }
-  return { W, H, pad, lo, hi, X: d => pad.l + (W - pad.l - pad.r) * d / c.tot, Y: v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo)) };
+  c.pts.forEach(q => { const t = q.z - c.e0; lo = Math.min(lo, t); hi = Math.max(hi, t); if (q.h != null) { lo = Math.min(lo, q.h); hi = Math.max(hi, q.h); } });
+  const zoomed = c.v1 - c.v0 < c.tot - 1, m = Math.max(20, (hi - lo) * 0.12);
+  if (c.mode === 'meas' || zoomed) { lo -= m; hi += m; } else { lo = Math.min(lo, 0) - 50; hi += 200; }
+  const sp = c.v1 - c.v0;
+  return { W, H, pad, lo, hi, X: d => pad.l + (W - pad.l - pad.r) * (d - c.v0) / sp, D: x => c.v0 + (x - pad.l) / (W - pad.l - pad.r) * sp, Y: v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo)) };
 }
 function niceStep(r, n) { const s = r / n, p10 = Math.pow(10, Math.floor(Math.log10(s))), m = s / p10; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p10; }
 function drawCut() {
   const cv = $('cutCv'), dpr = window.devicePixelRatio || 1; cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr);
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
-  const c = cutData; if (!c) return;
+  const c = cutData; $('cutReset').classList.toggle('hidden', !c || c.v1 - c.v0 >= c.tot - 1); if (!c) return;
   const G = cutGeom(), { X, Y, W, H, pad } = G;
   g.font = '10px -apple-system,system-ui,sans-serif'; g.fillStyle = '#999'; g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 1;
   const sy = niceStep(G.hi - G.lo, 4); for (let v = Math.ceil(G.lo / sy) * sy; v <= G.hi; v += sy) { const y = Y(v); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(W - pad.r, y); g.stroke(); g.textAlign = 'right'; g.fillText(fmtInt(Math.round(v) || 0) + ' m', pad.l - 4, y + 3); }
-  const sx = niceStep(c.tot / 1000, 5); g.textAlign = 'center'; for (let v = 0; v <= c.tot / 1000 + 1e-9; v += sx) g.fillText(String(Math.round(v * 10) / 10).replace('.', ',') + ' km', X(v * 1000), H - 6);
+  const spanKm = (c.v1 - c.v0) / 1000, sx = niceStep(spanKm, 5), dec = sx < 0.1 ? 2 : sx < 1 ? 1 : 0; g.textAlign = 'center';
+  for (let v = Math.ceil(c.v0 / 1000 / sx) * sx; v <= c.v1 / 1000 + 1e-9; v += sx) g.fillText(v.toFixed(dec).replace('.', ',') + ' km', X(v * 1000), H - 6);
+  g.save(); g.beginPath(); g.rect(pad.l, 0, W - pad.l - pad.r, H - pad.b + 2); g.clip();
   /* terrain */
-  g.beginPath(); g.moveTo(X(0), Y(G.lo)); c.pts.forEach(q => g.lineTo(X(q.d), Y(q.z - c.e0))); g.lineTo(X(c.tot), Y(G.lo)); g.closePath();
+  g.beginPath(); g.moveTo(X(c.pts[0].d), Y(G.lo)); c.pts.forEach(q => g.lineTo(X(q.d), Y(q.z - c.e0))); g.lineTo(X(c.pts[c.pts.length - 1].d), Y(G.lo)); g.closePath();
   g.fillStyle = 'rgba(160,110,60,.55)'; g.fill(); g.strokeStyle = '#d9a066'; g.lineWidth = 1.5;
   g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.z - c.e0); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
   /* trace */
   if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
-    g.fillStyle = '#ff3fb4'; g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); }
+    g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
   /* curseur */
-  if (c.cur != null) { const q = c.pts[c.cur], x = X(q.d); g.strokeStyle = '#fff'; g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, H - pad.b); g.stroke(); g.setLineDash([]);
+  if (c.cur != null && c.pts[c.cur]) { const q = c.pts[c.cur], x = X(q.d); g.strokeStyle = '#fff'; g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, H - pad.b); g.stroke(); g.setLineDash([]);
     g.fillStyle = '#fff'; g.beginPath(); g.arc(x, Y(q.z - c.e0), 3.5, 0, 7); g.fill(); if (q.h != null) { g.fillStyle = '#ff3fb4'; g.beginPath(); g.arc(x, Y(q.h), 4, 0, 7); g.fill(); } }
+  g.restore();
 }
 function cutText(i) {
   const c = cutData; if (!c) return;
-  if (i == null) { /* résumé : plus faible hauteur au-dessus du terrain (trace) ou point le plus haut (mesure) */
-    if (c.mode === 'trace') { let m = null; c.pts.forEach(q => { const v = q.h + c.e0 - q.z; if (!m || v < m.v) m = { v, d: q.d }; });
-      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} de l'OUV. Promène le doigt sur la coupe ; un appui bref montre l'endroit sur la carte.`; }
-    else { let m = null; c.pts.forEach(q => { if (!m || q.z > m.z) m = q; }); $('cutInfo').innerHTML = `Point le plus haut : <b>${fmtInt(m.z)} m</b> d'altitude à ${fmtDist(m.d)} du 1er point. Un appui bref montre l'endroit sur la carte.`; }
+  if (i == null || !c.pts[i]) { /* résumé sur toute la coupe : plus faible hauteur au-dessus du terrain (trace) ou point le plus haut (mesure) */
+    if (c.mode === 'trace') { let m = null; c.full.forEach(q => { const v = q.h + c.e0 - q.z; if (!m || v < m.v) m = { v, d: q.d }; });
+      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} de l'OUV. Doigt sur la coupe pour lire ; appui bref = voir sur la carte ; pincer pour zoomer.`; }
+    else { let m = null; c.full.forEach(q => { if (!m || q.z > m.z) m = q; }); $('cutInfo').innerHTML = `Point le plus haut : <b>${fmtInt(m.z)} m</b> d'altitude à ${fmtDist(m.d)} du 1er point. Appui bref = voir sur la carte ; pincer pour zoomer.`; }
     return;
   }
   const q = c.pts[i];
@@ -1357,21 +1373,47 @@ function cutText(i) {
     ? `À ${fmtKm(q.d)} de l'OUV : trace <b>${fmtInt(q.h)} m</b> (sol ZMT) · terrain ${fmtInt(q.z)} m d'altitude · <b>${fmtInt(q.h + c.e0 - q.z)} m au-dessus du terrain</b>`
     : `À ${fmtDist(q.d)} du 1er point : terrain <b>${fmtInt(q.z)} m</b> d'altitude (${fmtInt(q.z - c.e0)} m par rapport à la ZMT)`;
 }
-function cutIndex(ev) { const c = cutData; if (!c) return null; const r = $('cutCv').getBoundingClientRect(), G = cutGeom(); const d = (ev.clientX - r.left - G.pad.l) / (G.W - G.pad.l - G.pad.r) * c.tot; return Math.max(0, Math.min(c.pts.length - 1, Math.round(d / c.tot * (c.pts.length - 1)))); }
+function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $('cutCv').getBoundingClientRect(), G = cutGeom(), d = G.D(clientX - r.left);
+  let bi = 0; c.pts.forEach((q, i) => { if (Math.abs(q.d - d) < Math.abs(c.pts[bi].d - d)) bi = i; }); return bi; }
 (function () {
-  const cv = $('cutCv'); let down = null;
-  cv.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; const i = cutIndex(e); if (i != null) { cutData.cur = i; drawCut(); cutText(i); } cv.setPointerCapture && cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointermove', e => { if (!cutData) return; if (!down && e.pointerType !== 'mouse') return; const i = cutIndex(e); if (i != null && i !== cutData.cur) { cutData.cur = i; drawCut(); cutText(i); } });
-  cv.addEventListener('pointerup', e => {
-    const d0 = down; down = null; if (!d0 || !cutData) return;
-    if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 10 || Date.now() - d0.t > 600) return; /* glissé = on regarde seulement */
-    const i = cutIndex(e); if (i == null) return; const q = cutData.pts[i];
-    closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14));
+  const cv = $('cutCv'), ptr = new Map(); let down = null, pinch = null;
+  const dAt = clientX => { const r = cv.getBoundingClientRect(); return cutGeom().D(clientX - r.left); };
+  cv.addEventListener('pointerdown', e => {
+    if (!cutData) return; ptr.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { cv.setPointerCapture(e.pointerId); } catch (er) {}
+    if (ptr.size === 2) { const [p1, p2] = [...ptr.values()]; pinch = { dist: Math.abs(p1.x - p2.x) || 1, mid: (p1.x + p2.x) / 2, v0: cutData.v0, v1: cutData.v1 }; down = null; return; }
+    down = { x: e.clientX, y: e.clientY, t: Date.now() }; const i = cutIndex(e.clientX); if (i != null) { cutData.cur = i; drawCut(); cutText(i); }
   });
+  cv.addEventListener('pointermove', e => {
+    if (!cutData) return; if (ptr.has(e.pointerId)) ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && ptr.size >= 2) { /* pincer : écarter = zoomer, autour du milieu des deux doigts ; glisser à deux doigts = se déplacer */
+      const [p1, p2] = [...ptr.values()], dist = Math.abs(p1.x - p2.x) || 1, mid = (p1.x + p2.x) / 2, r = cv.getBoundingClientRect(), G = cutGeom(), w = G.W - G.pad.l - G.pad.r;
+      const span = (pinch.v1 - pinch.v0) * pinch.dist / dist, fr = (pinch.mid - r.left - G.pad.l) / w, dMid = pinch.v0 + fr * (pinch.v1 - pinch.v0);
+      const fr2 = (mid - r.left - G.pad.l) / w, a = dMid - fr2 * span; cutView(a, a + span); return;
+    }
+    if (!down && e.pointerType !== 'mouse') return; const i = cutIndex(e.clientX); if (i != null && i !== cutData.cur) { cutData.cur = i; drawCut(); cutText(i); }
+  });
+  const end = e => {
+    ptr.delete(e.pointerId); if (pinch) { if (ptr.size < 2) pinch = null; down = null; return; }
+    const d0 = down; down = null; if (!d0 || !cutData || e.type !== 'pointerup') return;
+    if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 10 || Date.now() - d0.t > 600) return; /* glissé = on regarde seulement */
+    const i = cutIndex(e.clientX); if (i == null) return; const q = cutData.pts[i];
+    closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14));
+  };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  /* trackpad du Mac (pincement = molette avec Ctrl) et molette : zoom ; défilement horizontal : déplacement */
+  cv.addEventListener('wheel', e => {
+    if (!cutData) return; e.preventDefault();
+    if (e.ctrlKey || Math.abs(e.deltaY) > Math.abs(e.deltaX) * 1.5 && e.deltaMode === 1) { cutZoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.012 : 0.2)), dAt(e.clientX)); return; }
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { const s = (cutData.v1 - cutData.v0) * e.deltaX / 400; cutView(cutData.v0 + s, cutData.v1 + s); }
+    else cutZoomAt(Math.exp(-e.deltaY * 0.004), dAt(e.clientX));
+  }, { passive: false });
   window.addEventListener('resize', () => { if (cutData) drawCut(); });
 })();
 $('qCut').addEventListener('click', () => { if (!$('cutBox').classList.contains('hidden')) closeCut(); else openCut(); });
 $('cutClose').addEventListener('click', closeCut);
+$('cutIn').addEventListener('click', () => { const c = cutData; if (c) cutZoomAt(2, (c.v0 + c.v1) / 2); });
+$('cutOut').addEventListener('click', () => { const c = cutData; if (c) cutZoomAt(0.5, (c.v0 + c.v1) / 2); });
+$('cutReset').addEventListener('click', () => { const c = cutData; if (c) { c.pts = c.full; cutView(0, c.tot); } });
 // ---------- Onglet Altimétrie ----------
 /* Zone de sécurité (v0.3.0, demande d'Henri) : le para n'est pas à la verticale du vecteur quand son système de sécurité
    déclenche, il a dérivé sous RSE. La zone est donc le rectangle autour du vecteur (marges avant / après et de côté) ET tout ce
@@ -1872,7 +1914,7 @@ async function renderPdfCanvas() {
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
   if (current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
-  isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pointLabel(pt), c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
+  isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = pt.color || '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); if (pt.name) shadowText(pointLabel(pt), c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
   (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5));
   (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
   const av = altiVals();
