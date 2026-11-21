@@ -335,3 +335,7 @@ p.calc{margin:4px 0 8px;padding:6px 9px;border-radius:8px;background:#232a33;col
 #banner .sinfo{display:inline-block;vertical-align:middle;margin-left:6px}#bannerInfo{z-index:1001}
 #banner.hasx{padding-right:34px}#banner .bcancel{position:absolute;top:4px;right:5px;margin:0;width:24px;height:24px;padding:0;border:none;background:transparent;color:#111;font-size:17px;font-weight:700;line-height:24px;border-radius:50%}
 .gchk{font-size:13px;font-weight:400;margin-left:10px;white-space:nowrap}.gchk input{vertical-align:middle;margin:0 4px 0 0}
+/* v0.35.10 (Henri, photo iPhone) : le ⓘ en haut à droite, un peu plus bas que l'endroit de la croix (4 px, 24 px de haut) pour ne jamais la chevaucher */
+#banner .sinfo,#stepBar .sinfo{position:absolute;top:31px;right:6px;margin:0}
+#stepBar{padding-right:38px;min-height:60px;box-sizing:border-box}
+#banner:has(.sinfo){padding-right:38px;min-height:58px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
