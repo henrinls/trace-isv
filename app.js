@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.2';
+const VERSION = '0.5.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -391,8 +391,8 @@ function draw(light) {
   sol.trace.forEach((p, i) => {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
-    const show = current.show.label && far && (farPtu || i === 0); if (show) lastLab = TP[i];
-    L.marker(LL(p), { interactive: false, icon: dotIcon(C_TRACE, i === 0 ? 13 : 8, show ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) : (i === 0 && !current.show.label ? 'OUV' : ''), (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    const show = far && (farPtu || i === 0); if (show) lastLab = TP[i]; /* hauteurs toujours affichées (bouton Infos retiré en v0.5.3) */
+    L.marker(LL(p), { interactive: false, icon: dotIcon(C_TRACE, i === 0 ? 13 : 8, show ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
   });
   // Vecteur de largage
   const V = sol.vec, vl = [LL(V.green), LL(V.red)];
@@ -406,19 +406,27 @@ function draw(light) {
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
     () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
-  // Indications le long du vecteur et de la trace
-  if (current.show.label) {
-    const mid = { lat: (V.green.lat + V.red.lat) / 2, lng: (V.green.lng + V.red.lng) / 2 };
-    const sideR = map.latLngToContainerPoint(LL(mid)).x <= map.getSize().x / 2; // étiquette vers le milieu de l'écran : jamais sous les boutons
-    lbl(mid, `<i class="vcap">${hdg(V.heading)}</i> · ${fmtInt(V.length)} m`, 'vlabel vv ' + (sideR ? 'vr' : 'vl')).addTo(fig);
-    const tm = Calc.pointAt(sol.trace, sol.length / 2);
-    lbl(tm, `<i class="tcap">CAP ${hdg(sol.cap)}</i> · ${fmtKm(sol.length)}`, 'vlabel vt').addTo(fig);
-  }
+  // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   // Ouverture basse : un point jaune par para
   (lowPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_LOW, fillOpacity: 1, interactive: false }).addTo(fig));
   // Point le plus haut de la zone de sécurité
   if (I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();
+  capInfo();
+}
+/* Cap avion / longueur du vecteur et cap para / longueur de la trace, sous les boutons ronds du haut (v0.5.3) */
+function capInfo() {
+  altiState();
+  const el = $('capInfo'); if (!el) return;
+  if (!sol || !sol.ok) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.innerHTML = `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div>`;
+  el.classList.remove('hidden');
+}
+/* Bouton Alti : « … » tant que le point haut n'est pas calculé pour le vecteur actuel, coche verte quand c'est fait (v0.5.3) */
+function altiState() {
+  const el = $('altiState'); if (!el) return;
+  const I = isv(), ok = !!(sol && sol.ok && I.alti && I.alti.max && I.alti.key === altiKey());
+  el.textContent = ok ? '✓' : '…'; el.className = 'ast ' + (ok ? 'ok' : 'wait');
 }
 function freeRect() {
   // marges serrées (20 nov. 2026) : la figure remplit l'écran, ses bords peuvent frôler les boutons.
@@ -433,7 +441,7 @@ function freeRect() {
   // haut : seuls les boutons du haut situés au-dessus de la zone libre comptent (en paysage, Manœuvre/Zones sont
   // au-dessus de la colonne de gauche : la figure peut monter jusqu'au bas des boutons ronds N/AXE/⤢/⌖)
   let t = m;
-  const tops = [...document.querySelectorAll('#top button')].map(rel).filter(q => q.width);
+  const tops = [...document.querySelectorAll('#top button, #capInfo')].map(rel).filter(q => q.width);
   tops.forEach(q => { if (q.right > l && q.left < r) t = Math.max(t, q.bottom + m); });
   return { l, t, r, b: H - 22, tops };
 }
@@ -564,7 +572,7 @@ function fillInputs() {
 }
 function syncQuick() {
   const I = isv();
-  $('qRelax').classList.toggle('on', !!current.show.relax); $('qLabel').classList.toggle('on', !!current.show.label);
+  $('qRelax').classList.toggle('on', !!current.show.relax);
   $('qRev').classList.toggle('on', !!I.reversed);
   $('qVecAuto').classList.toggle('hidden', !(I.manual || I.vecHeading != null || I.capManual != null));
   $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
@@ -572,11 +580,11 @@ function syncQuick() {
 }
 function quick(fn) { fn(); persist(); fillInputs(); redraw(); }
 $('qRelax').addEventListener('click', () => quick(() => { current.show.relax = !current.show.relax; }));
-$('qLabel').addEventListener('click', () => quick(() => { current.show.label = !current.show.label; }));
 $('qRev').addEventListener('click', () => quick(() => { const I = isv(); I.reversed = !I.reversed; }));
 $('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qVol').addEventListener('click', () => toggleTab('vol'));
+$('qAlti').addEventListener('click', () => toggleTab('alti'));
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
 
 // ---------- Saut : date et heure ----------
@@ -848,7 +856,7 @@ function setSheetSize(sz) { sheetSize = sz; $('sheet').classList.toggle('mini', 
   g.addEventListener('mousedown', e => start(e.clientY));
   window.addEventListener('mouseup', e => end(e.clientY));
 })();
-const TABS = ['zones', 'isv', 'vol', 'alti', 'params'];
+const TABS = ['zones', 'isv', 'alti', 'vol', 'params'];
 let lastTab = 'isv';
 function openSheet(tab) {
   lastTab = tab;
@@ -1058,7 +1066,7 @@ async function computeAlti(manual) {
     el.forEach((e, i) => { if (typeof e === 'number' && (best < 0 || e > el[best])) best = i; });
     if (best >= 0 && isv() === I) { I.alti = { key, max: { lat: pts[best].lat, lng: pts[best].lng, elev: Math.round(el[best]) }, n: pts.length, step, drift: Math.round(g.drift), t: Date.now() }; persist(); redraw(); if (lastTab === 'alti') renderAlti(); }
   } catch (e) { if (manual) toast('Altitudes impossibles à télécharger (réseau ?)'); }
-  finally { altiBusy = false; }
+  finally { altiBusy = false; altiState(); }
 }
 function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est pas à jour
   const I = isv(); if (!sol || !sol.ok) return null;
