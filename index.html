@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.6.3">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.7.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.6.3">
+<link rel="stylesheet" href="style.css?v=0.7.0">
 </head>
 <body>
 <div id="map"></div>
@@ -173,7 +173,7 @@
     <p class="hint big" id="resInfo"></p>
 
     <h3>Export</h3>
-    <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 GPX (Garmin)</button></div>
+    <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
     <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
   </div>
 
@@ -265,21 +265,23 @@
 <div id="pdfReady" class="hidden">
   <div class="box">
     <p>Fichier prêt : <b id="pdfName"></b></p>
+    <div class="row"><button id="pdfPreview" class="wide">👁 Aperçu</button></div>
     <div class="grid2"><button id="pdfClose">Fermer</button><button id="pdfShare" class="primary">Partager / Enregistrer</button></div>
   </div>
 </div>
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.6.3"></script>
-<script src="vendor/leaflet-rotate.js?v=0.6.3"></script>
-<script src="vendor/mgrs.min.js?v=0.6.3"></script>
-<script src="geo.js?v=0.6.3"></script>
-<script src="clubs.js?v=0.6.3"></script>
-<script src="wmm.js?v=0.6.3"></script>
-<script src="calc.js?v=0.6.3"></script>
-<script src="windpick.js?v=0.6.3"></script>
-<script src="app.js?v=0.6.3"></script>
-<script src="photo.js?v=0.6.3"></script>
+<script src="vendor/leaflet.js?v=0.7.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.7.0"></script>
+<script src="vendor/mgrs.min.js?v=0.7.0"></script>
+<script src="geo.js?v=0.7.0"></script>
+<script src="clubs.js?v=0.7.0"></script>
+<script src="wmm.js?v=0.7.0"></script>
+<script src="calc.js?v=0.7.0"></script>
+<script src="windpick.js?v=0.7.0"></script>
+<script src="pdfview.js?v=0.7.0"></script>
+<script src="app.js?v=0.7.0"></script>
+<script src="photo.js?v=0.7.0"></script>
 </body>
 </html>

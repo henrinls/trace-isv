@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.6.3';
+const VERSION = '0.7.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1478,7 +1478,7 @@ function gpxText() {
   return o + '</gpx>\n';
 }
 let pdfFile = null;
-function fileReady(file, note) { pdfFile = file; $('pdfName').textContent = file.name + (note || ''); $('pdfReady').classList.remove('hidden'); }
+function fileReady(file, note) { pdfFile = file; $('pdfName').textContent = file.name + (note || ''); $('pdfReady').classList.remove('hidden');  $('pdfPreview').classList.toggle('hidden', !/\.pdf$/i.test(file.name)); }
 $('btnGpx').addEventListener('click', () => {
   compute(); if (!sol || !sol.ok) return toast(sol && sol.err ? sol.err : 'Pas encore de trace');
   fileReady(new File([gpxText()], `${dateStamp()}_Trace_ISV_${safeName(current.name)}_${safeName(isv().name)}.gpx`, { type: 'application/gpx+xml' }));
@@ -1688,6 +1688,8 @@ $('btnPdf').addEventListener('click', async () => {
   finally { b.disabled = false; b.textContent = old; }
 });
 $('pdfClose').addEventListener('click', () => $('pdfReady').classList.add('hidden'));
+/* Aperçu du PDF dans l'appli (pdfview.js, 21 nov. 2026) ; bouton masqué pour un autre fichier (GPX, sauvegarde…) */
+$('pdfPreview').addEventListener('click', () => { if (pdfFile) PdfView.show(pdfFile); });
 $('pdfShare').addEventListener('click', async () => {
   if (!pdfFile) return;
   try {
