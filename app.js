@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.11.0';
+const VERSION = '0.12.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -601,8 +601,8 @@ function figurePoints() {
 function updateInfo() {
   const I = isv(); let t = null;
   if (placing) return;
-  if (!current.zmt && !I.ptu) t = 'Onglet Zones : place la zone de posé (ZMT), puis le point d\'entrée PTU dans l\'onglet ISV.';
-  else if (!I.ptu) t = 'Place le point d\'entrée PTU (onglet ISV).';
+  if (!current.zmt && !I.ptu) t = 'Onglet Zones : place la zone de posé (ZMT), puis le point d\'entrée PTU dans l\'onglet Prépa ISV.';
+  else if (!I.ptu) t = 'Place le point d\'entrée PTU (onglet Prépa ISV).';
   else if (sol && !sol.ok) t = sol.err;
   else if (sol && sol.warn) t = '⚠️ ' + sol.warn;
   else if (!F) t = zeroWind ? null : '⚠️ Pas de prévision de vent pour cette heure : trace calculée SANS VENT.';
@@ -635,10 +635,6 @@ function fillInputs() {
   setVal('i_hPtu', I.hPtu); setVal('i_tGreen', I.tGreen); setVal('i_tRed', I.tRed);
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
-  { /* v0.10.0 : hauteurs au-dessus du sol de la ZMT ; le sol sous le PTU reste affiché pour voir la hauteur réelle à l'arrivée */
-    const ze = zmtElev(), e0 = elev0(), ref = ze != null ? `Sol de la ZMT : ${fmtInt(ze)} m` : current.zmt ? `Sol de la ZMT : ${fmtInt(e0)} m (provisoire, relevé en attente)` : `Pas de ZMT : hauteurs au-dessus du sol de la ZMT (${fmtInt(e0)} m)`;
-    const pt = I.ptu && typeof I.ptuElev === 'number' && current.zmt ? ` · sol sous le PTU : ${fmtInt(I.ptuElev)} m → arrivée à ${fmtInt(+I.hPtu + e0 - I.ptuElev)} m au-dessus du sol du PTU` : '';
-    $('ptuElevInfo').textContent = ref + pt; }
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
   setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
@@ -646,6 +642,7 @@ function fillInputs() {
   const open = !$('sheet').classList.contains('hidden');
   if (open && lastTab === 'isv') { renderIsvList(); renderPtList(); renderIsvTab(); renderVol(); } /* v0.6.2 : onglet Vol fusionné dans ISV ; v0.6.3 : liste des ISV en tête */
   if (open && lastTab === 'alti') renderAlti();
+  if (open && lastTab === 'brief') renderBrief();
   if (open && lastTab === 'params') renderCans();
   if (open && lastTab === 'zones') { renderZones(); renderZrt(); }
 }
@@ -969,7 +966,7 @@ function setSheetSize(sz) { sheetSize = sz; $('sheet').classList.toggle('mini', 
   g.addEventListener('mousedown', e => start(e.clientY));
   window.addEventListener('mouseup', e => end(e.clientY));
 })();
-const TABS = ['params', 'zones', 'isv', 'alti'];
+const TABS = ['params', 'zones', 'isv', 'alti', 'brief'];
 let lastTab = 'isv';
 function openSheet(tab) {
   lastTab = tab;
@@ -1053,13 +1050,6 @@ function renderIsvTab() {
     li.querySelector('.aall').onclick = () => { I.team.forEach((p, i) => { if (i > 0) p.dt = +src.dt; }); applyFrom = null; changed(); };
     li.querySelector('.adone').onclick = () => { applyFrom = null; changed(); };
   }
-  // Résultat en clair
-  const r = $('resInfo');
-  if (!sol || !sol.ok) r.textContent = sol && sol.err ? sol.err : '';
-  else r.innerHTML = `Voile la moins performante : <b>${esc(sol.weak.canopy.name)}</b>${sol.weak.several ? ` (para ${esc(pName(sol.weak.idx))}, ${fmtInt(sol.weak.mte)} kg)` : ''}.<br>` +
-    `Trace <b>${fmtKm(sol.length)}</b> · CAP PARA <b>${hdg(sol.cap)}</b>${sol.capAuto ? '' : ' (choisi à la main)'} · ouverture terminée à <b>${fmtInt(sol.hOpen)} m</b>.<br>` +
-    `Largage <b>FL${sol.fl}</b> · ${sol.openLowered ? `<b class="warn">ouverture à ${fmtInt(sol.hOpen)} m</b> (${fmt1(sol.tFall)} s de chute, vecteur déplacé à la main)` : `${fmt1(sol.tFall)} s de chute`} · vecteur <b>${hdg(sol.acHeading)}</b>, ${fmtInt(sol.vec.length)} m · para ${esc(pName(sol.dropIdx))} sur le point de largage.` +
-    (sol.warn ? `<br><b class="warn">⚠️ ${esc(sol.warn)}</b>` : '') + (F ? '' : '<br><b class="warn">⚠️ Sans prévision de vent.</b>');
 }
 $('btnAddPara').addEventListener('click', () => { const I = isv(), last = I.team[I.team.length - 1]; const p = newPara(last && last.canopy); p.dt = last ? +last.dt || 3 : 3; I.team.push(p); changed(); });
 $('btnAddN').addEventListener('click', async () => {
@@ -1081,14 +1071,10 @@ function renderVol() {
   setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
-  $('v_flInfo').innerHTML = ok ? `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol de la ZMT${sol.openLowered ? ` · <b class="warn">vecteur déplacé à la main : ouverture à ${fmtInt(sol.hOpen)} m au lieu de ${fmtInt(sol.hOpenPlan)} m (${fmt1(sol.tFall)} s de chute au lieu de ${fmt1(sol.tFallPlan)} s)</b>` : ''} · ${Math.round(I.acMs * KT)} kt badin = ${Math.round(sol.tas * KT)} kt vraie` : '';
   const dSel = $('v_drop'), rSel = $('v_relax');
   if (document.activeElement !== dSel) dSel.innerHTML = `<option value="">Auto : ${esc(pName(Calc.defaultDropIdx(I.team.length)))}</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.dropId ? ' selected' : ''}>${esc(pName(i))}</option>`).join('');
   if (document.activeElement !== rSel) rSel.innerHTML = `<option value="green"${I.relaxRef === 'green' ? ' selected' : ''}>Début de largage (vert)</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.relaxRef ? ' selected' : ''}>${esc(pName(i))}</option>`).join('') + `<option value="red"${I.relaxRef === 'red' ? ' selected' : ''}>Fin de largage (rouge)</option>`;
-  const tb = $('volTable').querySelector('tbody'); tb.innerHTML = '';
   $('v_warn').innerHTML = ok ? (sol.warn ? `<b class="warn">⚠️ ${esc(sol.warn)}</b>` : '') : esc(sol && sol.err || '');
-  if (!ok) return;
-  volRows().forEach(([k, v, hi]) => { const tr = document.createElement('tr'); if (hi) tr.className = 'hi'; tr.innerHTML = `<td>${k}</td><td>${v}</td>`; tb.append(tr); });
 }
 const sgn = (v, plus) => Math.abs(v) < 0.05 ? '0' : `${plus ? '+' : '−'}${fmt1(Math.abs(v))} s`;
 function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écran et au PDF
@@ -1130,6 +1116,79 @@ $('v_acP').addEventListener('click', () => { if (sol && sol.ok) setAcH(magOf(sol
 $('v_acAuto').addEventListener('click', () => { const I = isv(); I.vecHeading = null; I.reversed = false; changed(); toast('Vecteur perpendiculaire à la trace, face au vent'); });
 $('v_drop').addEventListener('change', e => { isv().dropId = e.target.value || null; e.target.blur(); changed(); });
 $('v_relax').addEventListener('change', e => { isv().relaxRef = e.target.value; e.target.blur(); changed(); });
+
+// ---------- Onglet Briefing (v0.12.0, demande d'Henri) : tout ce qui est calculé, en lecture seule ----------
+function renderBrief() {
+  const box = $('briefBody'), I = isv(), s = sol, ok = s && s.ok, out = [];
+  const sec = t => out.push(`<h3>${t}</h3><table class="vals"><tbody>`), end = () => out.push('</tbody></table>');
+  const row = (k, v, hi) => out.push(`<tr${hi ? ' class="hi"' : ''}><td>${k}</td><td>${v}</td></tr>`);
+  sec('Saut');
+  row('Zone', esc(current.id ? current.name : 'Nouvelle zone')); row('ISV', esc(I.name));
+  row('Date et heure', fmtWhen(current.when).replace(' ', ' à '));
+  row('Météo', wxRec ? `${esc(wxRec.model.split(' (')[0])}, prévision du ${fmtFetched(wxRec.fetched)}` : '<b class="warn">aucune prévision : calcul sans vent</b>');
+  if (zeroWind) row('', '<b class="warn">ESSAI VENT 0</b>');
+  if (current.zmt && F) { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); row('Vent au sol (ZMT)', `${hdg(w.dir)} · ${Math.round(w.spd * KT)} kt`); }
+  end();
+  if (!ok) { out.push(`<p class="hint">${esc(s && s.err ? s.err : 'Place la ZMT (onglet Zones) puis le PTU (onglet Prépa ISV).')}</p>`); box.innerHTML = out.join(''); return; }
+  if (s.warn) out.push(`<p class="hint"><b class="warn">⚠️ ${esc(s.warn)}</b></p>`);
+  sec('Consignes para');
+  row('Prise de cap', s.turn ? `à ${s.turn}` : 'dans l\'axe', true);
+  row('CDO', s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmt1(s.tFall)} s`, true);
+  row('Cap para', hdg(s.cap) + (s.capAuto ? '' : ' (choisi à la main)'), true);
+  row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
+  end();
+  sec('Largage');
+  row('FL de largage', `FL${s.fl} = ${fmtInt(s.hRel)} m au-dessus du sol de la ZMT`, true);
+  row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(s.tas * KT)} kt vraie`);
+  row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
+  row('Vent au largage', `${hdg(s.windRel.dir)} · ${Math.round(s.windRel.spd * KT)} kt`);
+  row('Cap avion (vecteur)', hdg(s.acHeading), true);
+  row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`);
+  row('Temps de largage (au point de relaxation)', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true);
+  row('Marges', `vert → 1er para ${fmt1(+I.tGreen)} s · dernier para → rouge ${fmt1(+I.tRed)} s`);
+  row('Début de largage (vert)', fmtPos(s.vec.green)); row('Fin de largage (rouge)', fmtPos(s.vec.red));
+  end();
+  sec('Chute et ouverture');
+  row(s.openLowered ? 'Ouverture commandée' : 'Temps de chute', s.openLowered ? `à ${fmtInt(Math.round(s.hOpen))} m (${fmt1(s.tFall)} s de chute, vecteur déplacé à la main)` : `${fmt1(s.tFall)} s`);
+  row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
+  row('Dérive sous RSE', `${fmtInt(s.rseLen)} m`);
+  row('Ouverture terminée (OUV)', `${fmtInt(s.hOpen)} m au-dessus du sol de la ZMT`);
+  row('Position OUV', fmtPos(s.ouv));
+  end();
+  sec('Navigation sous voile');
+  row('Trace', `${fmtKm(s.length)} · ${fmtKm(s.direct)} en ligne droite`, true);
+  row(`Temps sous voile (para ${esc(pName(s.dropIdx))}, ${esc(s.own.canopy.name)})`, fmtMin(s.own.tCanopy), true);
+  if (s.own.t180 != null) row('Passage du FL180, depuis le vert', fmtMin(s.own.t180));
+  if (s.own.t120 != null) row('Passage du FL120, depuis le vert', fmtMin(s.own.t120));
+  row('Voile la moins performante', `${esc(s.weak.canopy.name)}${s.weak.several ? ' · para ' + esc(pName(s.weak.idx)) + ' (' + fmtInt(s.weak.mte) + ' kg)' : ''}`);
+  row('Cercle de relaxation', `rayon ${fmtKm(s.circle.R)} (marge comprise)`);
+  row('Marge sur le vent', `${prm.margin} %`);
+  end();
+  sec('Arrivée');
+  row('Point d\'entrée PTU', fmtPos(I.ptu));
+  row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`, true);
+  { const ze = zmtElev(); row('Sol de la ZMT', `${fmtInt(s.elev0)} m${ze == null && current.zmt ? ' (provisoire, relevé en attente)' : ''}`); }
+  if (typeof I.ptuElev === 'number') { row('Sol sous le PTU', `${fmtInt(I.ptuElev)} m`); row('Hauteur réelle au-dessus du sol du PTU', `${fmtInt(+I.hPtu + s.elev0 - I.ptuElev)} m`); }
+  if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
+  end();
+  sec('Altimétrie');
+  { const av = altiVals();
+    row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé', true);
+    row('ALPHA', av ? `${av.alpha} hPa` : '–', true);
+    row('Hauteur de largage (au-dessus du point haut)', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé', true);
+    row('Point haut', av && av.max ? `${fmtInt(av.max.elev)} m · ${fmtPos(av.max)}` : 'non calculé');
+    row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE${I.alti && I.alti.drift != null && I.alti.key === altiKey() ? ` (${fmtInt(I.alti.drift)} m)` : ''}`); }
+  end();
+  sec(`Équipe (${I.team.length})`);
+  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0];
+    row(`${i + 1}. ${esc(p.name || 'Para ' + (i + 1))}${i === s.dropIdx ? ' · sur le point de largage' : ''}`, `${esc(c.name)} · ${fmtInt(+p.mte || MTE_DEF)} kg · sortie vert +${fmt1(s.ex.te[i])} s`, i === s.dropIdx); });
+  end();
+  if (I.points.length) { sec('Points de l\'ISV'); I.points.forEach(pt => row(esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point')), fmtPos(pt))); end(); }
+  sec('Points de la trace');
+  s.trace.forEach((p, i) => row(i === 0 ? `OUV ${fmtInt(p.h)} m` : i === s.trace.length - 1 ? `PTU ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`, fmtPos(p)));
+  end();
+  box.innerHTML = out.join('');
+}
 
 // ---------- Onglet Altimétrie ----------
 /* Zone de sécurité (v0.3.0, demande d'Henri) : le para n'est pas à la verticale du vecteur quand son système de sécurité
@@ -1182,7 +1241,7 @@ async function computeAlti(manual) {
     }
     let best = -1;
     el.forEach((e, i) => { if (typeof e === 'number' && (best < 0 || e > el[best])) best = i; });
-    if (best >= 0 && isv() === I) { I.alti = { key, max: { lat: pts[best].lat, lng: pts[best].lng, elev: Math.round(el[best]) }, n: pts.length, step, drift: Math.round(g.drift), t: Date.now() }; persist(); redraw(); if (lastTab === 'alti') renderAlti(); }
+    if (best >= 0 && isv() === I) { I.alti = { key, max: { lat: pts[best].lat, lng: pts[best].lng, elev: Math.round(el[best]) }, n: pts.length, step, drift: Math.round(g.drift), t: Date.now() }; persist(); redraw(); if (lastTab === 'alti') renderAlti(); if (lastTab === 'brief' && !$('sheet').classList.contains('hidden')) renderBrief(); }
   } catch (e) { I.altiErr = true; if (manual) toast('Altitudes impossibles à télécharger (réseau ?)'); }
   finally { altiBusy = false; altiState(); }
 }

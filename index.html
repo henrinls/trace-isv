@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.11.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.12.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.11.0">
+<link rel="stylesheet" href="style.css?v=0.12.0">
 </head>
 <body>
 <div id="map"></div>
@@ -72,8 +72,9 @@
   <div class="tabs tabs5">
     <button data-tab="params">Param.</button>
     <button data-tab="zones">Zones</button>
-    <button data-tab="isv" class="on">ISV</button>
+    <button data-tab="isv" class="on">Prépa ISV</button>
     <button data-tab="alti">Alti</button>
+    <button data-tab="brief">Briefing</button>
     <button id="btnClose" class="close">✕</button>
   </div>
 
@@ -134,7 +135,7 @@
 
     <h3>Point d'entrée PTU</h3>
     <div class="grid2"><button id="btnPlaceP">📍 Toucher la carte</button><button id="btnCoordP">⌨ Coordonnées</button></div>
-    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m, sol ZMT)</label><input id="i_hPtu" inputmode="numeric"></div><div><p class="hint" id="ptuElevInfo"></p></div></div>
+    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m, sol ZMT)</label><input id="i_hPtu" inputmode="numeric"></div><div></div></div>
     <p class="hint" id="ptuInfo"></p>
 
     <h3>Points de cette ISV</h3>
@@ -159,7 +160,6 @@
       <div><label>Largage (FL)</label><input id="v_fl" inputmode="numeric"></div>
       <div><label>Vitesse de largage (m/s, badin)</label><input id="v_ac" inputmode="decimal"></div>
     </div>
-    <p class="hint" id="v_flInfo"></p>
     <div class="grid2">
       <div><label>Temps de chute (s)</label><input id="v_tFall" inputmode="decimal"></div>
       <div><label>Hauteur d'ouverture (m, sol ZMT)</label><input id="v_hOpen" inputmode="numeric"></div>
@@ -172,11 +172,7 @@
       <div><label>Para sur le point de largage</label><select id="v_drop"></select></div>
       <div><label>Point de relaxation</label><select id="v_relax"></select></div>
     </div>
-    <table class="vals" id="volTable"><tbody></tbody></table>
     <p class="hint" id="v_warn"></p>
-
-    <h3>Résultat</h3>
-    <p class="hint big" id="resInfo"></p>
 
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
@@ -193,6 +189,11 @@
     <table class="vals" id="altiTable"><tbody></tbody></table>
     <div class="row"><button id="btnAlti" class="wide">🔄 Recalculer le point haut</button></div>
     <p class="hint">La zone de sécurité est le vecteur avec ses marges, prolongé le long de la dérive sous RSE d'un para qui chuterait sans ouvrir, jusqu'à 1013,25 hPa (vent prévu). Son point le plus haut est marqué sur la carte par un triangle. Altitudes : relevé Copernicus (un point tous les 90 m), par Internet. OSO : pression prévue au point haut ; ALPHA : pression prévue au sol de la ZMT ; à l'heure du saut. Toutes les hauteurs de l'appli sont comptées au-dessus du sol de la ZMT.</p>
+  </div>
+
+  <!-- ===== Briefing (v0.12.0) : tout ce qui est calculé, en lecture seule ===== -->
+  <div id="tab-brief" class="tab hidden">
+    <div id="briefBody"></div>
   </div>
 
   <!-- ===== Paramètres ===== -->
@@ -278,16 +279,16 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.11.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.11.0"></script>
-<script src="vendor/mgrs.min.js?v=0.11.0"></script>
-<script src="geo.js?v=0.11.0"></script>
-<script src="clubs.js?v=0.11.0"></script>
-<script src="wmm.js?v=0.11.0"></script>
-<script src="calc.js?v=0.11.0"></script>
-<script src="windpick.js?v=0.11.0"></script>
-<script src="pdfview.js?v=0.11.0"></script>
-<script src="app.js?v=0.11.0"></script>
-<script src="photo.js?v=0.11.0"></script>
+<script src="vendor/leaflet.js?v=0.12.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.12.0"></script>
+<script src="vendor/mgrs.min.js?v=0.12.0"></script>
+<script src="geo.js?v=0.12.0"></script>
+<script src="clubs.js?v=0.12.0"></script>
+<script src="wmm.js?v=0.12.0"></script>
+<script src="calc.js?v=0.12.0"></script>
+<script src="windpick.js?v=0.12.0"></script>
+<script src="pdfview.js?v=0.12.0"></script>
+<script src="app.js?v=0.12.0"></script>
+<script src="photo.js?v=0.12.0"></script>
 </body>
 </html>

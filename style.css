@@ -189,7 +189,7 @@ button,input,select,label,a{touch-action:manipulation}
 .grid2>button{align-self:stretch}
 
 /* ===== trace-isv ===== */
-.tabs5{gap:5px}.tabs5 button{padding:8px 9px;font-size:13px}
+.tabs5{gap:4px}.tabs5 button{padding:8px 6px;font-size:13px;white-space:nowrap}
 #quick #qVol{border-color:#ff3fb4;color:#fff}
 #quick #qPoint{border-color:#ffd400;color:#fff;font-size:12px}#quick #qPoint.on{background:#ffd400;color:#111}
 #quick #qWhen{min-height:62px}
@@ -265,3 +265,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #isvZoneSel{font:inherit;font-weight:700;color:#fff;background:#2a2a2a;border:1px solid #666;border-radius:8px;padding:3px 6px;max-width:65%}
 
 #sheet h3{position:sticky;top:var(--h3top,60px);z-index:1;background:#161616;padding:6px 0 5px;margin-bottom:2px}
+@media (max-width:360px){.tabs5{gap:3px}.tabs5 button{font-size:11.5px;padding:7px 4px}}
