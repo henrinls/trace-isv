@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.5';
+const VERSION = '0.35.6';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -532,10 +532,10 @@ async function miniBack(i) { /* v0.35.5 (Henri) : on peut aussi rebasculer vers 
   const canBack = i > 0, canFwd = S.some(q => (q.back || 0) > 0);
   if (!canBack && !canFwd) { toast('C\'est déjà le point d\'ouverture : impossible de remonter plus loin'); return; }
   $('dlgDel').classList.remove('danger'); /* « Avancer » n'est pas une suppression : bouton neutre */
-  const r = await ask(`Point d'alerte ${fmtInt(T[i].h)}-MINI${M[i]}.${canBack ? ` Reculer : la hauteur mini passe sur le point d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}).` : ' (Déjà au point d\'ouverture.)'}${canFwd ? ` Avancer : elle revient sur le point suivant (${fmtInt(T[i + 1].h)}).` : ''}`, undefined, canFwd ? '▶ Avancer d\'un point' : null, canBack ? '◀ Reculer d\'un point' : 'OK');
+  const r = await ask(`Point d'alerte ${fmtInt(T[i].h)}-MINI${M[i]}.${canBack ? ` Reculer : la hauteur mini passe sur le point d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}).` : ' (Déjà au point d\'ouverture.)'}${canFwd ? ` Avancer : elle revient sur le point suivant (${fmtInt(T[i + 1].h)}).` : ''}`, undefined, canFwd && canBack ? '◀ Reculer d\'un point' : null, canFwd ? 'Avancer d\'un point ▶' : '◀ Reculer d\'un point'); /* v0.35.6 (Henri) : Reculer à gauche, Avancer à droite */
   $('dlgDel').classList.add('danger');
-  if (r === 'DELETE') S.forEach(q => { if ((q.back || 0) > 0) q.back--; });
-  else if (r === true && canBack) S.forEach(q => { q.back = (q.back || 0) + 1; });
+  const back = () => S.forEach(q => { q.back = (q.back || 0) + 1; }), fwd = () => S.forEach(q => { if ((q.back || 0) > 0) q.back--; });
+  if (r === 'DELETE') back(); else if (r === true) { if (canFwd) fwd(); else back(); }
   else return;
   persist(); redraw();
 }
