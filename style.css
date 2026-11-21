@@ -270,7 +270,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}table.vals tr.hi td:
 @media (max-width:360px){.tabs5{gap:3px}.tabs5 button{font-size:11.5px;padding:7px 4px}}
 
 #capInfo .altil{font-size:12px}#capInfo .ast{display:inline-block;min-width:13px;font-weight:800}#capInfo .ast.ok{color:#2ecc40}#capInfo .ast.wait{color:#bbb}#capInfo .ast.err{color:#ff4d4d}
-#briefBody .seept{padding:5px 8px;font-size:13px;white-space:nowrap}
+#briefBody .seept{display:block;margin-top:4px;width:auto;padding:5px 8px;font-size:13px;white-space:nowrap}
 #top #btnZones{max-width:min(44vw,calc(100vw - 232px))} /* v0.16.0 : le nom ISV (date) allongeait le bouton et poussait les boutons ronds hors de l écran */
 
 /* ＋ Point : choix du type à côté du bouton (v0.17.0) */

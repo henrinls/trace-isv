@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.39.2';
+const VERSION = '0.39.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1467,7 +1467,7 @@ function renderBrief() {
   end();
   if (I.points.length) {
     sec('Points de l\'ISV');
-    I.points.forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td><button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`));
+    I.points.forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td>${fmtPos(pt)} <button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`)); /* v0.39.3 (Henri) : coordonnées remises (Briefing et PDF) */
     end();
   }
   box.innerHTML = out.join(''); box.querySelectorAll('.applyFl').forEach(b => b.onclick = applyFlMin4);
