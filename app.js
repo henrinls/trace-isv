@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -275,12 +275,12 @@ function setBasemap(k, msg) {
   const B = BASEMAPS[basemap]; tileFails = 0;
   baseLayer = L.tileLayer(B.url, { maxNativeZoom: B.maxNative, maxZoom: 22, crossOrigin: 'anonymous', attribution: B.attr }).addTo(map);
   baseLayer.on('tileerror', () => { if (++tileFails === 12 && basemap === 'ign') toast('Photos IGN indisponibles ici (hors France ou pas de réseau) : repasse sur « Satellite »'); });
-  $('bmEsri').classList.toggle('on', basemap === 'esri'); $('bmIgn').classList.toggle('on', basemap === 'ign');
+  const phOn = !!($('bmPhoto') && $('bmPhoto').classList.contains('on')); $('bmEsri').classList.toggle('on', !phOn && basemap === 'esri'); $('bmIgn').classList.toggle('on', !phOn && basemap === 'ign');
   if (msg) toast(basemap === 'ign' ? 'Fond : photos aériennes IGN (France)' : 'Fond : satellite Esri (monde)');
 }
 setBasemap(basemap);
-$('bmEsri').addEventListener('click', () => setBasemap('esri', true));
-$('bmIgn').addEventListener('click', () => setBasemap('ign', true));
+$('bmEsri').addEventListener('click', () => { if (typeof Photo !== 'undefined') Photo.hide(); setBasemap('esri', true); }); /* photo calée = 3e choix du fond (21 nov. 2026) */
+$('bmIgn').addEventListener('click', () => { if (typeof Photo !== 'undefined') Photo.hide(); setBasemap('ign', true); }); /* photo calée = 3e choix du fond (21 nov. 2026) */
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 map.on('moveend', () => { current.center = map.getCenter(); current.zoom = map.getZoom(); store.set('isv.current', current); });
@@ -427,6 +427,7 @@ function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { drag
 function pointLabel(pt) { if (pt.kind !== 'alt') return pt.name || ''; const I = isv(); if (typeof pt.elev !== 'number' || (typeof I.ptuElev !== 'number' && !wxRec)) return pt.name || ''; const d = Math.round(pt.elev - elev0()); return `${pt.name || ''} ${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`.trim(); }
 function draw(light) {
   compute();
+  if (!light && typeof Photo !== 'undefined') Photo.sync(); /* v0.9.0 : manquait (photo calée pas suivie au changement de zone) */
   const I = isv(); fig.clearLayers();
   // ZRT : affichage seulement
   current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
@@ -1290,6 +1291,13 @@ function renderZones() {
 }
 function renderIsvList() {
   const ul = $('isvList'); ul.innerHTML = '';
+  /* v0.9.0 : « ISV de la zone <nom> » ; avec plusieurs zones enregistrées, le nom est une liste déroulante qui bascule de zone (onglet ISV gardé ouvert) */
+  const zs = $('isvZone'), saved = current.id && zones.some(z => z.id === current.id);
+  if (saved && zones.length > 1) {
+    zs.innerHTML = '<select id="isvZoneSel"></select>'; const sel = zs.firstChild;
+    zones.forEach(z => { const o = document.createElement('option'); o.value = z.id; o.textContent = z.name; o.selected = z.id === current.id; sel.append(o); });
+    sel.onchange = () => { if (sel.value !== current.id) loadZone(sel.value, true); };
+  } else zs.innerHTML = `<b>${esc(current.name || 'Nouvelle zone')}</b>`;
   current.isvs.forEach(I => {
     const li = document.createElement('li'); li.className = I.id === current.cur ? 'cur' : '';
     li.innerHTML = `<span class="zn">${esc(I.name)} <small class="mut">${I.team.length} para${I.team.length > 1 ? 's' : ''} · FL${I.fl}</small></span>`;
@@ -1315,13 +1323,14 @@ $('btnDupIsv').addEventListener('click', async () => {
   const I = clone(isv()); I.id = uid('i'); I.name = String(n).trim(); I.team.forEach(p => { const old = p.id; p.id = uid('p'); if (I.dropId === old) I.dropId = p.id; if (I.relaxRef === old) I.relaxRef = p.id; }); I.points.forEach(pt => { pt.id = uid('q'); });
   current.isvs.push(I); openIsv(I.id);
 });
-function loadZone(id) {
+function loadZone(id, keepIsvTab) {
   const z = zones.find(x => x.id === id); if (!z) return;
   current = upgrade(clone(z));
   resetMarkers(); placing = null; setBanner(null); stopMeasure();
   map.setBearing(current.bearing || 0);
   map.setView([current.center.lat, current.center.lng], current.zoom || 11);
-  closeSheet(); fillInputs(); draw(); persist();
+  if (keepIsvTab) openSheet('isv'); else closeSheet(); fillInputs(); draw(); persist();
+  if (keepIsvTab) toast(`Zone « ${current.name} »`);
   if (sol && sol.ok) fitFigure();
   ensureWx(false); refreshPtuElev();
 }

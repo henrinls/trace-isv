@@ -259,3 +259,7 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #capInfo.hidden{display:none}
 #quick #qAlti{border-color:#ff3fb4;color:#fff;white-space:nowrap}#qAlti .ast{display:inline-block;min-width:13px;margin-left:2px;font-weight:800}#qAlti .ast.ok{color:#2ecc40}#qAlti .ast.wait{color:#bbb}
 #qAlti .ast.err{color:#ff4d4d}
+
+.seg.segbm{grid-template-columns:1fr 1fr 1fr}.seg.segbm button{font-size:14px}
+
+#isvZoneSel{font:inherit;font-weight:700;color:#fff;background:#2a2a2a;border:1px solid #666;border-radius:8px;padding:3px 6px;max-width:65%}
