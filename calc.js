@@ -104,14 +104,14 @@
     const N = Math.round(tFall / dt);
     for (let i = 0; i < N; i++) {
       const sp = Math.hypot(u, w); u += -k * sp * u * dt; w += (G - k * sp * w) * dt; s += u * dt; z += w * dt; t += dt; acc += dt;
-      if (acc >= 0.25 || i === N - 1) { steps.push({ z: (z0 + z) / 2, dt: acc }); acc = 0; z0 = z; }
+      if (acc >= 0.25 || i === N - 1) { steps.push({ z: (z0 + z) / 2, dt: acc, s, ze: z }); acc = 0; z0 = z; }
     }
     const dropFF = z, throwFF = s, w1 = w;
     const tO = openLoss > 0 ? 2 * openLoss / Math.max(1, w1 + vzCan) : 0, M = Math.max(1, Math.round(tO / 0.25));
     for (let i = 0; i < M && tO > 0; i++) {
       const f0 = i / M, f1 = (i + 1) / M, fm = (f0 + f1) / 2, d = tO / M;
       const wz = w1 + (vzCan - w1) * fm, uu = u * (1 - fm);
-      steps.push({ z: z + wz * d / 2, dt: d }); z += wz * d; s += uu * d;
+      const zm = z + wz * d / 2; z += wz * d; s += uu * d; steps.push({ z: zm, dt: d, s, ze: z });
     }
     return { drop: z, dropFF, throwFF, throwAir: s, tOpen: tO, time: tFall + tO, steps };
   }
@@ -127,6 +127,14 @@
     const a = unit(acHeading); let x = a.x * fl.throwAir, y = a.y * fl.throwAir;
     fl.steps.forEach(st => { const w = windAt(F, pt.lat, pt.lng, altRel - st.z); x += w.u * st.dt; y += w.v * st.dt; });
     return { x, y };
+  }
+
+  // Chemin de la dérive sous RSE : position (m, par rapport au point de sortie) à la fin de chaque pas de la chute.
+  // Même calcul que rseDrift (dernier point = rseDrift), mais on garde tout le chemin : il sert à la zone de sécurité.
+  function rsePath(F, pt, altRel, fl, acHeading) {
+    const a = unit(acHeading), out = [{ z: 0, x: 0, y: 0 }]; let wx = 0, wy = 0;
+    fl.steps.forEach(st => { const w = windAt(F, pt.lat, pt.lng, altRel - st.z); wx += w.u * st.dt; wy += w.v * st.dt; out.push({ z: st.ze, x: a.x * st.s + wx, y: a.y * st.s + wy }); });
+    return out;
   }
 
   // ---------- Trace à cap constant, calculée à rebours depuis le PTU ----------
@@ -351,6 +359,6 @@
   }
 
   const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
-    tasOf, groundSpeed, fall, tFallFor, rseDrift, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
+    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

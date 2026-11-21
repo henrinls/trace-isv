@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1003,7 +1003,40 @@ $('v_drop').addEventListener('change', e => { isv().dropId = e.target.value || n
 $('v_relax').addEventListener('change', e => { isv().relaxRef = e.target.value; e.target.blur(); changed(); });
 
 // ---------- Onglet Altimétrie ----------
-function altiKey() { if (!sol || !sol.ok) return ''; const I = isv(), r = p => p.lat.toFixed(4) + ',' + p.lng.toFixed(4); return [r(sol.vec.green), r(sol.vec.red), I.secLong, I.secLat].join('|'); }
+/* Zone de sécurité (v0.3.0, demande d'Henri) : le para n'est pas à la verticale du vecteur quand son système de sécurité
+   déclenche, il a dérivé sous RSE. La zone est donc le rectangle autour du vecteur (marges avant / après et de côté) ET tout ce
+   que ce rectangle balaie quand on le fait glisser le long de la dérive d'un para qui chute sans ouvrir, du largage jusqu'à
+   1013,25 hPa (plancher fixe : pas besoin de connaître le point haut pour trouver le point haut). Vent prévu, sans marge. */
+const SEC_HPA = 1013.25, secMem = { k: null, v: null };
+function secPath() { /* dérive (m, repère local du milieu du vecteur) d'un para qui chute sans ouvrir jusqu'à 1013,25 hPa */
+  if (!sol || !sol.ok) return [{ z: 0, x: 0, y: 0 }];
+  const g = sol.vec.green, r = sol.vec.red, mid = { lat: (g.lat + r.lat) / 2, lng: (g.lng + r.lng) / 2 };
+  const k = [solKey, mid.lat.toFixed(4), mid.lng.toFixed(4), Math.round(sol.altRel), Math.round(sol.tas), prm.vff, Math.round(sol.acHeading * 10)].join('|');
+  if (secMem.k === k) return secMem.v;
+  const drop = sol.altRel - Calc.zOfP(F, mid.lat, mid.lng, SEC_HPA), vff = Math.max(10, +prm.vff || 50); let v = [{ z: 0, x: 0, y: 0 }];
+  if (drop > 1) v = Calc.rsePath(F, mid, sol.altRel, Calc.fall(Calc.tFallFor(drop, sol.tas, vff, 0, 1, true), sol.tas, vff, 0, 1), sol.acHeading);
+  secMem.k = k; secMem.v = v; return v;
+}
+function altiKey() {
+  if (!sol || !sol.ok) return ''; const I = isv(), r = p => p.lat.toFixed(4) + ',' + p.lng.toFixed(4), P = secPath(), q = p => Math.round(p.x / 20) + ',' + Math.round(p.y / 20);
+  return [r(sol.vec.green), r(sol.vec.red), I.secLong, I.secLat, q(P[P.length >> 1]), q(P[P.length - 1])].join('|');
+}
+/* Points de la zone de sécurité (grille au pas donné), dans le repère du vecteur : s le long (0 = vert), w en travers */
+function secGrid(step) {
+  const I = isv(), a = Calc.unit(sol.vec.heading), r = { x: a.y, y: -a.x }, L = sol.vec.length, sl = Math.max(0, +I.secLong || 0), sw = Math.max(0, +I.secLat || 0);
+  const raw = secPath().map(p => ({ s: p.x * a.x + p.y * a.y, w: p.x * r.x + p.y * r.y })), path = [raw[0]];
+  for (let k = 1; k < raw.length; k++) { /* chemin resserré : jamais plus d'un demi-pas entre deux positions du rectangle */
+    const A = path[path.length - 1], B = raw[k], d = Math.hypot(B.s - A.s, B.w - A.w), n = Math.ceil(d / (step / 2));
+    if (d < step / 2 && k < raw.length - 1) continue;
+    for (let m = 1; m <= Math.max(1, n); m++) path.push({ s: A.s + (B.s - A.s) * m / Math.max(1, n), w: A.w + (B.w - A.w) * m / Math.max(1, n) });
+  }
+  let s0 = 0, s1 = 0, w0 = 0, w1 = 0; path.forEach(p => { s0 = Math.min(s0, p.s); s1 = Math.max(s1, p.s); w0 = Math.min(w0, p.w); w1 = Math.max(w1, p.w); });
+  const pts = [], e = 1;
+  for (let s = s0 - sl; s <= s1 + L + sl + e; s += step) for (let w = w0 - sw; w <= w1 + sw + e; w += step)
+    if (path.some(p => s - p.s >= -sl - e && s - p.s <= L + sl + e && Math.abs(w - p.w) <= sw + e)) pts.push({ s, w });
+  return { pts, a, r, drift: Math.hypot(raw[raw.length - 1].s, raw[raw.length - 1].w) };
+}
+const SEC_MAX_PTS = 1600;
 let altiT = 0, altiBusy = false;
 function scheduleAlti() { clearTimeout(altiT); altiT = setTimeout(() => computeAlti(false), 2500); }
 async function computeAlti(manual) {
@@ -1011,13 +1044,11 @@ async function computeAlti(manual) {
   if (!manual && I.alti && I.alti.key === key) return;
   if (altiBusy) { if (!manual) scheduleAlti(); return; } altiBusy = true;
   try {
-    const a = Calc.unit(sol.vec.heading), r = { x: a.y, y: -a.x }, L = sol.vec.length, sl = Math.max(0, +I.secLong || 0), sw = Math.max(0, +I.secLat || 0);
-    let step = 100; while (((L + 2 * sl) / step + 1) * ((2 * sw) / step + 1) > 900) step += 25;
-    const pts = [];
-    for (let s = -sl; s <= L + sl + 1; s += step) for (let w = -sw; w <= sw + 1; w += step) pts.push(Calc.fromLocal(sol.vec.green, { x: a.x * s + r.x * w, y: a.y * s + r.y * w }));
+    let step = 100, g = secGrid(step); while (g.pts.length > SEC_MAX_PTS && step < 400) { step += 20; g = secGrid(step); }
+    const o = sol.vec.green, pts = g.pts.map(p => Calc.fromLocal(o, { x: g.a.x * p.s + g.r.x * p.w, y: g.a.y * p.s + g.r.y * p.w }));
     const el = await fetchElev(pts); let best = -1;
     el.forEach((e, i) => { if (typeof e === 'number' && (best < 0 || e > el[best])) best = i; });
-    if (best >= 0 && isv() === I) { I.alti = { key, max: { lat: pts[best].lat, lng: pts[best].lng, elev: Math.round(el[best]) }, n: pts.length, t: Date.now() }; persist(); redraw(); if (lastTab === 'alti') renderAlti(); }
+    if (best >= 0 && isv() === I) { I.alti = { key, max: { lat: pts[best].lat, lng: pts[best].lng, elev: Math.round(el[best]) }, n: pts.length, step, drift: Math.round(g.drift), t: Date.now() }; persist(); redraw(); if (lastTab === 'alti') renderAlti(); }
   } catch (e) { if (manual) toast('Altitudes impossibles à télécharger (réseau ?)'); }
   finally { altiBusy = false; }
 }
@@ -1049,12 +1080,13 @@ function renderAlti() {
   rows.push(['OSO', v.max ? `${v.oso} hPa` : '…', true]);
   rows.push(['ALPHA', `${v.alpha} hPa`, true]);
   rows.push(['Hauteur de largage', v.max ? `${fmtInt(v.hRel)} m` : '…', true]);
+  { const I = isv(); if (v.max && I.alti && I.alti.drift != null) rows.push(['Zone de sécurité', `vecteur et ses marges, prolongés de ${fmtInt(I.alti.drift)} m le long de la dérive sous RSE`]); }
   rows.push(['Sol sous le PTU', `${fmtInt(v.elevPtu)} m`]);
   if (!F) rows.push(['', '<b class="warn">Sans prévision : pressions en atmosphère standard</b>']);
   rows.forEach(([k, val, hi]) => { const tr = document.createElement('tr'); if (hi) tr.className = 'hi'; tr.innerHTML = `<td>${k}</td><td>${val}</td>`; tb.append(tr); });
 }
-onNum('a_long', v => { isv().secLong = Math.round(v); }, 0, 20000);
-onNum('a_lat', v => { isv().secLat = Math.round(v); }, 0, 10000);
+onNum('a_long', v => { isv().secLong = Math.round(v); scheduleAlti(); }, 0, 20000);
+onNum('a_lat', v => { isv().secLat = Math.round(v); scheduleAlti(); }, 0, 10000);
 $('btnAlti').addEventListener('click', () => computeAlti(true));
 
 // ---------- Onglet Paramètres : parachutes et calcul ----------
@@ -1477,7 +1509,8 @@ function pdfDataPages(doc) {
   row('OSO', av && av.max ? `${av.oso} hPa (point haut ${fmtInt(av.max.elev)} m)` : 'non calculé', true);
   row('ALPHA', av ? `${av.alpha} hPa (sol sous le PTU ${fmtInt(av.elevPtu)} m)` : '-', true);
   row('Hauteur de largage', av && av.max ? `${fmtInt(av.hRel)} m au-dessus du point haut` : 'non calculé', true);
-  row('Zone de sécurité', `${fmtInt(I.secLong)} m avant et après le vecteur, ${fmtInt(I.secLat)} m de chaque côté`);
+  row('Zone de sécurité', `${fmtInt(I.secLong)} m avant et après le vecteur, ${fmtInt(I.secLat)} m de chaque côté,`);
+  row('', `prolongée le long de la dérive sous RSE jusqu'à 1013 hPa${I.alti && I.alti.drift != null && I.alti.key === altiKey() ? ` (${fmtInt(I.alti.drift)} m)` : ''}`);
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
   I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)})${p.mte ? ' - MTE ' + p.mte + ' kg' : ''} - sortie à ${fmt1(sol.ex.te[i])} s`); });
   y += 3; title('Points de la trace (hauteur au-dessus du sol sous le PTU)');
