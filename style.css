@@ -283,3 +283,13 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #ptColors.hidden{display:none}
 #ptColors button{width:30px;height:30px;border-radius:50%;border:2px solid #666}
 #ptColors button.on{border-color:#fff;box-shadow:0 0 0 2px #1f6fb2}
+
+/* Coupe (v0.19.0) */
+#cutBox{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(40px + env(safe-area-inset-bottom));width:min(96vw,640px);background:rgba(18,18,18,.96);border:2px solid #d9a066;border-radius:14px;padding:8px 10px;z-index:1060}
+#cutBox.hidden{display:none}
+#cutBox .cuthead{display:flex;align-items:center;gap:8px}#cutBox .cuthead b{flex:1;color:#ddd;font-size:14px}
+#cutBox .cuthead button{height:34px;min-width:40px;border-radius:9px;background:#2a2a2a;border:1px solid #555;color:#fff}
+#cutCv{display:block;width:100%;height:min(42vh,280px);touch-action:none;margin:6px 0 2px}
+#cutBox #cutInfo{margin:4px 0 0;min-height:2.6em}
+#quick #qCut{border-color:#d9a066;color:#fff}#quick #qCut.on{background:#d9a066;color:#111}
+.tmppt span{position:absolute;inset:3px;border-radius:50%;background:#fff;border:3px solid #d9a066;box-shadow:0 0 0 2px #000,0 0 10px #fff}

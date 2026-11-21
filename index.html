@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.18.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.19.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.18.1">
+<link rel="stylesheet" href="style.css?v=0.19.0">
 </head>
 <body>
 <div id="map"></div>
@@ -45,6 +45,7 @@
   <button id="qVecAuto" class="hidden" title="Revenir au vecteur et au cap calculés, avec le temps de chute prévu">Vect. auto</button>
   <button id="qRelax" title="Afficher / masquer le cercle de relaxation">Relax</button>
   <button id="qPoint" title="Ajouter une zone de posé alternative ou un point libre">＋ Point</button>
+  <button id="qCut" title="Coupe du terrain le long de la trace (ou de la mesure affichée)">Coupe</button>
   <button id="qMeasure" title="Mesurer cap et distance entre deux points">📏</button>
 </nav>
 
@@ -274,18 +275,24 @@
   </div>
 </div>
 
+<div id="cutBox" class="hidden">
+  <div class="cuthead"><b id="cutTitle">Coupe</b><button id="cutClose">✕</button></div>
+  <canvas id="cutCv"></canvas>
+  <p class="hint" id="cutInfo"></p>
+</div>
+
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.18.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.18.1"></script>
-<script src="vendor/mgrs.min.js?v=0.18.1"></script>
-<script src="geo.js?v=0.18.1"></script>
-<script src="clubs.js?v=0.18.1"></script>
-<script src="wmm.js?v=0.18.1"></script>
-<script src="calc.js?v=0.18.1"></script>
-<script src="windpick.js?v=0.18.1"></script>
-<script src="pdfview.js?v=0.18.1"></script>
-<script src="app.js?v=0.18.1"></script>
-<script src="photo.js?v=0.18.1"></script>
+<script src="vendor/leaflet.js?v=0.19.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.19.0"></script>
+<script src="vendor/mgrs.min.js?v=0.19.0"></script>
+<script src="geo.js?v=0.19.0"></script>
+<script src="clubs.js?v=0.19.0"></script>
+<script src="wmm.js?v=0.19.0"></script>
+<script src="calc.js?v=0.19.0"></script>
+<script src="windpick.js?v=0.19.0"></script>
+<script src="pdfview.js?v=0.19.0"></script>
+<script src="app.js?v=0.19.0"></script>
+<script src="photo.js?v=0.19.0"></script>
 </body>
 </html>

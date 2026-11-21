@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.18.1';
+const VERSION = '0.19.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -811,7 +811,7 @@ function syncPtPop() {
   $('ptAlt').classList.toggle('on', k === 'alt'); $('ptFree').classList.toggle('on', k === 'free'); syncPtColors();
   const r = $('qPoint').getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(r.top + r.height / 2 - 22)}px`;
 }
-function openPtPop() { stopMeasure(); closeSheet(); ptOpen = true; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
+function openPtPop() { closeSheet(); /* v0.19.0 : la mesure reste affichée pour poser un point sur un de ses bouts */ ptOpen = true; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
 function closePtPop() { ptOpen = false; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
 $('qPoint').addEventListener('click', () => { if (ptOpen) closePtPop(); else openPtPop(); });
 $('ptAlt').addEventListener('click', () => { ptPal = false; placing = { kind: 'alt' }; placeBanner(); fillInputs(); syncPtPop(); });
@@ -928,9 +928,12 @@ map.on('click', e => {
   if ((typeof Photo !== 'undefined') && Photo.onMapClick(e)) return; // calage d'une image en cours
   if ((typeof WindPick !== 'undefined') && WindPick.onMapClick(e)) return; // point choisi pour le tableau des vents
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
-  if (!placing) return;
+  if (!placing) { if (tempPt) setTempPt(null); return; } /* v0.19.0 : un appui sur la carte efface le point temporaire de la coupe */
   if (!current.id) { if (!namingZone) { namingZone = true; askZoneName().then(ok => { namingZone = false; if (ok) map.fire('click', e); }); } return; } // nom d'abord, puis le point
-  const p = { lat: e.latlng.lat, lng: e.latlng.lng }, what = placing;
+  const what = placing;
+  /* v0.19.0 : un point posé tout près du point temporaire de la coupe ou d'un point de mesure se cale dessus (comme prepo-PA) */
+  const sn = snapPlace({ lat: e.latlng.lat, lng: e.latlng.lng }), p = sn.p;
+  if (sn.temp) setTempPt(null);
   placing = null; placeBanner();
   if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
   else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; if (pt.kind === 'alt') { pt.elev = null; pointElev(pt); } persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
@@ -1265,6 +1268,110 @@ $('capInfo').addEventListener('click', () => {
     const natural = a.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(h).marginTop) || 0);
     s.scrollTop += natural - t.getBoundingClientRect().bottom; });
 });
+// ---------- Coupe (v0.19.0, demande d'Henri) ----------
+/* Bouton « Coupe » : fenêtre avec la coupe verticale le long de la trace (OUV → PTU : trace + terrain dessous), ou, si une
+   mesure 📏 est affichée (deux points), le long de la mesure (terrain seul). Curseur au doigt ; un appui bref = retour à la
+   carte centrée sur ce point, avec un point temporaire (effacé par un appui sur la carte ; un point posé tout près s'y cale). */
+let tempPt = null, tempMk = null, cutData = null;
+const tempIcon = L.divIcon({ className: 'tmppt', iconSize: [22, 22], iconAnchor: [11, 11], html: '<span></span>' });
+function setTempPt(q) {
+  tempPt = q ? { lat: q.lat, lng: q.lng } : null;
+  if (tempMk) { map.removeLayer(tempMk); tempMk = null; }
+  if (tempPt) tempMk = L.marker(LL(tempPt), { icon: tempIcon, interactive: false, zIndexOffset: 950 }).addTo(map);
+}
+function snapPlace(q) {
+  const P = map.latLngToContainerPoint(LL(q)); let best = { p: q, temp: false }, bd = 22;
+  const cand = [];
+  if (tempPt) cand.push([tempPt, true]);
+  if (meas.a) cand.push([meas.a, false]); if (meas.b) cand.push([meas.b, false]);
+  cand.forEach(([c, t]) => { const d = P.distanceTo(map.latLngToContainerPoint(LL(c))); if (d < bd) { bd = d; best = { p: { lat: c.lat, lng: c.lng }, temp: t }; } });
+  return best;
+}
+function cutPath() { /* [{lat, lng, d (m depuis le début), h (hauteur de la trace, sol ZMT) ou null}] */
+  const N = 300, line = [];
+  if (meas.a && meas.b) { line.push({ lat: meas.a.lat, lng: meas.a.lng, h: null }, { lat: meas.b.lat, lng: meas.b.lng, h: null }); }
+  else if (sol && sol.ok && sol.trace.length > 1) sol.trace.forEach(q => line.push({ lat: q.lat, lng: q.lng, h: q.h }));
+  else return null;
+  const seg = []; let tot = 0;
+  for (let i = 1; i < line.length; i++) { const L0 = map.distance(LL(line[i - 1]), LL(line[i])); seg.push(L0); tot += L0; }
+  const out = [];
+  for (let k = 0; k <= N; k++) {
+    let d = tot * k / N, i = 0; while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+    const f = seg[i] ? Math.min(1, d / seg[i]) : 0, a = line[i], b = line[i + 1];
+    out.push({ lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f, d: tot * k / N, h: a.h == null ? null : a.h + (b.h - a.h) * f });
+  }
+  return { pts: out, tot, mode: meas.a && meas.b ? 'meas' : 'trace' };
+}
+async function openCut() {
+  setTempPt(null); closeSheet();
+  const c = cutPath();
+  if (!c) return toast('Pas encore de trace : place la ZMT et le PTU, ou fais une mesure 📏');
+  $('cutBox').classList.remove('hidden'); $('qCut').classList.add('on');
+  $('cutTitle').textContent = c.mode === 'meas' ? 'Coupe le long de la mesure' : 'Coupe le long de la trace (OUV → PTU)';
+  $('cutInfo').textContent = 'Relevé du terrain…'; cutData = null; drawCut();
+  let el = null;
+  try { el = await elevTiles(c.pts); } catch (e) { try { const sub = c.pts.filter((q, i) => i % 3 === 0 || i === c.pts.length - 1); const e2 = await fetchElev(sub); el = c.pts.map((q, i) => e2[Math.min(sub.length - 1, Math.round(i / 3))]); } catch (e3) {} }
+  if ($('cutBox').classList.contains('hidden')) return;
+  if (!el || el.some(v => typeof v !== 'number' || isNaN(v))) { $('cutInfo').textContent = 'Terrain impossible à relever (réseau ?).'; return; }
+  c.pts.forEach((q, i) => { q.z = el[i]; });
+  c.e0 = elev0(); cutData = c; cutData.cur = null; drawCut(); cutText(null);
+}
+function closeCut() { $('cutBox').classList.add('hidden'); $('qCut').classList.remove('on'); cutData = null; }
+function cutGeom() {
+  const cv = $('cutCv'), W = cv.clientWidth, H = cv.clientHeight, c = cutData, pad = { l: 46, r: 8, t: 10, b: 22 };
+  let lo = Infinity, hi = -Infinity;
+  c.pts.forEach(q => { const t = q.z - c.e0; lo = Math.min(lo, t); hi = Math.max(hi, t); if (q.h != null) hi = Math.max(hi, q.h); });
+  if (c.mode === 'meas') { const m = Math.max(20, (hi - lo) * 0.15); lo -= m; hi += m; } else { lo = Math.min(lo, 0) - 50; hi += 200; }
+  return { W, H, pad, lo, hi, X: d => pad.l + (W - pad.l - pad.r) * d / c.tot, Y: v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo)) };
+}
+function niceStep(r, n) { const s = r / n, p10 = Math.pow(10, Math.floor(Math.log10(s))), m = s / p10; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p10; }
+function drawCut() {
+  const cv = $('cutCv'), dpr = window.devicePixelRatio || 1; cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
+  const c = cutData; if (!c) return;
+  const G = cutGeom(), { X, Y, W, H, pad } = G;
+  g.font = '10px -apple-system,system-ui,sans-serif'; g.fillStyle = '#999'; g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 1;
+  const sy = niceStep(G.hi - G.lo, 4); for (let v = Math.ceil(G.lo / sy) * sy; v <= G.hi; v += sy) { const y = Y(v); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(W - pad.r, y); g.stroke(); g.textAlign = 'right'; g.fillText(fmtInt(Math.round(v) || 0) + ' m', pad.l - 4, y + 3); }
+  const sx = niceStep(c.tot / 1000, 5); g.textAlign = 'center'; for (let v = 0; v <= c.tot / 1000 + 1e-9; v += sx) g.fillText(String(Math.round(v * 10) / 10).replace('.', ',') + ' km', X(v * 1000), H - 6);
+  /* terrain */
+  g.beginPath(); g.moveTo(X(0), Y(G.lo)); c.pts.forEach(q => g.lineTo(X(q.d), Y(q.z - c.e0))); g.lineTo(X(c.tot), Y(G.lo)); g.closePath();
+  g.fillStyle = 'rgba(160,110,60,.55)'; g.fill(); g.strokeStyle = '#d9a066'; g.lineWidth = 1.5;
+  g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.z - c.e0); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
+  /* trace */
+  if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
+    g.fillStyle = '#ff3fb4'; g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); }
+  /* curseur */
+  if (c.cur != null) { const q = c.pts[c.cur], x = X(q.d); g.strokeStyle = '#fff'; g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, H - pad.b); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x, Y(q.z - c.e0), 3.5, 0, 7); g.fill(); if (q.h != null) { g.fillStyle = '#ff3fb4'; g.beginPath(); g.arc(x, Y(q.h), 4, 0, 7); g.fill(); } }
+}
+function cutText(i) {
+  const c = cutData; if (!c) return;
+  if (i == null) { /* résumé : plus faible hauteur au-dessus du terrain (trace) ou point le plus haut (mesure) */
+    if (c.mode === 'trace') { let m = null; c.pts.forEach(q => { const v = q.h + c.e0 - q.z; if (!m || v < m.v) m = { v, d: q.d }; });
+      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} de l'OUV. Promène le doigt sur la coupe ; un appui bref montre l'endroit sur la carte.`; }
+    else { let m = null; c.pts.forEach(q => { if (!m || q.z > m.z) m = q; }); $('cutInfo').innerHTML = `Point le plus haut : <b>${fmtInt(m.z)} m</b> d'altitude à ${fmtDist(m.d)} du 1er point. Un appui bref montre l'endroit sur la carte.`; }
+    return;
+  }
+  const q = c.pts[i];
+  $('cutInfo').innerHTML = c.mode === 'trace'
+    ? `À ${fmtKm(q.d)} de l'OUV : trace <b>${fmtInt(q.h)} m</b> (sol ZMT) · terrain ${fmtInt(q.z)} m d'altitude · <b>${fmtInt(q.h + c.e0 - q.z)} m au-dessus du terrain</b>`
+    : `À ${fmtDist(q.d)} du 1er point : terrain <b>${fmtInt(q.z)} m</b> d'altitude (${fmtInt(q.z - c.e0)} m par rapport à la ZMT)`;
+}
+function cutIndex(ev) { const c = cutData; if (!c) return null; const r = $('cutCv').getBoundingClientRect(), G = cutGeom(); const d = (ev.clientX - r.left - G.pad.l) / (G.W - G.pad.l - G.pad.r) * c.tot; return Math.max(0, Math.min(c.pts.length - 1, Math.round(d / c.tot * (c.pts.length - 1)))); }
+(function () {
+  const cv = $('cutCv'); let down = null;
+  cv.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; const i = cutIndex(e); if (i != null) { cutData.cur = i; drawCut(); cutText(i); } cv.setPointerCapture && cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => { if (!cutData) return; if (!down && e.pointerType !== 'mouse') return; const i = cutIndex(e); if (i != null && i !== cutData.cur) { cutData.cur = i; drawCut(); cutText(i); } });
+  cv.addEventListener('pointerup', e => {
+    const d0 = down; down = null; if (!d0 || !cutData) return;
+    if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 10 || Date.now() - d0.t > 600) return; /* glissé = on regarde seulement */
+    const i = cutIndex(e); if (i == null) return; const q = cutData.pts[i];
+    closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14));
+  });
+  window.addEventListener('resize', () => { if (cutData) drawCut(); });
+})();
+$('qCut').addEventListener('click', () => { if (!$('cutBox').classList.contains('hidden')) closeCut(); else openCut(); });
+$('cutClose').addEventListener('click', closeCut);
 // ---------- Onglet Altimétrie ----------
 /* Zone de sécurité (v0.3.0, demande d'Henri) : le para n'est pas à la verticale du vecteur quand son système de sécurité
    déclenche, il a dérivé sous RSE. La zone est donc le rectangle autour du vecteur (marges avant / après et de côté) ET tout ce
