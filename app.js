@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.19.4';
+const VERSION = '0.20.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -446,12 +446,26 @@ function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { drag
 function ptSuffix(pt) {
   const I = isv();
   if (pt.kind === 'alt') { if (typeof pt.elev !== 'number' || (zmtElev() == null && typeof I.ptuElev !== 'number' && !wxRec)) return ''; const d = Math.round(pt.elev - elev0()); return `${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`; }
-  /* v0.19.4 (Henri) : point libre posé sur la trace (à moins de 30 m) → nom suivi de la hauteur de la trace au-dessus du terrain à cet endroit */
-  if (!sol || !sol.ok || sol.trace.length < 2) return '';
-  const n = Calc.nearestOn(sol.trace, pt); if (!(n.d <= 30)) return '';
-  if (typeof pt.elev !== 'number') { if (!ptElevAsked.has(pt.id)) { ptElevAsked.add(pt.id); pointElev(pt); } return ''; }
-  return String(Math.round(n.h + elev0() - pt.elev));
+  /* v0.20.0 (Henri) : points créés tout seuls depuis la coupe —
+     S (sommet) : hauteur de la trace au-dessus du terrain à cet endroit ;
+     P (passage) : hauteur alti (altimètre calé sur le sol de la ZMT) minimale au point précédent de la trace pour passer
+     le sommet avec 300 m de marge = altitude du sommet + 300 − sol ZMT + descente prévue de la trace entre P et S */
+  if (pt.auto === 'S') {
+    if (typeof pt.elev !== 'number') { if (!ptElevAsked.has(pt.id)) { ptElevAsked.add(pt.id); pointElev(pt); } return pt.val != null ? String(pt.val) : ''; }
+    if (sol && sol.ok && sol.trace.length > 1) pt.val = Math.round(Calc.nearestOn(sol.trace, pt).h + elev0() - pt.elev);
+    return pt.val != null ? String(pt.val) : '';
+  }
+  if (pt.auto === 'P') {
+    const S = I.points.find(q => q.id === pt.sum);
+    if (S && typeof S.elev === 'number' && sol && sol.ok && sol.trace.length > 1) {
+      const hP = Calc.nearestOn(sol.trace, pt).h, hS = Calc.nearestOn(sol.trace, S).h;
+      pt.val = Math.ceil(S.elev + SUM_MARGIN - elev0() + (hP - hS));
+    }
+    return pt.val != null ? String(pt.val) : '';
+  }
+  return '';
 }
+const SUM_MARGIN = 300; /* marge au-dessus d'un sommet (m), Henri 21 nov. 2026 */
 const ptElevAsked = new Set();
 function ptNum(pt) {
   const nm = String(pt.name || '').trim(); if (!nm) return '';
@@ -460,7 +474,7 @@ function ptNum(pt) {
   grp.sort((a, b) => pos(a) - pos(b) || pts.indexOf(a) - pts.indexOf(b));
   return String(grp.indexOf(pt) + 1);
 }
-function pointLabel(pt) { const nm = String(pt.name || '').trim(), sf = ptSuffix(pt); return `${nm}${ptNum(pt)}${sf ? (nm ? ' ' : '') + sf : ''}`; }
+function pointLabel(pt) { const nm = String(pt.name || '').trim(), sf = ptSuffix(pt); return `${nm}${ptNum(pt)}${sf ? (nm ? '-' : '') + sf : ''}`; } /* v0.20.0 : tiret au lieu de l'espace (« ALT2-P12 », « S-4338 », « P1-2880 ») */
 function draw(light) {
   compute();
   if (!light && typeof Photo !== 'undefined') Photo.sync(); /* v0.9.0 : manquait (photo calée pas suivie au changement de zone) */
@@ -836,7 +850,22 @@ async function addPoint(p, spec) {
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: typeof p.z === 'number' ? Math.round(p.z) : null };
   isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.elev == null) pointElev(pt);
 }
+/* v0.20.0 (Henri) : point libre posé sur le point temporaire de la coupe → sommet « S » sans question de nom, et au point
+   précédent de la trace (vers l'ouverture) un point de passage « P » avec la hauteur alti minimale pour passer le sommet + 300 m */
+function addSummit(p) {
+  const I = isv();
+  const S = { id: uid('q'), kind: 'free', auto: 'S', name: 'S', lat: p.lat, lng: p.lng, color: '#ffffff', elev: typeof p.z === 'number' ? Math.round(p.z) : null };
+  I.points.push(S);
+  if (sol && sol.ok && sol.trace.length > 1) {
+    const T = sol.trace, n = Calc.nearestOn(T, S); let k = n.seg - 1; /* sommet du segment côté ouverture */
+    if (n.f < 1e-3 && k > 0) k--; /* sommet pile sur un point de la trace : on prend le précédent */
+    const v = T[Math.max(0, k)];
+    I.points.push({ id: uid('q'), kind: 'free', auto: 'P', name: 'P', sum: S.id, lat: v.lat, lng: v.lng, color: '#ffffff', elev: null });
+  }
+  persist(); redraw(); fillInputs(); if (S.elev == null) pointElev(S);
+}
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
+function delPoint(pt) { isv().points = isv().points.filter(x => x.id !== pt.id && x.sum !== pt.id); persist(); redraw(); fillInputs(); } /* v0.20.0 : supprimer un sommet S supprime son point de passage P */
 function renderPtList() {
   const ul = $('ptList'); ul.innerHTML = '';
   if (!isv().points.length) { ul.innerHTML = '<li class="mut">Aucun point posé.</li>'; return; }
@@ -846,20 +875,20 @@ function renderPtList() {
     li.querySelector('.zn').onclick = () => { setSheetSize('mini'); map.setView(LL(pt), Math.max(map.getZoom(), 15)); };
     const ed = document.createElement('button'); ed.textContent = '✏️'; ed.title = 'Modifier'; ed.onclick = () => pointMenu(pt);
     const del = document.createElement('button'); del.textContent = '🗑'; del.title = 'Supprimer';
-    del.onclick = async () => { if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; isv().points = isv().points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
+    del.onclick = async () => { if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; delPoint(pt); };
     li.append(ed, del); ul.append(li);
   });
 }
 $('btnAddPt').addEventListener('click', async () => { if (!(await askZoneName())) return; openPtPop(); });
 function pointMenu(pt) {
   $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
-  $('peName').value = pt.name || '';
+  $('peName').value = pt.name || ''; $('peName').readOnly = !!pt.auto; /* v0.20.0 : S et P nommés tout seuls, pas de renommage */
   const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = $('peMove').onclick = null; };
-  $('peOk').onclick = () => { pt.name = $('peName').value.trim(); close(); persist(); redraw(); fillInputs(); };
-  $('peMove').onclick = () => { pt.name = $('peName').value.trim(); close(); persist(); redraw();
+  $('peOk').onclick = () => { if (!pt.auto) pt.name = $('peName').value.trim(); close(); persist(); redraw(); fillInputs(); };
+  $('peMove').onclick = () => { if (!pt.auto) pt.name = $('peName').value.trim(); close(); persist(); redraw();
     startPlacing({ kind: 'move', id: pt.id, name: pointLabel(pt) || (pt.kind === 'alt' ? 'zone de posé alternative' : 'point libre') }); };
   $('peCancel').onclick = close;
-  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; isv().points = isv().points.filter(x => x.id !== pt.id); persist(); redraw(); fillInputs(); };
+  $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; delPoint(pt); };
   $('ptEdit').classList.remove('hidden');
 }
 
@@ -941,7 +970,7 @@ map.on('click', e => {
   placing = null; placeBanner();
   if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
   else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; pt.elev = typeof p.z === 'number' ? Math.round(p.z) : null; if (pt.elev == null) pointElev(pt); persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
-  else { ptOpen = false; ptPal = false; addPoint(p, what); }
+  else { ptOpen = false; ptPal = false; if (what.kind === 'free' && sn.temp) addSummit(p); else addPoint(p, what); }
   fillInputs();
 });
 map.on('zoomend', redraw);
@@ -1365,6 +1394,11 @@ function drawCut() {
   g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.z - c.e0); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
   /* trace */
   if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
+    /* v0.20.0 : points S (sommet) et P (passage) en blanc sur la trace, avec leur nom */
+    isv().points.filter(q => q.auto === 'S' || q.auto === 'P').forEach(q => { const n = Calc.nearestOn(sol.trace, q), d = n.s * c.tot / Math.max(1, sol.trace.reduce((s, _, i, T) => i ? s + map.distance(LL(T[i - 1]), LL(T[i])) : 0, 0));
+      if (d < c.v0 - 1 || d > c.v1 + 1) return; const x = X(d), y = Y(n.h);
+      g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 4.5, 0, 7); g.fill(); g.stroke();
+      g.font = 'bold 11px -apple-system,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.8)'; const t = pointLabel(q), ty = q.auto === 'S' ? y + 17 : y - 9; /* S sous la trace, P au-dessus : pas de chevauchement */ g.strokeText(t, x, ty); g.fillText(t, x, ty); g.font = '10px -apple-system,system-ui,sans-serif'; });
     g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
   /* curseur */
   cutPin(c.lock && c.cur != null && c.pts[c.cur] ? X(c.pts[c.cur].d) : null);
