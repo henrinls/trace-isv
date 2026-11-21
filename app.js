@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.1';
+const VERSION = '0.35.2';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -431,7 +431,7 @@ function barbGeom(kt, H, d, s) { /* H = bout côté ZMT, d = vecteur unitaire é
   if (B5) { if (!F50 && !B10) a += 6 * s; lines.push([P(a, 1, 0), { x: P(a, s, 8).x - d.x * 2.5 * s, y: P(a, s, 8).y - d.y * 2.5 * s }]); }
   return { lines, tris, T };
 }
-const BARB_S = 1 / 6; /* v0.35.1 (Henri) : « beaucoup trop gros et trop épais » → 1/6 de la taille d'origine, traits très fins */
+const BARB_S = 1 / 3; /* v0.35.2 (Henri) : « le plus petit possible, mais visible » (1/6 trop petit) */ // /* v0.35.1 (Henri) : « beaucoup trop gros et trop épais » → 1/6 de la taille d'origine, traits très fins */
 function barbPlace(toPx, s, u, gap) { u = u || 1; gap = gap || 19; /* v0.35.1 : presque collée à la ZMT (juste au-delà de sa croix) */ /* position écran de la barbule : côté au vent, décalée de côté au besoin pour ne rien chevaucher */
   const w = groundWind(); if (!w) return null;
   const z = toPx(current.zmt), r = (w.dir + 180) * Math.PI / 180, far = toPx(Calc.fromLocal(current.zmt, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 }));
@@ -442,7 +442,8 @@ function barbPlace(toPx, s, u, gap) { u = u || 1; gap = gap || 19; /* v0.35.1 : 
   for (let k = 0; k <= 6; k++) obs.push({ x: z.x + (18 + 7 * k) * u, y: z.y }); /* étiquette « ZMT » à droite de la cible */
   let best = null;
   [0, 8, -8, 16, -16].forEach(off => { /* écart à la ZMT et décalage de côté en pixels (pas à l'échelle de la barbule) */
-    const H = { x: z.x - d.x * gap * u + n.x * off * u, y: z.y - d.y * gap * u + n.y * off * u }, T = { x: H.x - d.x * 62 * s, y: H.y - d.y * 62 * s };
+    /* v0.35.2 (Henri) : SOUS le vent de la ZMT (moins de choses de ce côté) : l'empennage tout près de la cible, la pointe vers l'aval */
+    const T = { x: z.x + d.x * gap * u + n.x * off * u, y: z.y + d.y * gap * u + n.y * off * u }, H = { x: T.x + d.x * 62 * s, y: T.y + d.y * 62 * s };
     let m = Infinity; obs.forEach(o => { for (let k = 0; k <= 6; k++) { const q = { x: H.x + (T.x - H.x) * k / 6, y: H.y + (T.y - H.y) * k / 6 }; m = Math.min(m, Math.hypot(q.x - o.x, q.y - o.y)); } });
     const score = Math.min(m, 12 * u) - Math.abs(off) * 0.05; if (!best || score > best.score) best = { score, H };
   });
@@ -455,7 +456,7 @@ function drawBarb() {
   const g = barbGeom(pl.kt, pl.H, pl.d, BARB_S), pts = g.lines.flat().concat(g.tris.flat()); if (g.calm) pts.push({ x: g.T.x - 4, y: g.T.y - 4 }, { x: g.T.x + 4, y: g.T.y + 4 });
   const x0 = Math.min(...pts.map(q => q.x)) - 2, y0 = Math.min(...pts.map(q => q.y)) - 2, x1 = Math.max(...pts.map(q => q.x)) + 2, y1 = Math.max(...pts.map(q => q.y)) + 2, f = q => `${(q.x - x0).toFixed(1)},${(q.y - y0).toFixed(1)}`;
   const body = g.lines.map(([a, b]) => `M${f(a)}L${f(b)}`).join('');
-  const svg = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible"><path d="${body}" stroke="#000" stroke-width="2" stroke-linecap="round" fill="none" opacity=".5"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="none"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="0.9" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="0.9" fill="none"/>` : ''}</svg>`;
+  const svg = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible"><path d="${body}" stroke="#000" stroke-width="3" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="none"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.3" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="0.9" fill="none"/>` : ''}</svg>`;
   const ll = map.containerPointToLatLng([x0, y0]);
   barbMk = L.marker(ll, { interactive: false, zIndexOffset: -500, icon: L.divIcon({ className: 'barb', iconSize: [x1 - x0, y1 - y0], iconAnchor: [0, 0], html: svg }) }).addTo(map);
 }
@@ -662,7 +663,7 @@ function draw(light) {
   if (I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();
   capInfo();
-  if (!light && window._stepsReady) syncSteps(); /* v0.28.0 : préparation pas à pas (STEPS est déclaré en fin de fichier : pas avant) */
+  if (!light && window._stepsReady) { syncSteps(); requestAnimationFrame(syncStepBar); } /* v0.28.0 : préparation pas à pas (STEPS est déclaré en fin de fichier : pas avant) */
 }
 /* Cap avion / longueur du vecteur et cap para / longueur de la trace, sous les boutons ronds du haut (v0.5.3) */
 function capInfo() {
@@ -2235,7 +2236,7 @@ async function renderPdfCanvas() {
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
   if (current.zmt) { const pl = barbPlace(toC, BARB_S * u, u, 15); if (pl) { const bg = barbGeom(pl.kt, pl.H, pl.d, BARB_S * u); g.save(); g.lineCap = 'round';
       const st = (col, w) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); bg.lines.forEach(([a, b]) => { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }); if (bg.calm) { g.moveTo(bg.T.x + 2.5 * u, bg.T.y); g.arc(bg.T.x, bg.T.y, 2.5 * u, 0, 7); } g.stroke(); };
-      st('rgba(0,0,0,.5)', 2 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); }); st('#00e5ff', 0.9 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
+      st('rgba(0,0,0,.55)', 3 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); }); st('#00e5ff', 1.3 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
   if (current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = pt.color || '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); if (pt.name) shadowText(pointLabel(pt), c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
@@ -2549,9 +2550,10 @@ function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouve
    de la colonne, il démarre à droite de la colonne. Piège : lire la position des BOUTONS, jamais la largeur de #quick (bug Safari). */
 function avoidQuick(el) {
   if (!el || el.classList.contains('hidden') || el.classList.contains('off')) return;
+  /* v0.35.2 (2e photo d'Henri : toujours sur le 📏) : dès que le bandeau descend à hauteur de la colonne de gauche, il part à sa droite */
+  const q = [...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect()).filter(b => b.height); if (!q.length) { el.style.left = ''; return; }
   el.style.left = ''; const r = el.getBoundingClientRect(); if (!r.height) return;
-  const bs = [...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect()).filter(b => b.height && b.bottom > r.top - 4 && b.top < r.bottom + 4 && b.left < r.right && b.right > r.left);
-  if (bs.length) el.style.left = `${Math.round(Math.max(...[...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect().right)) + 8)}px`;
+  if (r.top < Math.max(...q.map(b => b.bottom)) + 6) el.style.left = `${Math.round(Math.max(...q.map(b => b.right)) + 8)}px`;
 }
 new MutationObserver(syncStepBar).observe($('sheet'), { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('resize', () => setTimeout(syncStepBar, 300));
