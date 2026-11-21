@@ -83,6 +83,19 @@
   }
   const spdDir = w => ({ spd: Math.hypot(w.u, w.v), dir: n360(deg(Math.atan2(-w.u, -w.v))) });
 
+  // ---------- Densité de l'air ----------
+  // Les vitesses données (voile : Vx, Vz ; chute : vitesse stabilisée) sont vraies à 1 000 m en atmosphère standard.
+  // À une autre densité, toute vitesse d'équilibre varie comme racine(densité de référence / densité) : la finesse ne change pas.
+  // Pour une voile, elle varie aussi comme racine(MTE / MTE de référence) (facteur can.mk).
+  const RHO_REF = stdP(1000) * 100 / (RD * (288.15 - 6.5)); // 1,112 kg/m3
+  function rhoAt(F, lat, lng, z) { return pOfZ(F, lat, lng, z) * 100 / (RD * (windAt(F, lat, lng, z).T + 273.15)); }
+  const kRho = (F, lat, lng, z) => Math.sqrt(RHO_REF / rhoAt(F, lat, lng, z));
+  // Facteur de vitesse de chute selon la profondeur z (m) sous l'avion : table par 100 m, remplie à la demande
+  function ffK(F, pt, altRel) {
+    const tab = [], g = j => tab[j] !== undefined ? tab[j] : (tab[j] = kRho(F, pt.lat, pt.lng, altRel - j * 100));
+    return z => { const q = Math.max(0, z) / 100, i = Math.floor(q), a = g(i), b = g(i + 1); return a + (b - a) * (q - i); };
+  }
+
   // ---------- Avion ----------
   // Vitesse indiquée (badin) → vitesse vraie à l'altitude de largage
   function tasOf(F, pt, alt, ias) {
@@ -99,10 +112,12 @@
   // Le para sort à la vitesse de l'avion (vitesse vraie), vitesse verticale nulle ; traînée quadratique (vitesse limite vff).
   // Puis ouverture : freinage régulier jusqu'à la vitesse de la voile, sur openLoss mètres.
   // Renvoie la perte de hauteur, la projection dans l'air (m, dans le sens du vol) et les pas (dz, dt) pour la dérive au vent.
-  function fall(tFall, tas, vff, openLoss, vzCan) {
-    const k = G / (vff * vff), dt = 0.02, steps = []; let u = tas, w = 0, z = 0, s = 0, t = 0, acc = 0, z0 = 0;
+  // kOf (facultatif) : facteur de vitesse selon la profondeur sous l'avion (ffK) ; absent : vitesse stabilisée constante.
+  function fall(tFall, tas, vff, openLoss, vzCan, kOf) {
+    const dt = 0.02, steps = []; let k = G / (vff * vff); let u = tas, w = 0, z = 0, s = 0, t = 0, acc = 0, z0 = 0;
     const N = Math.round(tFall / dt);
     for (let i = 0; i < N; i++) {
+      if (kOf && i % 10 === 0) { const vt = vff * kOf(z); k = G / (vt * vt); }
       const sp = Math.hypot(u, w); u += -k * sp * u * dt; w += (G - k * sp * w) * dt; s += u * dt; z += w * dt; t += dt; acc += dt;
       if (acc >= 0.25 || i === N - 1) { steps.push({ z: (z0 + z) / 2, dt: acc, s, ze: z }); acc = 0; z0 = z; }
     }
@@ -116,10 +131,10 @@
     return { drop: z, dropFF, throwFF, throwAir: s, tOpen: tO, time: tFall + tO, steps };
   }
   // Temps de chute qui donne une perte de hauteur totale voulue (chute + ouverture)
-  function tFallFor(dropTotal, tas, vff, openLoss, vzCan, exact) {
+  function tFallFor(dropTotal, tas, vff, openLoss, vzCan, exact, kOf) {
     let a = 0, b = 400;
-    if (fall(a, tas, vff, openLoss, vzCan).drop >= dropTotal) return 0;
-    for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (fall(m, tas, vff, openLoss, vzCan).drop < dropTotal) a = m; else b = m; }
+    if (fall(a, tas, vff, openLoss, vzCan, kOf).drop >= dropTotal) return 0;
+    for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (fall(m, tas, vff, openLoss, vzCan, kOf).drop < dropTotal) a = m; else b = m; }
     return exact ? (a + b) / 2 : Math.round((a + b) / 2 * 10) / 10;
   }
   // Dérive sous RSE : projection (sens du vol) + vent de chaque tranche traversée, du largage à l'ouverture terminée
@@ -153,8 +168,9 @@
     const hd = unit(cap), hs = heights(hPtu, hOpen), pts = [{ h: hPtu, lat: ptu.lat, lng: ptu.lng, t: 0 }];
     let P = { lat: ptu.lat, lng: ptu.lng }, len = 0, time = 0;
     for (let i = 1; i < hs.length; i++) {
-      const dt = (hs[i] - hs[i - 1]) / can.vz, W = windMean(F, P.lat, P.lng, elev0 + hs[i - 1], elev0 + hs[i]);
-      const va = can.vx - margin * Math.hypot(W.u, W.v);
+      const kv = (can.mk || 1) * kRho(F, P.lat, P.lng, elev0 + (hs[i] + hs[i - 1]) / 2); // densité de la tranche, MTE
+      const dt = (hs[i] - hs[i - 1]) / (can.vz * kv), W = windMean(F, P.lat, P.lng, elev0 + hs[i - 1], elev0 + hs[i]);
+      const va = can.vx * kv - margin * Math.hypot(W.u, W.v);
       const dx = (va * hd.x + W.u) * dt, dy = (va * hd.y + W.v) * dt;
       P = fromLocal(P, { x: -dx, y: -dy }); len += Math.hypot(dx, dy); time += dt;
       pts.push({ h: hs[i], lat: P.lat, lng: P.lng, t: time });
@@ -242,14 +258,16 @@
     for (const c of cans) if (!(+c.vx > 0) || !(+c.vz > 0)) { out.err = `Parachute « ${c.name} » : Vx et Vz doivent être supérieurs à 0.`; return out; }
     const margin = Math.max(0, +prm.margin || 0) / 100, openLoss = Math.max(0, +prm.openLoss || 0), vff = Math.max(10, +prm.vff || 50);
     const ptu = isv.ptu, hPtu = Math.max(0, +isv.hPtu || 0), ias = Math.max(10, +isv.acMs || 65);
-    const used = []; team.forEach(p => { const c = canOf(p); if (c && !used.includes(c)) used.push(c); });
+    // Voile « effective » d'un para : sa voile + sa MTE (case vide : MTE de référence de la voile, 150 kg à défaut)
+    const effOf = p => { const c = canOf(p), m0 = +c.mte > 0 ? +c.mte : 150, m = +p.mte > 0 ? +p.mte : m0; return { c, id: c.id, name: c.name, vx: +c.vx, vz: +c.vz, mte: m, mk: Math.sqrt(m / m0), key: c.id + '|' + m }; };
+    const used = []; team.forEach(p => { const e = effOf(p); if (!used.some(u => u.key === e.key)) used.push(e); });
     const vzRef = Math.min(...used.map(c => +c.vz)); // fin d'ouverture : vitesse de la voile la plus lente à descendre (effet minime)
 
     // Largage au FL demandé → hauteur d'ouverture
     const relState = (fl, tf) => {
       const altRel = flToAlt(F, ptu, fl), hRel = altRel - elev0, tas = tasOf(F, ptu, altRel, ias);
-      const tFall = tf != null ? tf : Math.max(0, +isv.tFall || 0), f = fall(tFall, tas, vff, openLoss, vzRef);
-      return { fl, altRel, hRel, tas, tFall, f, hOpen: hRel - f.drop };
+      const kff = ffK(F, ptu, altRel), tFall = tf != null ? tf : Math.max(0, +isv.tFall || 0), f = fall(tFall, tas, vff, openLoss, vzRef, kff);
+      return { fl, altRel, hRel, tas, tFall, f, kff, hOpen: hRel - f.drop };
     };
     let st = relState(+isv.fl || 295);
     if (st.hOpen <= hPtu + 50) { out.err = `Largage trop bas : ouverture à ${Math.round(st.hOpen)} m pour un PTU à ${Math.round(hPtu)} m.`; return out; }
@@ -257,8 +275,8 @@
     // Voile la moins performante : celle qui va le moins loin (en ligne droite) à son meilleur cap, ou au cap imposé
     const reach = (c, hOpen) => { const cap = isv.capManual != null ? isv.capManual : bestCap(F, ptu, elev0, hPtu, hOpen, c, margin); const tr = trace(F, ptu, elev0, hPtu, hOpen, c, cap, margin); return { c, cap, tr }; };
     let cand = used.map(c => reach(c, st.hOpen)).sort((a, b) => a.tr.direct - b.tr.direct), weak = cand[0];
-    const wi = team.findIndex(p => canOf(p) === weak.c);
-    out.weak = { canopy: weak.c, idx: wi, name: team[wi] && team[wi].name || '', several: used.length > 1 };
+    const wi = team.findIndex(p => effOf(p).key === weak.c.key);
+    out.weak = { canopy: weak.c.c, mte: weak.c.mte, idx: wi, name: team[wi] && team[wi].name || '', several: used.length > 1 };
 
     // Vecteur déplacé à la main : le FL ne change pas. La trace doit passer par le nouveau point d'ouverture ; si elle y passe
     // plus bas que l'ouverture prévue, le para chute plus longtemps : la consigne devient « ouverture à x m » (centaine supérieure).
@@ -271,7 +289,7 @@
         sol = capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O);
         const hNeed = Math.max(hPtu + 100, Math.ceil(sol.h / 100 - 1e-6) * 100); // centaine supérieure
         const prev = st.hOpen;
-        st = hNeed >= stPlan.hOpen - 1 ? stPlan : relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true));
+        st = hNeed >= stPlan.hOpen - 1 ? stPlan : relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true, stPlan.kff));
         if (st !== stPlan) st.hOpen = hNeed; // hauteur ronde exacte (le calcul de chute avance par pas d'un mètre environ)
         weak = { c: weak.c, cap: sol.cap, tr: trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, sol.cap, margin) };
         if (pass > 0 && Math.abs(st.hOpen - prev) < 1) break;
@@ -327,14 +345,18 @@
     out.relax = { t: ref, before: -ref, after: ex.total - ref, pt: shift(fromLocal(oAtt, { x: a.x * vg * (ref - ex.te[idx]), y: a.y * vg * (ref - ex.te[idx]) })) };
 
     // Para sur le point de largage, avec sa propre voile : temps sous voile, passage du FL180 et du FL120 depuis le vert
-    const own = canOf(team[idx]), tCan = (st.hOpen - hPtu) / own.vz;
+    // Temps de descente d'une voile entre deux hauteurs, le long de la trace (densité de chaque tranche de 250 m)
+    const posAtH = h => { const P = tr.pts; for (let i = 1; i < P.length; i++) if (h <= P[i].h || i === P.length - 1) { const f = Math.max(0, Math.min(1, (h - P[i - 1].h) / Math.max(1e-6, P[i].h - P[i - 1].h))); return { lat: P[i - 1].lat + (P[i].lat - P[i - 1].lat) * f, lng: P[i - 1].lng + (P[i].lng - P[i - 1].lng) * f }; } return P[0]; };
+    const tUnder = (can, hTop, hBot) => { let t = 0; for (let h = hBot; h < hTop - 1e-6;) { const h2 = Math.min(hTop, h + 250), hm = (h + h2) / 2, q = posAtH(hm); t += (h2 - h) / (can.vz * can.mk * kRho(F, q.lat, q.lng, elev0 + hm)); h = h2; } return t; };
+    const own = effOf(team[idx]), tCan = tUnder(own, st.hOpen, hPtu);
     const tPass = fl => {
       if (st.fl <= fl) return null;
       const dz = st.altRel - flToAlt(F, ptu, fl); // hauteur à perdre depuis le largage
-      if (dz <= st.f.drop) { let z = 0, t = 0; for (const s2 of st.f.steps) { t += s2.dt; if (s2.z >= dz) break; } return ex.te[idx] + t; }
-      return ex.te[idx] + st.f.time + (dz - st.f.drop) / own.vz;
+      if (dz <= st.f.drop) { let t = 0; for (const s2 of st.f.steps) { t += s2.dt; if (s2.z >= dz) break; } return ex.te[idx] + t; }
+      return ex.te[idx] + st.f.time + tUnder(own, st.hOpen, Math.max(hPtu, st.hRel - dz));
     };
-    out.own = { canopy: own, tCanopy: tCan, t180: tPass(180), t120: tPass(120) };
+    out.own = { canopy: own.c, mte: own.mte, tCanopy: tCan, t180: tPass(180), t120: tPass(120) };
+    out.weakTime = tr.time; out.kOpen = weak.c.mk * kRho(F, ptsDown[0].lat, ptsDown[0].lng, elev0 + st.hOpen); out.weakEff = { vx: weak.c.vx, vz: weak.c.vz, mk: weak.c.mk };
 
     // Prise de cap : le para sort dos au sens de vol ; côté où il tourne pour se mettre au cap para
     const dTurn = ((dir1 - (acHeading + 180) + 720 + 180) % 360) - 180; // côté où part la trace, vu du para qui sort dos au sens de vol
@@ -358,7 +380,7 @@
     return n360(isv.reversed ? h + 180 : h);
   }
 
-  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
+  const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
     tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

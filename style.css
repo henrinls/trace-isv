@@ -232,7 +232,7 @@ button,input,select,label,a{touch-action:manipulation}
 #teamList li.pick.src{background:#2b2600}
 #teamList li.applybar{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 0}
 #canList li.can{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #262626}
-#canList .cn{flex:1;min-width:0}#canList .cx,#canList .cz{width:58px;text-align:center}#canList label{font-size:12px;color:#aaa;margin:0}
+#canList .cn{flex:1;min-width:0}#canList .cx,#canList .cz{width:46px;text-align:center;padding-left:2px;padding-right:2px}#canList .cm{width:52px;text-align:center;padding-left:2px;padding-right:2px}#canList label{font-size:12px;color:#aaa;margin:0}
 table.vals{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
 table.vals td{padding:7px 4px;border-bottom:1px solid #262626;vertical-align:top}
 table.vals td:first-child{color:#aaa;width:52%}table.vals td:last-child{color:#fff;font-weight:600}
