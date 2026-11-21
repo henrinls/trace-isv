@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.3';
+const VERSION = '0.5.4';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -197,15 +197,20 @@ function parseCoords(s0) {
 
 // ---------- Altitude du terrain (Open-Meteo Elevation : relevé Copernicus 90 m) ----------
 async function fetchElev(pts) {
-  const out = [];
-  for (let i = 0; i < pts.length; i += 100) {
-    const part = pts.slice(i, i + 100);
+  /* v0.5.4 : paquets de 100 points demandés 4 par 4 en parallèle (avant : l'un après l'autre, 16 allers-retours pour
+     1 600 points). Tout est asynchrone : l'appli reste utilisable pendant le calcul. */
+  const parts = []; for (let i = 0; i < pts.length; i += 100) parts.push(pts.slice(i, i + 100));
+  const res = new Array(parts.length);
+  const one = async k => {
+    const part = parts[k];
     const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${part.map(p => p.lat.toFixed(5)).join(',')}&longitude=${part.map(p => p.lng.toFixed(5)).join(',')}`);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const js = await r.json(); if (!js || !Array.isArray(js.elevation)) throw new Error('altitudes');
-    js.elevation.forEach(e => out.push(typeof e === 'number' ? e : null));
-  }
-  return out;
+    res[k] = js.elevation.map(e => typeof e === 'number' ? e : null);
+  };
+  let next = 0; const worker = async () => { while (next < parts.length) await one(next++); };
+  await Promise.all([0, 1, 2, 3].map(worker));
+  return res.flat();
 }
 async function refreshPtuElev() {
   const I = isv(); if (!I.ptu) return; const k = I.ptu.lat.toFixed(5) + ',' + I.ptu.lng.toFixed(5);
@@ -1104,6 +1109,13 @@ function renderAlti() {
 onNum('a_long', v => { isv().secLong = Math.round(v); scheduleAlti(); }, 0, 20000);
 onNum('a_lat', v => { isv().secLat = Math.round(v); scheduleAlti(); }, 0, 10000);
 $('btnAlti').addEventListener('click', () => computeAlti(true));
+/* v0.5.4 : iOS met l'appli en pause quand on passe sur une autre appli ou l'écran d'accueil (rien ne tourne en
+   arrière-plan pour une appli web). Si le calcul du point haut a été coupé, il repart tout seul au retour dans l'appli,
+   ou quand le réseau revient. */
+function altiResume() { if (document.visibilityState !== 'visible' || !sol || !sol.ok) return; const I = isv(); if (!(I.alti && I.alti.key === altiKey())) { clearTimeout(altiT); altiT = setTimeout(() => computeAlti(false), 400); } }
+document.addEventListener('visibilitychange', altiResume);
+window.addEventListener('online', altiResume);
+window.addEventListener('pageshow', altiResume);
 
 // ---------- Onglet Paramètres : parachutes et calcul ----------
 function renderCans() {
