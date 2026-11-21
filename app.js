@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.1.11';
+const VERSION = '0.1.12';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -77,7 +77,7 @@ async function wxFetch(z, date) {
   const arr = Array.isArray(js) ? js : (js ? [js] : []);
   if (arr.length !== 9 || !arr[0].hourly) throw new Error(r ? 'HTTP ' + r.status : 'réseau');
   const slim = H => { const o = {}; Object.keys(H).forEach(k => { if (k !== 'time') o[k] = H[k].map(x => typeof x === 'number' ? Math.round(x * 10) / 10 : null); }); return o; };
-  const rec = { date, fetched: Date.now(), model: used.name, center: { lat: c.lat, lng: c.lng }, halfKm: w.halfKm, lat0: c.lat - dLat, lng0: c.lng - dLng, dLat, dLng, n: 3,
+  const rec = { date, fetched: Date.now(), model: used.name, rh: Object.keys(arr[0].hourly).some(k => /^relative_humidity/.test(k)), center: { lat: c.lat, lng: c.lng }, halfKm: w.halfKm, lat0: c.lat - dLat, lng0: c.lng - dLng, dLat, dLng, n: 3,
     time: arr[0].hourly.time, nodes: arr.map(a => ({ elev: typeof a.elevation === 'number' ? a.elevation : 0, h: slim(a.hourly) })) };
   const k = wxKey(z.id, date); wxMem[k] = rec;
   // ménage avant d'enregistrer : on ne garde que les 2 derniers jours téléchargés de chaque zone
@@ -589,7 +589,7 @@ let wxBusy = false;
 async function ensureWx(force, date) {
   date = date || current.when.slice(0, 10);
   const have = wxCached(current.id, date);
-  if (have && !force && wxFits(have) && Date.now() - have.fetched < 3600e3) return have;
+  if (have && !force && wxFits(have) && Date.now() - have.fetched < 3600e3 && have.rh !== undefined) return have; // prévision d'avant l'humidité (rh absent) : retéléchargée
   if (have && !force && !wxFits(have) && navigator.onLine === false) return have;
   if (!force && !isv().ptu && !isv().zmt) return have; // rien à calculer tant qu'aucun point n'est placé
   if (wxBusy) return have; wxBusy = true; $('wxInfo').innerHTML = 'Téléchargement de la prévision…';
@@ -626,7 +626,7 @@ function renderWinds() {
     tb.append(tr);
   });
 }
-async function setTWhen(w) { tWhen = w; renderWinds(); const d = w.slice(0, 10), have = wxCached(current.id, d); if (!have || Date.now() - have.fetched > 3600e3) { await ensureWx(false, d); renderWinds(); } }
+async function setTWhen(w) { tWhen = w; renderWinds(); const d = w.slice(0, 10), have = wxCached(current.id, d); if (!have || Date.now() - have.fetched > 3600e3 || have.rh === undefined) { await ensureWx(false, d); renderWinds(); } }
 $('qWinds').addEventListener('click', () => { const b = $('windsBox'); if (!b.classList.contains('hidden')) { b.classList.add('hidden'); syncQuick(); return; } b.classList.remove('hidden'); syncQuick(); setTWhen(current.when); });
 $('t_close').addEventListener('click', () => { $('windsBox').classList.add('hidden'); syncQuick(); });
 $('t_minus').addEventListener('click', () => setTWhen(shiftWhen(tWhen, -1)));
