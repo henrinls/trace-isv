@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.25.0';
+const VERSION = '0.25.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -897,7 +897,7 @@ async function placeSummit(S, p) { /* p = point choisi sur la trace (avec son al
   const hi = await findSummit(c);
   if (hi) { S.lat = hi.lat; S.lng = hi.lng; S.elev = Math.round(hi.z); }
   else { S.lat = c.lat; S.lng = c.lng; S.elev = typeof p.z === 'number' ? Math.round(p.z) : null; toast('Relief indisponible : sommet posé sur la trace'); }
-  S.val = null; S.back = 0; /* v0.25.0 : sommet déplacé → le MINI revient sur le point juste avant */ S.sig = traceSig(); persist(); redraw(); fillInputs(); syncSumWarn(); if (cutData) { drawCut(); cutText(cutData.cur); }
+  S.val = null; /* v0.25.1 (Henri) : un sommet déplacé GARDE son nombre de points remontés (S.back) — ne pas le remettre à 0 */ S.sig = traceSig(); persist(); redraw(); fillInputs(); syncSumWarn(); if (cutData) { drawCut(); cutText(cutData.cur); }
   if (S.elev == null) pointElev(S);
 }
 async function addSummit(p) {
