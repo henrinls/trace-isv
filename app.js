@@ -10,21 +10,21 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.31.0';
+const VERSION = '0.32.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
   esri: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: 'Imagerie © Esri, Maxar, Earthstar Geographics', maxNative: 19 },
   ign: { url: 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', attr: 'Photos aériennes © IGN – Géoplateforme', maxNative: 19 }
 };
-const TILE_CACHE = 'isv-tiles-v1';
+const TILE_CACHE = 'isv-tiles-v1', dlProgress = {}; /* dlProgress : zone → « 120/3 400 » pendant le téléchargement hors-ligne (déclaré tôt : renderZones s'en sert au démarrage) */
 const KT = 1.943844; // m/s → nœuds
 const C_LOW = '#ffe600', C_START = '#1ec83c', C_END = '#ff2020', C_TRACE = '#ff3fb4', C_RELAX = '#00e5ff', C_PTU = '#ffd400', C_ZMT = '#ff8c00';
 const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900 }; /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200 }; /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -806,7 +806,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt);
+  setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_offKm', prm.offKm);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -1814,7 +1814,7 @@ $('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom 
 $('p_offline').addEventListener('change', e => { prm.offline = !!e.target.checked; saveProfile(); syncOffline(); toast(prm.offline ? 'Mode autonome : l\'appli ne va plus sur Internet' : 'Internet réactivé'); changed(); });
 function syncOffline() { $('p_offline').checked = !!prm.offline; try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ offline: !!prm.offline }); } catch (e) {} }
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
-onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000);
+onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_offKm', 'offKm', 1, 500);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
@@ -1836,6 +1836,12 @@ function renderZones() {
       if (current.id === z.id) { current = newZone(map.getCenter()); current.zoom = map.getZoom(); resetMarkers(); placing = null; persist(); redraw(); }
       fillInputs();
     };
+    /* v0.32.0 (Henri, comme les autres applis) : hors-ligne par zone */
+    const off = document.createElement('span'); off.className = 'zoff';
+    if (dlProgress[z.id]) off.innerHTML = `<small>⬇︎ ${dlProgress[z.id]}</small>`;
+    else if (z.offline) { off.innerHTML = `<small>hors-ligne ${esc(z.offline)}</small>`; const rm = document.createElement('button'); rm.className = 'zoffdel'; rm.textContent = '🗑'; rm.title = 'Supprimer le hors-ligne'; rm.onclick = e => { e.stopPropagation(); removeOffline(z.id); }; off.append(rm); }
+    else { const dl = document.createElement('button'); dl.className = 'zoffdel'; dl.textContent = '⬇︎ hors-ligne'; dl.title = 'Tout télécharger pour le hors-ligne'; dl.onclick = e => { e.stopPropagation(); downloadOffline(z.id); }; off.append(dl); }
+    li.querySelector('.zn').append(off);
     li.append(ren, del); ul.append(li);
     dragReorder(li, li.querySelector('.zhandle'), order => { zones.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)); store.set('isv.zones', zones); });
   });
@@ -2031,6 +2037,52 @@ function renderZrt() {
 
 // ---------- Images satellite (cache commun carte / PDF) ----------
 const tileUrl = (z, x, y, src) => BASEMAPS[src || basemap].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+/* ---------- Hors-ligne d'une zone (v0.32.0, demande d'Henri) : tout ce qui est fixe autour de la ZMT, dans un rayon de prm.offKm (200 km) :
+   altitudes (tuiles Terrarium z12, celles du point haut et de la coupe), photos satellite et IGN (France) jusqu'au niveau 12 sur tout le
+   rayon, plus fines (jusqu'au niveau 17) dans 5 km autour de la ZMT. Pas la météo (prévision, pas fixe). Tout passe par le même cache que
+   la carte (le service worker sert ces tuiles sans réseau). Au-delà du niveau 12 sur 200 km : des centaines de milliers d'images, impossible. */
+function tileXY(lat, lng, z) { const n = 2 ** z, r = lat * Math.PI / 180; return { x: Math.floor((lng + 180) / 360 * n), y: Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n) }; }
+function tilesIn(c, R, z, url) { const out = [], a = tileXY(Calc.fromLocal(c, { x: -R, y: R }).lat, Calc.fromLocal(c, { x: -R, y: R }).lng, z), b = tileXY(Calc.fromLocal(c, { x: R, y: -R }).lat, Calc.fromLocal(c, { x: R, y: -R }).lng, z), n = 2 ** z;
+  for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) { /* seulement les tuiles qui touchent le cercle */
+    const lng0 = x / n * 360 - 180, lng1 = (x + 1) / n * 360 - 180, lat = t => Math.atan(Math.sinh(Math.PI * (1 - 2 * t / n))) * 180 / Math.PI, lat0 = lat(y + 1), lat1 = lat(y);
+    const q = Calc.toLocal(c, { lat: Math.max(lat0, Math.min(lat1, c.lat)), lng: Math.max(lng0, Math.min(lng1, c.lng)) }); if (Math.hypot(q.x, q.y) <= R) out.push(url(z, x, y)); }
+  return out; }
+function offlinePlan(z) {
+  const c = z.zmt || z.center, R = Math.max(1, +prm.offKm || 200) * 1000, inFr = c.lat > 41 && c.lat < 51.6 && c.lng > -5.6 && c.lng < 10;
+  const dem = tilesIn(c, R, DEM_Z, DEM_URL), sat = [];
+  for (const b of inFr ? ['esri', 'ign'] : ['esri']) { for (let k = 5; k <= 12; k++) sat.push(...tilesIn(c, R, k, (q, x, y) => tileUrl(q, x, y, b))); for (let k = 13; k <= 17; k++) sat.push(...tilesIn(c, 5000, k, (q, x, y) => tileUrl(q, x, y, b))); }
+  return { dem, sat: [...new Set(sat)], inFr };
+}
+async function downloadOffline(id) {
+  if (!('caches' in window)) { toast('Hors-ligne non pris en charge ici'); return; }
+  if (prm.offline) { toast('Mode autonome coché (Param.) : décoche-le pour télécharger'); return; }
+  if (dlProgress[id]) return;
+  const z = id === current.id ? current : zones.find(x => x.id === id); if (!z) return;
+  if (!z.zmt) { toast('Pose d\'abord la ZMT de cette zone'); return; }
+  const P = offlinePlan(z), mo = Math.round((P.dem.length * 110 + P.sat.length * 25) / 1024);
+  if (!(await ask(`Tout télécharger pour « ${z.name} » dans un rayon de ${fmtInt(+prm.offKm || 200)} km autour de la ZMT ?\n• altitudes : ${fmtInt(P.dem.length)} tuiles\n• photos ${P.inFr ? 'satellite et IGN' : 'satellite'} : ${fmtInt(P.sat.length)} images (détail fin à 5 km de la ZMT)\nEnviron ${fmtInt(mo)} Mo, en Wi-Fi de préférence. La météo n'est pas téléchargée (c'est une prévision).`, undefined, null, 'Télécharger'))) return;
+  const list = P.dem.concat(P.sat), total = list.length; let done = 0, fail = 0; dlProgress[id] = `0/${fmtInt(total)}`; renderZones();
+  const c = await caches.open(TILE_CACHE);
+  const worker = async () => { while (list.length) { const u = list.shift();
+    try { if (!(await c.match(u))) { const r = await fetch(u, { mode: 'cors' }); if (r.ok) await c.put(u, r); else fail++; } } catch (e) { fail++; }
+    done++; if (done % 50 === 0) { dlProgress[id] = `${fmtInt(done)}/${fmtInt(total)}`; renderZones(); } } };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  delete dlProgress[id];
+  const date = new Date().toLocaleDateString('fr-FR'), ok = fail < total * 0.01, i = zones.findIndex(x => x.id === id);
+  if (ok) { if (i >= 0) { zones[i].offline = date; store.set('isv.zones', zones); } if (current.id === id) { current.offline = date; persist(); } }
+  renderZones();
+  toast(ok ? `« ${z.name} » disponible hors-ligne${fail ? ` (${fail} images manquantes)` : ''}` : `« ${z.name} » : ${fmtInt(fail)} images manquées, relance pour compléter (ce qui est déjà là est gardé)`);
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+}
+async function removeOffline(id) {
+  const z = id === current.id ? current : zones.find(x => x.id === id); if (!z) return;
+  if (!(await ask(`Supprimer le hors-ligne de « ${z.name} » ? La zone reste enregistrée ; la carte et les altitudes ne viendront plus que d'Internet.`))) return;
+  const keep = new Set(); zones.filter(x => x.id !== id && x.offline && x.zmt).forEach(x => { const P = offlinePlan(x); P.dem.concat(P.sat).forEach(u => keep.add(u)); });
+  const P = offlinePlan(z), c = await caches.open(TILE_CACHE); let n = 0;
+  for (const u of P.dem.concat(P.sat)) if (!keep.has(u) && await c.delete(u)) n++;
+  z.offline = null; const i = zones.findIndex(x => x.id === id); if (i >= 0) zones[i].offline = null; if (current.id === id) current.offline = null;
+  store.set('isv.zones', zones); persist(); renderZones(); toast(`Hors-ligne supprimé (${fmtInt(n)} images)`);
+}
 async function getTileBlob(url) {
   // Réponse lisible (CORS) obligatoire pour pouvoir dessiner l'image dans le PDF
   if ('caches' in window) {
