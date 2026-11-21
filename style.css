@@ -325,3 +325,4 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 .st.done .si{color:#3ad25a}.st.skip .si,.st.skip{color:#999}.st.recheck .si,.st.recheck small{color:#ff8c00}.st.todo .si{color:#ffd400}
 .st small{color:#aaa}
 #canList .csub{margin:6px 0 0;font-size:12px;font-weight:700;color:#9ab;text-transform:uppercase;letter-spacing:.04em}
+p.calc{margin:4px 0 8px;padding:6px 9px;border-radius:8px;background:#232a33;color:#cfe3ff;font-size:13px}p.calc.hidden{display:none}
