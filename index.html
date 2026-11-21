@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.9.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.10.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.9.1">
+<link rel="stylesheet" href="style.css?v=0.10.0">
 </head>
 <body>
 <div id="map"></div>
@@ -134,7 +134,7 @@
 
     <h3>Point d'entrée PTU</h3>
     <div class="grid2"><button id="btnPlaceP">📍 Toucher la carte</button><button id="btnCoordP">⌨ Coordonnées</button></div>
-    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m)</label><input id="i_hPtu" inputmode="numeric"></div><div><p class="hint" id="ptuElevInfo"></p></div></div>
+    <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m, sol ZMT)</label><input id="i_hPtu" inputmode="numeric"></div><div><p class="hint" id="ptuElevInfo"></p></div></div>
     <p class="hint" id="ptuInfo"></p>
 
     <h3>Points de cette ISV</h3>
@@ -162,7 +162,7 @@
     <p class="hint" id="v_flInfo"></p>
     <div class="grid2">
       <div><label>Temps de chute (s)</label><input id="v_tFall" inputmode="decimal"></div>
-      <div><label>Hauteur d'ouverture (m, sol PTU)</label><input id="v_hOpen" inputmode="numeric"></div>
+      <div><label>Hauteur d'ouverture (m, sol ZMT)</label><input id="v_hOpen" inputmode="numeric"></div>
     </div>
     <label>CAP PARA (° magnétiques)</label>
     <div class="stepper"><button id="v_capM">−</button><input id="v_cap" inputmode="numeric"><button id="v_capP">+</button><button id="v_capAuto">Auto</button></div>
@@ -192,7 +192,7 @@
     </div>
     <table class="vals" id="altiTable"><tbody></tbody></table>
     <div class="row"><button id="btnAlti" class="wide">🔄 Recalculer le point haut</button></div>
-    <p class="hint">La zone de sécurité est le vecteur avec ses marges, prolongé le long de la dérive sous RSE d'un para qui chuterait sans ouvrir, jusqu'à 1013,25 hPa (vent prévu). Son point le plus haut est marqué sur la carte par un triangle. Altitudes : relevé Copernicus (un point tous les 90 m), par Internet. OSO et ALPHA : pression prévue au sol, à l'heure du saut.</p>
+    <p class="hint">La zone de sécurité est le vecteur avec ses marges, prolongé le long de la dérive sous RSE d'un para qui chuterait sans ouvrir, jusqu'à 1013,25 hPa (vent prévu). Son point le plus haut est marqué sur la carte par un triangle. Altitudes : relevé Copernicus (un point tous les 90 m), par Internet. OSO : pression prévue au point haut ; ALPHA : pression prévue au sol de la ZMT ; à l'heure du saut. Toutes les hauteurs de l'appli sont comptées au-dessus du sol de la ZMT.</p>
   </div>
 
   <!-- ===== Paramètres ===== -->
@@ -278,16 +278,16 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.9.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.9.1"></script>
-<script src="vendor/mgrs.min.js?v=0.9.1"></script>
-<script src="geo.js?v=0.9.1"></script>
-<script src="clubs.js?v=0.9.1"></script>
-<script src="wmm.js?v=0.9.1"></script>
-<script src="calc.js?v=0.9.1"></script>
-<script src="windpick.js?v=0.9.1"></script>
-<script src="pdfview.js?v=0.9.1"></script>
-<script src="app.js?v=0.9.1"></script>
-<script src="photo.js?v=0.9.1"></script>
+<script src="vendor/leaflet.js?v=0.10.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.10.0"></script>
+<script src="vendor/mgrs.min.js?v=0.10.0"></script>
+<script src="geo.js?v=0.10.0"></script>
+<script src="clubs.js?v=0.10.0"></script>
+<script src="wmm.js?v=0.10.0"></script>
+<script src="calc.js?v=0.10.0"></script>
+<script src="windpick.js?v=0.10.0"></script>
+<script src="pdfview.js?v=0.10.0"></script>
+<script src="app.js?v=0.10.0"></script>
+<script src="photo.js?v=0.10.0"></script>
 </body>
 </html>

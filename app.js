@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.9.1';
+const VERSION = '0.10.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -250,14 +250,21 @@ async function refreshPtuElev() {
   catch (e) { /* pas de réseau : on garde l'altitude du modèle météo */ }
 }
 /* v0.8.0 : altitude du terrain à la ZMT (tableau des vents à la verticale de la ZMT), gardée dans la zone */
+let zmtElevBusy = null;
 async function refreshZmtElev() {
   const z = current, c = z.zmt; if (!c) return; const k = c.lat.toFixed(5) + ',' + c.lng.toFixed(5);
-  if (z.zmtElevKey === k && typeof z.zmtElev === 'number') return;
-  try { const [e] = await fetchElev([c]); if (current !== z || z.zmt !== c || typeof e !== 'number') return; z.zmtElev = Math.round(e); z.zmtElevKey = k; persist(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); }
-  catch (e) { /* pas de réseau : altitude du modèle météo */ }
+  if ((z.zmtElevKey === k && typeof z.zmtElev === 'number') || zmtElevBusy === k) return;
+  zmtElevBusy = k;
+  try { const [e] = await fetchElev([c]); if (current !== z || !z.zmt || z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) !== k || typeof e !== 'number') return; z.zmtElev = Math.round(e); z.zmtElevKey = k; persist(); fillInputs(); redraw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); }
+  catch (e) { /* pas de réseau : sol du PTU ou altitude du modèle météo en attendant */ }
+  finally { if (zmtElevBusy === k) zmtElevBusy = null; }
 }
 function zmtElev() { const z = current; return z.zmt && typeof z.zmtElev === 'number' && z.zmtElevKey === z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) ? z.zmtElev : null; }
+/* v0.10.0 (Henri) : toutes les hauteurs sont comptées au-dessus du sol de la ZMT (avant : sol sous le PTU).
+   Sans ZMT, ou en attendant son altitude : sol sous le PTU, sinon altitude du modèle météo. */
 function elev0() {
+  const ze = zmtElev(); if (ze != null) return ze;
+  if (current.zmt) refreshZmtElev();
   const I = isv(); if (typeof I.ptuElev === 'number') return I.ptuElev;
   const rec = wxCached(current.id, current.when.slice(0, 10)); if (rec && rec.nodes && rec.nodes[4]) return Math.round(rec.nodes[4].elev);
   return 0;
@@ -424,7 +431,7 @@ function keep(key, ll, icon, z, onMove, onEnd, onClick) {
 function clampToCircle(ll) { if (!sol || !sol.ok) return ll; const z = sol.zone || sol.circle, q = Calc.toLocal(z.c, ll), d = Math.hypot(q.x, q.y), R = Math.max(0, z.R - 20); return d <= R ? ll : Calc.fromLocal(z.c, { x: q.x * R / d, y: q.y * R / d }); }
 let dragT = 0;
 function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { dragT = n; draw(true); } }
-function pointLabel(pt) { if (pt.kind !== 'alt') return pt.name || ''; const I = isv(); if (typeof pt.elev !== 'number' || (typeof I.ptuElev !== 'number' && !wxRec)) return pt.name || ''; const d = Math.round(pt.elev - elev0()); return `${pt.name || ''} ${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`.trim(); }
+function pointLabel(pt) { if (pt.kind !== 'alt') return pt.name || ''; const I = isv(); if (typeof pt.elev !== 'number' || (zmtElev() == null && typeof I.ptuElev !== 'number' && !wxRec)) return pt.name || ''; const d = Math.round(pt.elev - elev0()); return `${pt.name || ''} ${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`.trim(); }
 function draw(light) {
   compute();
   if (!light && typeof Photo !== 'undefined') Photo.sync(); /* v0.9.0 : manquait (photo calée pas suivie au changement de zone) */
@@ -628,7 +635,10 @@ function fillInputs() {
   setVal('i_hPtu', I.hPtu); setVal('i_tGreen', I.tGreen); setVal('i_tRed', I.tRed);
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
-  $('ptuElevInfo').textContent = I.ptu ? (typeof I.ptuElev === 'number' ? `Sol sous le PTU : ${fmtInt(I.ptuElev)} m` : `Sol sous le PTU : ${fmtInt(elev0())} m (modèle météo, relevé en attente)`) : '';
+  { /* v0.10.0 : hauteurs au-dessus du sol de la ZMT ; le sol sous le PTU reste affiché pour voir la hauteur réelle à l'arrivée */
+    const ze = zmtElev(), e0 = elev0(), ref = ze != null ? `Sol de la ZMT : ${fmtInt(ze)} m` : current.zmt ? `Sol de la ZMT : ${fmtInt(e0)} m (provisoire, relevé en attente)` : `Pas de ZMT : hauteurs au-dessus du sol de la ZMT (${fmtInt(e0)} m)`;
+    const pt = I.ptu && typeof I.ptuElev === 'number' && current.zmt ? ` · sol sous le PTU : ${fmtInt(I.ptuElev)} m → arrivée à ${fmtInt(+I.hPtu + e0 - I.ptuElev)} m au-dessus du sol du PTU` : '';
+    $('ptuElevInfo').textContent = ref + pt; }
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
   setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
@@ -729,10 +739,10 @@ function renderWinds() {
     return;
   }
   /* v0.8.0 : par défaut à la verticale de la ZMT (demande d'Henri), visible dès la ZMT posée, avant le PTU */
-  const z = current.zmt, ze = z ? zmtElev() : null; if (z && ze == null) refreshZmtElev();
-  const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = z ? (ze != null ? ze : elev0()) : elev0();
+  const z = current.zmt;
+  const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = elev0();
   $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
-  $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol (${fmtInt(e0)} m)`;
+  $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol ${z ? 'de la ZMT' : isv().ptu ? 'sous le PTU' : ''} (${fmtInt(e0)} m)`;
   const tb = $('windsTable').querySelector('tbody'); tb.innerHTML = '';
   if (!Fx) { tb.innerHTML = '<tr><td colspan="6" class="mut">Pas de donnée pour cette heure.</td></tr>'; return; }
   windRows(Fx, pt, e0).forEach(r => {
@@ -783,7 +793,7 @@ $('ptAlt').addEventListener('click', () => { $('ptDlg').classList.add('hidden');
 $('ptFree').addEventListener('click', () => { $('ptDlg').classList.add('hidden'); startPlacing({ kind: 'free', color: ptColor }); });
 async function pointElev(pt) { try { const [e] = await fetchElev([pt]); if (typeof e === 'number') { pt.elev = Math.round(e); persist(); redraw(); } } catch (e) {} }
 async function addPoint(p, spec) {
-  const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol sous le PTU est ajouté tout seul, P = plus haut, M = plus bas) :' : 'Nom du point :', '');
+  const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol de la ZMT est ajouté tout seul, P = plus haut, N = plus bas) :' : 'Nom du point :', '');
   if (n === null) return;
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: null };
   isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.kind === 'alt') pointElev(pt);
@@ -1071,7 +1081,7 @@ function renderVol() {
   setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
-  $('v_flInfo').innerHTML = ok ? `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol sous le PTU${sol.openLowered ? ` · <b class="warn">vecteur déplacé à la main : ouverture à ${fmtInt(sol.hOpen)} m au lieu de ${fmtInt(sol.hOpenPlan)} m (${fmt1(sol.tFall)} s de chute au lieu de ${fmt1(sol.tFallPlan)} s)</b>` : ''} · ${Math.round(I.acMs * KT)} kt badin = ${Math.round(sol.tas * KT)} kt vraie` : '';
+  $('v_flInfo').innerHTML = ok ? `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol de la ZMT${sol.openLowered ? ` · <b class="warn">vecteur déplacé à la main : ouverture à ${fmtInt(sol.hOpen)} m au lieu de ${fmtInt(sol.hOpenPlan)} m (${fmt1(sol.tFall)} s de chute au lieu de ${fmt1(sol.tFallPlan)} s)</b>` : ''} · ${Math.round(I.acMs * KT)} kt badin = ${Math.round(sol.tas * KT)} kt vraie` : '';
   const dSel = $('v_drop'), rSel = $('v_relax');
   if (document.activeElement !== dSel) dSel.innerHTML = `<option value="">Auto : ${esc(pName(Calc.defaultDropIdx(I.team.length)))}</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.dropId ? ' selected' : ''}>${esc(pName(i))}</option>`).join('');
   if (document.activeElement !== rSel) rSel.innerHTML = `<option value="green"${I.relaxRef === 'green' ? ' selected' : ''}>Début de largage (vert)</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.relaxRef ? ' selected' : ''}>${esc(pName(i))}</option>`).join('') + `<option value="red"${I.relaxRef === 'red' ? ' selected' : ''}>Fin de largage (rouge)</option>`;
@@ -1089,7 +1099,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Vent au largage', `${hdg(s.windRel.dir)} · ${Math.round(s.windRel.spd * KT)} kt`]);
   rows.push(['Dérive sous RSE', `${fmtInt(s.rseLen)} m`]);
   rows.push(['Trace (CAP PARA ' + hdg(s.cap) + ')', `${fmtKm(s.length)} · ${fmtKm(s.direct)} en ligne droite`]);
-  rows.push(['Ouverture terminée', `${fmtInt(s.hOpen)} m au-dessus du sol sous le PTU`]);
+  rows.push(['Ouverture terminée', `${fmtInt(s.hOpen)} m au-dessus du sol de la ZMT`]);
   rows.push([`Temps sous voile (para ${esc(pName(s.dropIdx))}, ${esc(s.own.canopy.name)})`, fmtMin(s.own.tCanopy)]);
   if (s.own.t180 != null) rows.push(['Passage du FL180, depuis le vert', fmtMin(s.own.t180)]);
   if (s.own.t120 != null) rows.push(['Passage du FL120, depuis le vert', fmtMin(s.own.t120)]);
@@ -1178,7 +1188,7 @@ async function computeAlti(manual) {
 }
 function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est pas à jour
   const I = isv(); if (!sol || !sol.ok) return null;
-  const alpha = Calc.pOfZ(F, I.ptu.lat, I.ptu.lng, sol.elev0), o = { alpha: Math.round(alpha), elevPtu: sol.elev0 };
+  const ref = current.zmt || I.ptu, alpha = Calc.pOfZ(F, ref.lat, ref.lng, sol.elev0) /* v0.10.0 : ALPHA au sol de la ZMT */, o = { alpha: Math.round(alpha), elevPtu: sol.elev0 };
   if (I.alti && I.alti.max && I.alti.key === altiKey()) { const m = I.alti.max; o.max = m; o.oso = Math.round(Calc.pOfZ(F, m.lat, m.lng, m.elev)); o.hRel = sol.altRel - m.elev; }
   return o;
 }
@@ -1225,7 +1235,7 @@ function renderAlti() {
   rows.push(['ALPHA', `${v.alpha} hPa`, true]);
   rows.push(['Hauteur de largage', v.max ? `${fmtInt(v.hRel)} m` : '…', true]);
   { const I = isv(); if (v.max && I.alti && I.alti.drift != null) rows.push(['Zone de sécurité', `vecteur et ses marges, prolongés de ${fmtInt(I.alti.drift)} m le long de la dérive sous RSE`]); }
-  rows.push(['Sol sous le PTU', `${fmtInt(v.elevPtu)} m`]);
+  rows.push(['Sol de la ZMT (référence des hauteurs, ALPHA)', `${fmtInt(v.elevPtu)} m`]);
   if (!F) rows.push(['', '<b class="warn">Sans prévision : pressions en atmosphère standard</b>']);
   rows.forEach(([k, val, hi]) => { const tr = document.createElement('tr'); if (hi) tr.className = 'hi'; tr.innerHTML = `<td>${k}</td><td>${val}</td>`; tb.append(tr); });
 }
@@ -1668,30 +1678,30 @@ function pdfDataPages(doc) {
   const title = t => { doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text(clean(t), 15, y); y += 7; doc.setFont('helvetica', 'normal'); doc.setFontSize(10); };
   const row = (k, v, bold) => { if (y > 285) { doc.addPage('a4', 'portrait'); y = 18; } doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.text(clean(k), 15, y); doc.text(clean(v), 110, y); y += 5.6; };
   title(`${current.name} - ${I.name} - saut du ${fmtWhen(current.when).replace(' ', ' à ')}`);
-  row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol sous le PTU`, true);
+  row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol de la ZMT`, true);
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(sol.tas * KT)} kt vraie`);
-  row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol sous le PTU (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
+  row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol de la ZMT (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
-  row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol (${fmtInt(sol.elev0)} m)`);
+  row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT (${fmtInt(sol.elev0)} m)`);
   row('Ouverture terminée (OUV)', fmtPos(sol.ouv));
   row('Début de largage (vert)', fmtPos(sol.vec.green)); row('Fin de largage (rouge)', fmtPos(sol.vec.red));
   if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
   y += 3; title('Altimétrie');
   const av = altiVals();
   row('OSO', av && av.max ? `${av.oso} hPa (point haut ${fmtInt(av.max.elev)} m)` : 'non calculé', true);
-  row('ALPHA', av ? `${av.alpha} hPa (sol sous le PTU ${fmtInt(av.elevPtu)} m)` : '-', true);
+  row('ALPHA', av ? `${av.alpha} hPa (sol de la ZMT ${fmtInt(av.elevPtu)} m)` : '-', true);
   row('Hauteur de largage', av && av.max ? `${fmtInt(av.hRel)} m au-dessus du point haut` : 'non calculé', true);
   row('Zone de sécurité', `${fmtInt(I.secLong)} m avant et après le vecteur, ${fmtInt(I.secLat)} m de chaque côté,`);
   row('', `prolongée le long de la dérive sous RSE jusqu'à 1013 hPa${I.alti && I.alti.drift != null && I.alti.key === altiKey() ? ` (${fmtInt(I.alti.drift)} m)` : ''}`);
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
   I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} à 1 000 m pour ${MTE_DEF} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : MTE_DEF)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
-  y += 3; title('Points de la trace (hauteur au-dessus du sol sous le PTU)');
+  y += 3; title('Points de la trace (hauteur au-dessus du sol de la ZMT)');
   sol.trace.forEach((p, i) => row(i === 0 ? `OUV  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`, fmtPos(p)));
   if (!F) return;
   doc.addPage('a4', 'portrait');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.text(clean(`Vents à la verticale du PTU - ${fmtWhen(current.when).replace(' ', ' à ')}`), 15, 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(clean(`${wxRec.model} via Open-Meteo, téléchargée le ${new Date(wxRec.fetched).toLocaleString('fr-FR')} - hauteurs au-dessus du sol (${Math.round(sol.elev0)} m)`), 15, 25);
+  doc.text(clean(`${wxRec.model} via Open-Meteo, téléchargée le ${new Date(wxRec.fetched).toLocaleString('fr-FR')} - hauteurs au-dessus du sol de la ZMT (${Math.round(sol.elev0)} m)`), 15, 25);
   const cols = [['Niveau', 15], ['Hauteur sol', 42], ['Axe (M)', 78], ['Force', 102], ['', 124], ['Temp.', 152], ['Hum.', 177]];
   y = 35; doc.setFont('helvetica', 'bold'); doc.setFontSize(10); cols.forEach(([t, x]) => doc.text(t, x, y)); doc.setFont('helvetica', 'normal');
   windRows(F, I.ptu, sol.elev0).forEach((r, i) => {
