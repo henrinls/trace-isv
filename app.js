@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.8';
+const VERSION = '0.5.9';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -459,8 +459,9 @@ function draw(light) {
     () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
   // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   // Ouverture basse : un point jaune par para
-  (greyPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_GREY, fillOpacity: 1, interactive: false }).addTo(fig));
-  (lowPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_LOW, fillOpacity: 1, interactive: false }).addTo(fig));
+  /* v0.5.9 (Henri) : gris = ouverture automatique à 1 900 ft au-dessus du point haut ; jaune = arrivée au sol (hauteur du point haut) après la dérive sous voile */
+  (lowPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_GREY, fillOpacity: 1, interactive: false }).addTo(fig));
+  (greyPoints() || []).forEach(p => L.circleMarker(LL(p), { radius: 5.5, color: '#000', weight: 1.5, fillColor: C_LOW, fillOpacity: 1, interactive: false }).addTo(fig));
   // Point le plus haut de la zone de sécurité
   if (I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();
@@ -1133,7 +1134,7 @@ function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est p
   return o;
 }
 // Ouverture basse : pour chaque para, point d'ouverture terminée s'il chutait jusqu'à LOW_FT au-dessus du point haut
-// au lieu d'ouvrir comme prévu (projection + vent de chaque tranche, depuis son point de largage). Points jaunes, sans nom.
+// au lieu d'ouvrir comme prévu (projection + vent de chaque tranche, depuis son point de largage). Points GRIS depuis la v0.5.9 (jaunes avant), sans nom.
 const LOW_FT = 1900, lowMem = { k: null, v: null };
 function lowPoints() {
   const av = altiVals(); if (!av || !av.max || !sol || !sol.ok) return null;
@@ -1146,7 +1147,8 @@ function lowPoints() {
   }
   lowMem.k = k; lowMem.v = v; return v;
 }
-/* Points gris (v0.5.8, demande d'Henri) : depuis chaque point jaune (voile ouverte à 1 900 ft au-dessus du point haut),
+/* Arrivée au sol (v0.5.8, demande d'Henri ; points JAUNES depuis la v0.5.9) : depuis chaque point d'ouverture automatique
+   (points GRIS : voile ouverte à 1 900 ft au-dessus du point haut),
    dérive sous voile jusqu'à la hauteur du point haut (même « sol » pour tout le monde) : vent seul, sans vitesse propre
    horizontale de la voile ; descente à la Vz de la voile du para (corrigée de la densité de l'air et de sa MTE). */
 const C_GREY = '#9a9a9a', greyMem = { k: null, v: null };
@@ -1557,8 +1559,8 @@ async function renderPdfCanvas() {
   if (I.zmt) cible(I.zmt, C_ZMT, 'ZMT');
   { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   current.points.forEach(pt => { if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const c = toC(pt); shadowText('✚', c.x, c.y, pt.color || '#fff', 15, 'center'); if (pt.name) shadowText(pt.name, c.x + 12 * u, c.y, pt.color || '#fff', 10); } });
-  (greyPoints() || []).forEach(p => dot(p, C_GREY, 4.5));
-  (lowPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
+  (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5));
+  (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5));
   const av = altiVals();
   if (av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
   // ---- Flèche du nord (coin haut gauche) ----
