@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.38.1';
+const VERSION = '0.39.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1327,7 +1327,8 @@ onNum('i_tRed', v => { isv().tRed = v; }, 0, 120);
 function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => Calc.canRef(c).vz)); } /* v0.31.0 : Vz ramenée à la référence */
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
-  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = (I.manual ? `FL minimal de largage pour au moins ${fmt1(+prm.tRef || 4)} s de chute, para au même point de la trace (calculé) :` : `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) :`) + ` <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
+  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const ct = ok ? cdoRefT() : null, ec = $('v_cdoRef'); ec.classList.toggle('hidden', ct == null); if (ct != null) ec.innerHTML = `Temps de chute (consigne CDO) : <b>${fmt1(ct)} s</b> (réel ${fmt1(sol.tFall)} s, à cause des arrondis du FL et de la CDO)`; }
+  { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = (I.manual ? `FL minimal de largage pour au moins ${fmt1(+prm.tRef || 4)} s de chute, para au même point de la trace (calculé) :` : `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) :`) + ` <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1424,7 +1425,7 @@ function renderBrief() {
   row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé');
   row('ALPHA', av ? `${av.alpha} hPa` : '–');
   row('Prise de cap', s.turn ? `à ${s.turn}` : 'dans l\'axe', true);
-  row('CDO', s.openLowered ? `${fmtInt(Math.round(s.hCmd))} m` : `${fmt1(s.tFall)} s`, true);
+  { const ct = cdoRefT(); row('CDO', ct != null ? `${fmt1(ct)} s` : s.openLowered ? `${fmtInt(Math.round(s.hCmd))} m` : `${fmt1(s.tFall)} s`, true); }
   row('Cap para', hdg(s.cap), true);
   row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`); /* v0.18.1 : en blanc (Henri) */
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
@@ -2183,7 +2184,7 @@ function loadJsPdf() {
 function dateStamp() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
 function safeName(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'zone'; }
 function pdfUpBearing() { return sol && sol.ok ? sol.cap : 0; } // le haut de la page = le cap para
-async function renderPdfCanvas() {
+async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seule, sans bandeau, au format donné (PDF briefing) */
   const pts = figurePoints();
   const CRS = L.CRS.EPSG3857;
   const Z0 = 19; // pixels « monde » au zoom 19
@@ -2204,8 +2205,9 @@ async function renderPdfCanvas() {
     return { W, H, band, s: Math.min(availW / Math.max(fw, 1), availH / Math.max(fh, 1)) };
   };
   const A = fit(3508, 2480), B = fit(2480, 3508);
-  const landscape = A.s >= B.s;
-  const { W, H, band, s } = landscape ? A : B;
+  let landscape = A.s >= B.s;
+  let { W, H, band, s } = landscape ? A : B;
+  if (opts && opts.W) { W = opts.W; H = opts.H; band = 0; landscape = W >= H; s = Math.min(W * 0.84 / Math.max(fw, 1), H * 0.86 / Math.max(fh, 1)); }
   const fs = 12, lh = fs * 1.5 * (W / 1000);
   const cxr = (minX + maxX) / 2, cyr = (minY + maxY) / 2, mapCY = (H - band) / 2;
   const toPage = r => ({ x: W / 2 + (r.x - cxr) * s, y: mapCY + (r.y - cyr) * s });
@@ -2244,7 +2246,7 @@ async function renderPdfCanvas() {
   if ((typeof Photo !== 'undefined')) { try { await Photo.drawPdf(g, toC); } catch (e) {} }
 
   // ---- Tracé ----
-  const u = W / 1000;
+  const u = opts && opts.u ? opts.u : W / 1000; /* opts.u : garder la taille des écritures de la carte pleine page */
   const pxPerM = ll => { const a = toC(ll), b = toC(Geo.fromLocal(ll, { x: 100, y: 0 })); return Math.hypot(b.x - a.x, b.y - a.y) / 100; };
   const shadowText = (txt, x, y, color, size, align) => {
     g.save(); g.font = `700 ${size * u}px -apple-system, Helvetica, Arial, sans-serif`; g.textBaseline = 'middle';
@@ -2301,6 +2303,7 @@ async function renderPdfCanvas() {
   g.fillStyle = '#fff'; g.fillRect(sx, sy - 4 * u, barW, 8 * u); g.fillStyle = '#111'; g.fillRect(sx + barW / 2, sy - 3 * u, barW / 2 - 1 * u, 6 * u); g.restore();
   tx(nice >= 1000 ? `${nice / 1000} km` : `${nice} m`, sx + barW + 10 * u, sy, '#fff', 12, true);
 
+  if (band) {
   // ---- Bandeau d'informations ----
   g.save(); g.fillStyle = 'rgba(12,12,12,.85)'; g.fillRect(0, by, W, band); g.restore();
   const col1 = 30 * u, col2 = W * 0.36, col3 = W * 0.69, l0 = by + lh * 1.1;
@@ -2321,7 +2324,8 @@ async function renderPdfCanvas() {
     sol.hand ? `PTU main ${sol.hand}` : (current.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
   hi.forEach((t, i) => tx(t, col2, l0 + lh * (0.3 + i * 1.9), '#ffd400', big, true));
   hi2.forEach((t, i) => tx(t, col3, l0 + lh * (0.1 + i * 1.4), '#00e5ff', big, true));
-  tx(`${BASEMAPS[basemap].attr} · vents ${wxRec ? wxRec.model.split(' (')[0] : '—'} via Open-Meteo · trace-isv v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
+  }
+  if (band) tx(`${BASEMAPS[basemap].attr} · vents ${wxRec ? wxRec.model.split(' (')[0] : '—'} via Open-Meteo · trace-isv v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right'); /* PDF briefing : écrit dans le cartouche */
   return { canvas: cv, landscape, fails };
 }
 // Page 2 : toutes les données de vol, l'altimétrie et l'équipe. Page 3 : vents à la verticale du PTU.
@@ -2364,16 +2368,61 @@ function pdfDataPages(doc) {
     [r.lab, clean(fmtInt(r.h)) + ' m', hdgN(r.dir), Math.round(r.spd * KT) + ' kt', fmt1(r.spd) + ' m/s', r.T == null ? '-' : Math.round(r.T) + ' °C', r.RH == null ? '-' : Math.round(r.RH) + ' %'].forEach((t, k) => doc.text(t, cols[k][1], y));
   });
 }
+/* v0.39.0 (Henri, 22 nov. 2026) : PDF = le Briefing + la carte, sur UNE page A4 paysage : carte à gauche (cap para en haut),
+   cartouche du Briefing à droite (mêmes paragraphes, même ordre ; jaune = surligné ; Consignes para encadrées en rouge). */
+function briefSections() {
+  renderBrief(); const out = [];
+  $('briefBody').querySelectorAll('h3').forEach(h => {
+    const tb = h.nextElementSibling; if (!tb || tb.tagName !== 'TABLE') return;
+    const rows = [...tb.querySelectorAll('tr')].map(tr => { const td = tr.querySelectorAll('td'); const v = td[1] ? td[1].cloneNode(true) : null; if (v) v.querySelectorAll('button').forEach(b => b.remove());
+      return [td[0] ? td[0].innerText.trim() : '', v ? v.innerText.trim() : '', tr.classList.contains('hi')]; });
+    out.push({ title: h.innerText.trim(), rows, para: !!h.closest('.paraBox') });
+  });
+  return out;
+}
+function pdfBriefPage(doc, mapCanvas, mapW) {
+  const I = isv(), clean = t => String(t).replace(/[   ]/g, ' ').replace(/−/g, '-').replace(/[⚠️]/g, '').replace(/→/g, '->').replace(/≈/g, '~').replace(/\s+/g, ' ').trim();
+  doc.addImage(mapCanvas.toDataURL('image/jpeg', 0.88), 'JPEG', 0, 0, mapW, 210);
+  const secs = briefSections(), x0 = mapW + 3, W = 297 - x0 - 3, kW = W * 0.40, vW = W - kW - 2;
+  const draw = (fs, dry) => { /* fs = taille du texte (pt) ; dry = mesurer seulement */
+    const lh = fs * 0.36 + 0.35; let y = 6;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 2.5); doc.setTextColor(0);
+    const t1 = doc.splitTextToSize(clean(`${current.name} - ${I.name}`), W); if (!dry) doc.text(t1, x0, y + 3); y += t1.length * (fs + 2.5) * 0.36 + 2.5;
+    secs.forEach(sc => {
+      const yTop = y; y += 1.2;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 0.5); if (!dry) { doc.setTextColor(sc.para ? 200 : 90, sc.para ? 30 : 100, sc.para ? 30 : 110); doc.text(clean(sc.title).toUpperCase(), x0 + (sc.para ? 1.5 : 0), y + lh * 0.8); }
+      y += lh + 0.6;
+      sc.rows.forEach(([k, v, hi]) => {
+        doc.setFontSize(fs); doc.setFont('helvetica', hi ? 'bold' : 'normal');
+        const kk = doc.splitTextToSize(clean(k), kW - (sc.para ? 1.5 : 0)), vv = doc.splitTextToSize(clean(v), vW - (sc.para ? 1.5 : 0)), n = Math.max(kk.length, vv.length, 1), h = n * lh + 0.5;
+        if (!dry) {
+          if (hi) { doc.setFillColor(255, 236, 140); doc.rect(x0 + (sc.para ? 1 : 0), y - 0.2, W - (sc.para ? 2 : 0), h, 'F'); }
+          doc.setTextColor(hi ? 0 : 70); doc.text(kk, x0 + (sc.para ? 1.5 : 0), y + lh * 0.78);
+          doc.setTextColor(0); doc.setFont('helvetica', hi ? 'bold' : 'normal'); doc.text(vv, x0 + kW + 1, y + lh * 0.78);
+          doc.setDrawColor(215); doc.setLineWidth(0.15); doc.line(x0 + (sc.para ? 1 : 0), y + h, x0 + W - (sc.para ? 1 : 0), y + h);
+        }
+        y += h + 0.15;
+      });
+      if (sc.para && !dry) { doc.setDrawColor(230, 30, 30); doc.setLineWidth(0.7); doc.roundedRect(x0 - 0.3, yTop, W + 0.6, y - yTop + 0.8, 1.5, 1.5, 'S'); }
+      y += sc.para ? 2.6 : 1.6;
+    });
+    return y;
+  };
+  let fs = 7.5; while (fs > 5.5 && draw(fs, true) > 204) fs -= 0.25;
+  draw(fs, false);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); doc.setTextColor(120); doc.text(clean(`trace-isv v${VERSION} - ${BASEMAPS[basemap].attr} - vents ${wxRec ? wxRec.model.split(' (')[0] : '-'} via Open-Meteo`), 294, 207.5, { align: 'right' });
+  return fs;
+}
 $('btnPdf').addEventListener('click', async () => {
   compute(); if (!sol || !sol.ok) return toast(sol && sol.err ? sol.err : 'Pas encore de trace');
   const b = $('btnPdf'); b.disabled = true; const old = b.textContent; b.textContent = 'Préparation du PDF…';
   try {
     await computeAlti(false).catch(() => {});
     await loadJsPdf();
-    const { canvas, landscape, fails } = await renderPdfCanvas();
-    const doc = new window.jspdf.jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-    doc.addImage(canvas.toDataURL('image/jpeg', 0.88), 'JPEG', 0, 0, landscape ? 297 : 210, landscape ? 210 : 297);
-    pdfDataPages(doc);
+    const mapW = 172, PXMM = 3508 / 297; /* carte 172 mm × 210 mm à la même résolution que l'ancienne pleine page */
+    const { canvas, fails } = await renderPdfCanvas({ W: Math.round(mapW * PXMM), H: 2480, u: 3.508 });
+    const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    window._pdfFs = pdfBriefPage(doc, canvas, mapW); /* v0.39.0 : une seule page (l'ancien PDF de 3 pages : pdfDataPages, gardé dans le code) */
     fileReady(new File([doc.output('blob')], `${dateStamp()}_Trace_ISV_${safeName(current.name)}_${safeName(isv().name)}.pdf`, { type: 'application/pdf' }), fails ? ` (${fails} morceaux de photo manquants)` : '');
   } catch (e) { console.error(e); toast('Échec du PDF : ' + (e && e.message ? e.message : 'erreur')); }
   finally { b.disabled = false; b.textContent = old; }
@@ -2522,10 +2571,14 @@ function stepRefreshBefore(id) { /* les étapes « trace » faites avant id acce
   STEPS.slice(0, STEPS.indexOf(st)).forEach(x => { const r = (I.steps || {})[x.id]; if (x.tr && r && r.s === 'done') r.sig = sig; }); }
 /* v0.38.0 (Henri) : « Appliquer » le FL pour 4 s de chute : change le FL (et remet le temps de chute de référence) ; la trace ne bouge pas,
    le vecteur oui (vitesse sol plus faible plus bas) → étapes Vecteur et Points OSO à revérifier, retour à la carte */
+function cdoRefT() { /* consigne de temps de chute donnée au para quand le FL a été appliqué avec le vecteur à la main ; null sinon (FL ou vecteur changés depuis) */
+  const I = isv(), c = I.cdoRef; if (!c || !sol || !sol.ok || !I.manual || +I.fl !== c.fl || JSON.stringify(I.manual) !== c.m || sol.tFall < c.t - 0.05) return null; return c.t; }
 function applyFlMin4() {
   if (!sol || !sol.ok || sol.flMin4 == null) return; const I = isv(), fl = sol.flMin4;
   /* v0.38.1 (Henri) : rien d'autre que le FL — vecteur à la main gardé (position du para sur la trace, cap) ; seule la longueur du vecteur change */
-  I.fl = fl; if (!I.manual) I.tFall = +prm.tRef > 0 ? +prm.tRef : 4; changed();
+  I.fl = fl; if (!I.manual) I.tFall = +prm.tRef > 0 ? +prm.tRef : 4;
+  I.cdoRef = I.manual ? { t: +prm.tRef > 0 ? +prm.tRef : 4, fl, m: JSON.stringify(I.manual) } : null; /* v0.39.0 (Henri) : consigne « 4 s » même si le réel est un peu plus long (arrondis) */
+  changed();
   I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; });
   stepFocus = 'vec'; persist(); closeSheet(); syncSteps(); redraw();
   toast(`FL${String(fl).padStart(3, '0')} appliqué : revérifie le vecteur de largage puis les points OSO`);
