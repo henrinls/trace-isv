@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.39.3';
+const VERSION = '0.39.4';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -398,6 +398,12 @@ function calcInput(I) {
     capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
+function keepOuvSolve(inp, fl, target, e0) { /* même point d'ouverture sur la trace à un autre FL : on décale le point de largage */
+  let m = inp.manual, s = null;
+  for (let k = 0; k < 6; k++) { s = Calc.solve(Object.assign({}, inp, { fl, manual: m }), prm, F, e0); if (!s.ok || !s.attachOuv) break;
+    const d = Calc.toLocal(s.attachOuv, target); if (Math.hypot(d.x, d.y) < 2) break; m = Calc.fromLocal(m, d); }
+  return { s, m };
+}
 function compute() {
   const I = isv();
   wxRec = wxCached(current.id, current.when.slice(0, 10));
@@ -409,10 +415,14 @@ function compute() {
   solKey = key;
   /* v0.38.1 (Henri) : vecteur à la main → le FL pour 4 s est cherché en gardant le vecteur tel qu'il est (position du para et cap) :
      plus petit FL (multiple de 5) pour lequel le calcul complet donne au moins le temps de chute de référence */
+  /* v0.39.4 (bug photo d'Henri : « hors de portée » après Appliquer) : I.manual est le point de LARGAGE ; à un FL plus bas la chute est
+     plus courte, la dérive sous RSE change et le point d'OUVERTURE partait loin de la trace. On garde donc le point d'ouverture du
+     para sur la trace (sol.attachOuv) en recalant le point de largage pour chaque FL essayé (keepOuvSolve). */
   if (sol.ok && inp.manual && sol.flMin4 != null) { try {
-    const tRef = +prm.tRef > 0 ? +prm.tRef : 4; let best = null;
-    for (let fl = Math.max(50, sol.flMin4 - 20); fl < sol.fl; fl += 5) { const s2 = Calc.solve(Object.assign({}, inp, { fl }), prm, F, e0); if (s2.ok && s2.tFall >= tRef - 0.05 && s2.hOpen >= sol.attachH - 1) { best = fl; break; } /* l'ouverture reste au-dessus de la trace au point du para : il ne bouge pas */ }
-    sol.flMin4 = best; } catch (e) { console.error(e); } }
+    const tRef = +prm.tRef > 0 ? +prm.tRef : 4; let best = null, bestM = null;
+    for (let fl = Math.max(50, sol.flMin4 - 20); fl < sol.fl; fl += 5) { const r = keepOuvSolve(inp, fl, sol.attachOuv, e0), s2 = r.s;
+      if (s2.ok && !(s2.manualGap > 100) && s2.tFall >= tRef - 0.05 && s2.hOpen >= sol.attachH - 1) { best = fl; bestM = r.m; break; } }
+    sol.flMin4 = best; sol.flMin4Manual = bestM; } catch (e) { console.error(e); } }
   if (sol.ok) {
     // La grille de vents doit couvrir toute la zone utile : sinon on la retélécharge plus grande (une fois par besoin)
     const need = Math.max(Calc.dist(I.ptu, sol.ouv), Calc.dist(I.ptu, sol.circleOuv.c) + sol.circleOuv.R) / 1000;
@@ -1356,7 +1366,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Marge sur le vent', `${prm.margin} %${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
   return rows;
 }
-onNum('v_fl', v => { isv().fl = Math.round(v); }, 20, 400);
+onNum('v_fl', v => { const I = isv(), fl = Math.round(v); if (I.manual && fl !== +I.fl) { if (flKeepTrace(fl)) toast('FL changé : trace inchangée, revérifie le vecteur puis les points OSO'); } else I.fl = fl; }, 20, 400);
 onNum('v_ac', v => { isv().acMs = v; }, 20, 200);
 onNum('v_acKt', v => { isv().acMs = Math.round(v / KT * 100) / 100; }, 40, 400); /* v0.14.0 : saisie en KIAS, convertie en m/s badin */
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
@@ -2586,14 +2596,25 @@ function stepRefreshBefore(id) { /* les étapes « trace » faites avant id acce
    le vecteur oui (vitesse sol plus faible plus bas) → étapes Vecteur et Points OSO à revérifier, retour à la carte */
 function cdoRefT() { /* consigne de temps de chute donnée au para quand le FL a été appliqué avec le vecteur à la main ; null sinon (FL ou vecteur changés depuis) */
   const I = isv(), c = I.cdoRef; if (!c || !sol || !sol.ok || !I.manual || +I.fl !== c.fl || JSON.stringify(I.manual) !== c.m || sol.tFall < c.t - 0.05) return null; return c.t; }
+/* v0.39.4 (Henri) : vecteur à la main + changement de FL (Appliquer OU saisie, plus haut ou plus bas) = RIEN ne change sauf le vecteur :
+   même point d'ouverture sur la trace (point de largage recalé de la dérive en chute), même cap para ; seules les étapes Vecteur et
+   Points OSO sont à revérifier. Aller-retour de FL = retour à l'identique. « Vect. auto » reste le seul moyen de tout recalculer. */
+function flKeepTrace(fl, manualPre) {
+  const I = isv(); compute(); if (!I.manual || !sol || !sol.ok) { I.fl = fl; changed(); return false; }
+  const capM = Math.round(magOf(sol.cap)) % 360, sig0 = traceSig();
+  let m = manualPre; if (!m) { const r = keepOuvSolve(calcInput(I), fl, sol.attachOuv, elev0()); if (r.s && r.s.ok && !(r.s.manualGap > 100)) m = r.m; }
+  if (m) I.manual = m; I.fl = fl; changed();
+  if (sol && sol.ok && Math.round(magOf(sol.cap)) % 360 !== capM) setCap(capM);
+  I.steps = I.steps || {}; const sig = traceSig();
+  STEPS.forEach(st => { const r = I.steps[st.id]; if (st.tr && r && r.s === 'done' && (!r.sig || r.sig === sig0 || r.force)) { r.sig = sig; delete r.force; } }); /* seules les étapes à jour avant le changement suivent */
+  ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig, force: 1 }; });
+  persist(); syncSteps(); return true;
+}
 function applyFlMin4() {
   if (!sol || !sol.ok || sol.flMin4 == null) return; const I = isv(), fl = sol.flMin4;
-  /* v0.38.1 (Henri) : rien d'autre que le FL — vecteur à la main gardé (position du para sur la trace, cap) ; seule la longueur du vecteur change */
-  I.fl = fl; if (!I.manual) I.tFall = +prm.tRef > 0 ? +prm.tRef : 4;
-  I.cdoRef = I.manual ? { t: +prm.tRef > 0 ? +prm.tRef : 4, fl, m: JSON.stringify(I.manual) } : null; /* v0.39.0 (Henri) : consigne « 4 s » même si le réel est un peu plus long (arrondis) */
-  changed();
-  I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; });
-  stepFocus = 'vec'; persist(); closeSheet(); syncSteps(); redraw();
+  if (flKeepTrace(fl, sol.flMin4Manual)) I.cdoRef = { t: +prm.tRef > 0 ? +prm.tRef : 4, fl, m: JSON.stringify(I.manual) }; /* v0.39.0 (Henri) : consigne « 4 s » même si le réel est un peu plus long (arrondis) */
+  else { I.tFall = +prm.tRef > 0 ? +prm.tRef : 4; I.cdoRef = null; I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); }
+  stepFocus = 'vec'; persist(); closeSheet(); changed(); syncSteps(); redraw();
   toast(`FL${String(fl).padStart(3, '0')} appliqué : revérifie le vecteur de largage puis les points OSO`);
 }
 function roundCaps() {
