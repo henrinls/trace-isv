@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1219,13 +1219,22 @@ async function doSearch() {
   const ul = $('searchResults'); ul.innerHTML = '';
   const c = parseCoords(q);
   if (c) { startNewZone(c, 13); return; }
+  // 1) Clubs FFP enregistrés dans l'appli (sans réseau), proposés en premier (v0.5.1, comme les autres applis)
+  const clubs = typeof searchClubs === 'function' ? searchClubs(q) : [];
+  clubs.forEach(k => {
+    const li = document.createElement('li'); const b = document.createElement('button');
+    b.className = 'res club'; b.innerHTML = `<b>🪂 ${esc(k.n)}</b><br><small>Club FFP · ${esc(k.v)}</small>`;
+    b.onclick = () => startNewZone({ lat: k.lat, lng: k.lng }, 13);
+    li.append(b); ul.append(li);
+  });
+  // 2) Puis la recherche de lieux habituelle
   const wait = document.createElement('li'); wait.className = 'mut'; wait.textContent = 'Recherche…'; ul.append(wait);
   try {
     const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=8&accept-language=fr&q=' + encodeURIComponent(q));
     const js = await r.json(); wait.remove();
-    if (!js.length) ul.innerHTML = '<li class="mut">Rien trouvé.</li>';
+    if (!js.length && !clubs.length) ul.innerHTML = '<li class="mut">Rien trouvé.</li>';
     js.forEach(x => { const li = document.createElement('li'), b = document.createElement('button'); b.className = 'res'; b.textContent = x.display_name; b.onclick = () => startNewZone({ lat: +x.lat, lng: +x.lon }, 12); li.append(b); ul.append(li); });
-  } catch (e) { wait.textContent = 'Recherche impossible (pas de réseau ?). Tu peux taper des coordonnées.'; }
+  } catch (e) { wait.textContent = clubs.length ? 'Autres lieux : pas de réseau.' : 'Recherche impossible (pas de réseau ?). Tu peux taper des coordonnées.'; }
 }
 $('btnSearch').addEventListener('click', doSearch);
 $('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
