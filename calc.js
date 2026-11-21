@@ -6,8 +6,10 @@
   const G = 9.81, RD = 287.05, RE = 6378137;
   const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
   const n360 = h => ((h % 360) + 360) % 360;
-  const toLocal = (o, p) => ({ x: rad(p.lng - o.lng) * RE * Math.cos(rad(o.lat)), y: rad(p.lat - o.lat) * RE });
-  const fromLocal = (o, v) => ({ lat: o.lat + deg(v.y / RE), lng: o.lng + deg(v.x / (RE * Math.cos(rad(o.lat)))) });
+  // Latitude moyenne des deux points : aller et retour exacts, distances justes à quelques mètres près sur 100 km (avec la
+  // latitude de l'origine seule, l'écart atteignait 0,3 % : des points « sur le cercle » en paraissaient sortis de 100 à 300 m).
+  const toLocal = (o, p) => ({ x: rad(p.lng - o.lng) * RE * Math.cos(rad((o.lat + p.lat) / 2)), y: rad(p.lat - o.lat) * RE });
+  const fromLocal = (o, v) => { const lat = o.lat + deg(v.y / RE); return { lat, lng: o.lng + deg(v.x / (RE * Math.cos(rad((o.lat + lat) / 2)))) }; };
   const unit = h => ({ x: Math.sin(rad(h)), y: Math.cos(rad(h)) });
   const bearingOf = v => n360(deg(Math.atan2(v.x, v.y)));
   const dist = (a, b) => { const q = toLocal(a, b); return Math.hypot(q.x, q.y); };
@@ -134,15 +136,18 @@
     while (h < hOpen - 1e-6) { hs.push(h); h += 500; }
     hs.push(hOpen); return hs;
   }
-  // margin (0,2 = 20 %) porte sur le vent, dans le sens défavorable : vent qui pousse (dans le sens du cap) compté 20 % plus
-  // faible, vent contraire compté 20 % plus fort. La voile (vx, vz) n'est pas réduite.
+  // margin (0,2 = 20 %) : erreur possible sur le vent, égale à 20 % de sa force, comptée dans la pire direction pour le para
+  // quel que soit son cap (de face). La voile avance donc, dans l'air, de vx − marge × force du vent ; le vent prévu s'ajoute
+  // tel quel. La marge est la même à tous les caps : les ouvertures possibles forment un cercle, et toute trace part de son bord.
+  // (Avant la v0.2.0 : vent multiplié par 0,8 ou 1,2 selon son signe dans l'axe du cap → marge dans l'axe du vent seulement,
+  // zone pincée, traces qui sortaient du cercle. Ne pas y revenir.)
   function trace(F, ptu, elev0, hPtu, hOpen, can, cap, margin) {
     const hd = unit(cap), hs = heights(hPtu, hOpen), pts = [{ h: hPtu, lat: ptu.lat, lng: ptu.lng, t: 0 }];
     let P = { lat: ptu.lat, lng: ptu.lng }, len = 0, time = 0;
     for (let i = 1; i < hs.length; i++) {
       const dt = (hs[i] - hs[i - 1]) / can.vz, W = windMean(F, P.lat, P.lng, elev0 + hs[i - 1], elev0 + hs[i]);
-      const k = (W.u * hd.x + W.v * hd.y) >= 0 ? 1 - margin : 1 + margin;
-      const dx = (can.vx * hd.x + k * W.u) * dt, dy = (can.vx * hd.y + k * W.v) * dt;
+      const va = can.vx - margin * Math.hypot(W.u, W.v);
+      const dx = (va * hd.x + W.u) * dt, dy = (va * hd.y + W.v) * dt;
       P = fromLocal(P, { x: -dx, y: -dy }); len += Math.hypot(dx, dy); time += dt;
       pts.push({ h: hs[i], lat: P.lat, lng: P.lng, t: time });
     }
@@ -157,15 +162,26 @@
     for (const st of [1, 0.25, 0.05]) for (const s of [-2, -1, 1, 2]) { const c = best + s * st, d = f(c); if (d > bd) { bd = d; best = c; } }
     return n360(best);
   }
-  // Cercle de relaxation (points d'OUVERTURE) : centre = centre des ouvertures possibles par vent prévu ; rayon = la plus
-  // petite distance du centre aux ouvertures calculées avec la marge, tous caps confondus → du cercle, on rejoint le PTU
-  // que le vent soit plus fort ou plus faible que prévu.
-  function relaxCircle(F, ptu, elev0, hPtu, hOpen, can, margin) {
-    let cx = 0, cy = 0, n = 0;
-    for (let c = 0; c < 360; c += 15) { const q = toLocal(ptu, trace(F, ptu, elev0, hPtu, hOpen, can, c, 0).top); cx += q.x; cy += q.y; n++; }
-    cx /= n; cy /= n; let R = Infinity;
-    for (let c = 0; c < 360; c += 5) { const q = toLocal(ptu, trace(F, ptu, elev0, hPtu, hOpen, can, c, margin).top); R = Math.min(R, Math.hypot(q.x - cx, q.y - cy)); }
-    return { c: fromLocal(ptu, { x: cx, y: cy }), R: Math.max(0, R) };
+  // Cercle de relaxation (points d'OUVERTURE). La zone d'où le PTU reste atteignable est bordée par les ouvertures de toutes
+  // les traces (tous caps, marge comprise) : un cercle exact si le vent est le même sur toute la zone, à peine déformé sinon.
+  // Le cercle rendu est le plus grand cercle qui tient dans cette zone ET qui passe par l'ouverture de la trace au cap donné :
+  // la trace part toujours pile de son bord. Sans cap (ou cas dégénéré) : cercle centré, de rayon la plus petite portée.
+  function relaxCircle(F, ptu, elev0, hPtu, hOpen, can, margin, cap) {
+    const top = (c, m) => trace(F, ptu, elev0, hPtu, hOpen, can, c, m).top;
+    let la = 0, lo = 0, n = 0;
+    for (let c = 0; c < 360; c += 15) { const q = top(c, 0); la += q.lat; lo += q.lng; n++; }
+    const C0 = { lat: la / n, lng: lo / n }, Q = []; let Rin = Infinity, Rm = 0;
+    for (let c = 0; c < 360; c += 5) { const p = top(c, margin), q = toLocal(C0, p), h = unit(c), r = -(q.x * h.x + q.y * h.y); Q.push(p); Rin = Math.min(Rin, r); Rm += r / 72; }
+    const centered = { c: C0, R: Math.max(0, Rin) };
+    if (cap == null || !(Rin > 1)) return centered;
+    // Repère centré sur l'ouverture T de la trace : c'est là que le cercle doit être exact
+    const T = top(cap, margin), A = toLocal(T, top(cap + 2, margin)), B = toLocal(T, top(cap - 2, margin)), c0 = toLocal(T, C0);
+    let nx = -(A.y - B.y), ny = A.x - B.x; const nl = Math.hypot(nx, ny); if (nl < 1e-6) return centered;
+    nx /= nl; ny /= nl; if (c0.x * nx + c0.y * ny < 0) { nx = -nx; ny = -ny; } // normale au bord, vers l'intérieur
+    let rho = Infinity;
+    for (const p of Q) { const d = toLocal(T, p), d2 = d.x * d.x + d.y * d.y, dot = d.x * nx + d.y * ny; if (d2 > 0.04 * Rm * Rm && dot > 1e-6) rho = Math.min(rho, d2 / (2 * dot)); }
+    if (!isFinite(rho) || rho <= 0) return centered;
+    return { c: fromLocal(T, { x: rho * nx, y: rho * ny }), R: rho };
   }
   // Point d'une polyligne (liste de { lat, lng, h }) le plus proche de q : distance, hauteur interpolée, abscisse
   function nearestOn(pts, q) {
@@ -238,7 +254,7 @@
 
     // Vecteur déplacé à la main : le FL ne change pas. La trace doit passer par le nouveau point d'ouverture ; si elle y passe
     // plus bas que l'ouverture prévue, le para chute plus longtemps : la consigne devient « ouverture à x m » (centaine supérieure).
-    let attach = null; const stPlan = st;
+    let attach = null; const stPlan = st, capPlan = weak.cap;
     if (isv.manual && isv.capManual == null) {
       let O = null, sol = null;
       for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
@@ -269,15 +285,22 @@
     if (vg < 5) { out.err = 'Vent de face plus fort que l\'avion sur ce cap : change le sens ou le cap du vecteur.'; return out; }
 
     // Cercle de relaxation : en points d'ouverture, puis décalé de la dérive sous RSE pour l'avoir en points de largage
-    const circ = relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin);
-    // Cercle affiché : celui du largage prévu (temps de chute de la consigne). Si l'ouverture a été abaissée (vecteur déplacé
-    // à la main), le contrôle du vecteur se fait avec le cercle, plus petit, de la hauteur d'ouverture réelle.
-    let circShow = circ, drShow = dr;
-    if (st !== stPlan) { circShow = relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin); drShow = rseDrift(F, circShow.c, stPlan.altRel, stPlan.f, acHeading); }
-    out.circleOuv = circShow; out.circle = { c: fromLocal(circShow.c, { x: -drShow.x, y: -drShow.y }), R: circShow.R };
+    // Deux cercles (demande du 21 nov. 2026) :
+    // - AFFICHÉ : le cercle de relaxation SANS marge (vent prévu exact), pour le largage prévu ;
+    // - NON AFFICHÉ : la zone avec la marge (plus petite, à l'intérieur), d'où le vecteur ne doit pas sortir. La trace, calculée
+    //   avec la marge, part du bord de cette zone : elle reste donc toujours dans le cercle affiché.
+    const man = !!(isv.manual && isv.capManual == null), capShow = man ? capPlan : weak.cap;
+    const circ = relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);          // contrôle du vecteur (hauteur d'ouverture réelle)
+    const zonePlan = man ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan) : circ; // limite du déplacement à la main
+    const circShow = margin > 0 || man ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, 0, capShow) : circ;
+    const drShow = st !== stPlan ? rseDrift(F, circShow.c, stPlan.altRel, stPlan.f, acHeading) : dr;
+    if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`;
+    const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });
+    out.circleOuv = circShow; out.circle = toDrop(circShow, drShow);
+    out.zoneOuv = circ; out.zone = toDrop(zonePlan, drShow);
 
     // Vecteur : le para choisi s'ouvre sur la trace ; on fait glisser ce point le long de la trace (vers le PTU) jusqu'à ce que
-    // le vert et le rouge soient dans le cercle. La trace ne change pas.
+    // le vert et le rouge soient dans la zone avec marge (non affichée). La trace ne change pas.
     const ex = exitTimes(team, isv.tGreen, isv.tRed), n = team.length;
     const idx = (isv.dropIdx != null && isv.dropIdx >= 0 && isv.dropIdx < n) ? isv.dropIdx : defaultDropIdx(n);
     const sBefore = vg * ex.te[idx], sAfter = vg * (ex.total - ex.te[idx]), L = sBefore + sAfter;
@@ -286,7 +309,7 @@
     const ends = o => [fromLocal(o, { x: -a.x * sBefore, y: -a.y * sBefore }), fromLocal(o, { x: a.x * sAfter, y: a.y * sAfter })];
     let s0 = attach ? nearestOn(ptsDown, attach).s : 0, sFit = null;
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
-    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que le cercle de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : 'Le vecteur ne rentre pas dans le cercle de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.'); sFit = s0; }
+    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de largage${margin > 0 ? ' avec la marge' : ''}${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de largage${margin > 0 ? ' avec la marge' : ''} sur ce cap : tourne-le ou change de para sur le point de largage.`); sFit = s0; }
     const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
     out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
     out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),

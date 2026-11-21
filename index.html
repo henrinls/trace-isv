@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.1.12">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.2.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.1.12">
+<link rel="stylesheet" href="style.css?v=0.2.0">
 </head>
 <body>
 <div id="map"></div>
@@ -203,7 +203,7 @@
     <div class="grid2">
       <div><label>Vitesse de chute stabilisée (m/s)</label><input id="p_vff" inputmode="numeric"></div><div></div>
     </div>
-    <p class="hint">La marge porte sur le vent : vent dans le dos compté plus faible, vent de face compté plus fort.</p>
+    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle affiché est le cercle de relaxation sans marge ; le vecteur, lui, ne peut pas sortir de la zone avec marge, plus petite et non affichée. La trace part du bord de cette zone.</p>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -269,13 +269,13 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.1.12"></script>
-<script src="vendor/leaflet-rotate.js?v=0.1.12"></script>
-<script src="vendor/mgrs.min.js?v=0.1.12"></script>
-<script src="geo.js?v=0.1.12"></script>
-<script src="wmm.js?v=0.1.12"></script>
-<script src="calc.js?v=0.1.12"></script>
-<script src="app.js?v=0.1.12"></script>
-<script src="photo.js?v=0.1.12"></script>
+<script src="vendor/leaflet.js?v=0.2.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.2.0"></script>
+<script src="vendor/mgrs.min.js?v=0.2.0"></script>
+<script src="geo.js?v=0.2.0"></script>
+<script src="wmm.js?v=0.2.0"></script>
+<script src="calc.js?v=0.2.0"></script>
+<script src="app.js?v=0.2.0"></script>
+<script src="photo.js?v=0.2.0"></script>
 </body>
 </html>
