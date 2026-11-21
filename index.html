@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.4.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.4.1">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.4.0">
+<link rel="stylesheet" href="style.css?v=0.4.1">
 </head>
 <body>
 <div id="map"></div>
@@ -193,7 +193,7 @@
     <h3>Parachutes</h3>
     <ul id="canList"></ul>
     <div class="row"><button id="btnAddCan" class="wide">＋ Ajouter un parachute</button></div>
-    <p class="hint">Vx = vitesse horizontale, Vz = vitesse verticale, en m/s : valeurs vraies à 1 000 m (atmosphère standard) pour la MTE indiquée, en kg. L'appli les corrige à chaque hauteur selon la densité de l'air prévue, et pour chaque para selon sa MTE (case MTE vide dans l'équipe = MTE de la voile). La finesse ne change pas.</p>
+    <p class="hint">Vx = vitesse horizontale, Vz = vitesse verticale, en m/s : valeurs vraies à 1 000 m (atmosphère standard) pour une MTE de 150 kg. L'appli les corrige à chaque hauteur selon la densité de l'air prévue, et pour chaque para selon sa MTE, saisie dans l'équipe (150 kg par défaut). La finesse ne change pas.</p>
 
     <h3>Calcul</h3>
     <div class="grid2">
@@ -269,13 +269,13 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.4.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.4.0"></script>
-<script src="vendor/mgrs.min.js?v=0.4.0"></script>
-<script src="geo.js?v=0.4.0"></script>
-<script src="wmm.js?v=0.4.0"></script>
-<script src="calc.js?v=0.4.0"></script>
-<script src="app.js?v=0.4.0"></script>
-<script src="photo.js?v=0.4.0"></script>
+<script src="vendor/leaflet.js?v=0.4.1"></script>
+<script src="vendor/leaflet-rotate.js?v=0.4.1"></script>
+<script src="vendor/mgrs.min.js?v=0.4.1"></script>
+<script src="geo.js?v=0.4.1"></script>
+<script src="wmm.js?v=0.4.1"></script>
+<script src="calc.js?v=0.4.1"></script>
+<script src="app.js?v=0.4.1"></script>
+<script src="photo.js?v=0.4.1"></script>
 </body>
 </html>

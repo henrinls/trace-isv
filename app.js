@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -21,8 +21,10 @@ const TILE_CACHE = 'isv-tiles-v1';
 const KT = 1.943844; // m/s → nœuds
 const C_LOW = '#ffe600', C_START = '#1ec83c', C_END = '#ff2020', C_TRACE = '#ff3fb4', C_RELAX = '#00e5ff', C_PTU = '#ffd400', C_ZMT = '#ff8c00';
 const isDark = c => c === '#000000';
-/* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour la MTE de la voile (v0.4.0). PBO retirée à la demande d'Henri. */
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, mte: 150 }], margin: 20, openLoss: 200, vff: 50 };
+/* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
+   (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
+const MTE_DEF = 150;
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 200, vff: 50 };
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -110,7 +112,7 @@ function fieldOf(rec, when) {
 }
 
 // ---------- Zones, ISV, paramètres ----------
-function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (prm && prm.canopies[0] ? prm.canopies[0].id : 'ph'), mte: '', dt: 3 }; }
+function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (prm && prm.canopies[0] ? prm.canopies[0].id : 'ph'), mte: MTE_DEF, dt: 3 }; }
 function newIsv(name) {
   return { id: uid('i'), name: name || 'ISV 1', zmt: null, ptu: null, hPtu: 300, ptuElev: null, team: [newPara(), newPara(), newPara(), newPara()],
     tGreen: 4, tRed: 10, fl: 295, acMs: 65, tFall: 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
@@ -120,7 +122,7 @@ function upIsv(I) {
   const d = newIsv(I && I.name); if (!I) return d;
   Object.keys(d).forEach(k => { if (I[k] === undefined) I[k] = d[k]; });
   if (!Array.isArray(I.team) || !I.team.length) I.team = [newPara()];
-  I.team.forEach(p => { if (!p.id) p.id = uid('p'); if (p.dt === undefined) p.dt = 3; if (p.name === undefined) p.name = ''; if (p.mte === undefined) p.mte = ''; if (prm && Array.isArray(prm.canopies) && prm.canopies.length && !prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; });
+  I.team.forEach(p => { if (!p.id) p.id = uid('p'); if (p.dt === undefined) p.dt = 3; if (p.name === undefined) p.name = ''; if (!(+p.mte > 0)) p.mte = MTE_DEF; if (prm && Array.isArray(prm.canopies) && prm.canopies.length && !prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; });
   return I;
 }
 function upgrade(z) {
@@ -139,7 +141,7 @@ if (!Array.isArray(prm.canopies) || !prm.canopies.length) prm.canopies = clone(D
 if (!prm.noPbo) { /* v0.4.0 : la PBO d'origine est retirée des données enregistrées (une fois) */
   const keep = prm.canopies.filter(c => !(c.id === 'pbo' && c.name === 'PBO')); prm.canopies = keep.length ? keep : clone(DEFAULT_PARAMS.canopies); prm.noPbo = true;
 }
-prm.canopies.forEach(c => { if (!(+c.mte > 0)) c.mte = 150; });
+prm.canopies.forEach(c => { delete c.mte; });
 function saveProfile() { store.set('isv.profile', prm); }
 saveProfile();
 function newZone(center) { return upgrade({ id: null, name: 'Nouvelle zone', center: center || { lat: 46.6, lng: 2.4 }, zoom: center ? 12 : 6 }); }
@@ -909,11 +911,11 @@ function renderIsvTab() {
       if (i > 0 && p.id !== src.id) li.onclick = () => { p.dt = +src.dt; persist(); draw(); renderIsvTab(); };
     } else {
       li.innerHTML = `<div class="pr1"><span class="zhandle" title="Glisser pour changer l'ordre">≡</span><span class="pn">${i + 1}</span><input class="pname" placeholder="Nom" value="${esc(p.name || '')}"><select class="pcan">${canOpts(p.canopy)}</select><button class="pdel" title="Retirer ce para">🗑</button></div>` +
-        `<div class="pr2"><label>MTE (kg)</label><input class="pmte" inputmode="numeric" placeholder="${esc(String((prm.canopies.find(c => c.id === p.canopy) || prm.canopies[0]).mte))}" value="${esc(String(p.mte == null ? '' : p.mte))}">` +
+        `<div class="pr2"><label>MTE (kg)</label><input class="pmte" inputmode="numeric" value="${esc(String(+p.mte > 0 ? +p.mte : MTE_DEF))}">` +
         (i === 0 ? `<span class="mut first">Sort en premier</span>` : `<label>Intervalle (s)</label><input class="pdtin" inputmode="decimal" value="${fmt1(+p.dt)}"><button class="pcopy" title="Recopier cet intervalle sur d'autres paras">⧉</button>`) + `</div>`;
       li.querySelector('.pname').addEventListener('change', e => { p.name = e.target.value.trim(); persist(); draw(); });
       li.querySelector('.pcan').addEventListener('change', e => { p.canopy = e.target.value; changed(); });
-      li.querySelector('.pmte').addEventListener('change', e => { const t = e.target.value.trim().replace(',', '.'); if (t !== '' && !(+t >= 30 && +t <= 400)) { toast('MTE refusée (30 à 400 kg, ou vide)'); e.target.value = p.mte || ''; return; } p.mte = t; changed(); });
+      li.querySelector('.pmte').addEventListener('change', e => { const t = e.target.value.trim().replace(',', '.'); if (t !== '' && !(+t >= 30 && +t <= 400)) { toast('MTE refusée (30 à 400 kg)'); e.target.value = p.mte; return; } p.mte = t === '' ? MTE_DEF : +t; e.target.value = p.mte; changed(); });
       li.querySelector('.pdel').addEventListener('click', async () => { if (I.team.length < 2) return toast('Il faut au moins un para'); if (!(await ask(`Retirer le para ${pName(i)} ?`))) return; I.team = I.team.filter(x => x.id !== p.id); changed(); });
       if (i > 0) {
         li.querySelector('.pdtin').addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || v < 0 || v > 120) { toast('Valeur refusée'); e.target.value = fmt1(+p.dt); return; } p.dt = v; persist(); draw(); });
@@ -1100,11 +1102,10 @@ function renderCans() {
   ul.innerHTML = '';
   prm.canopies.forEach(c => {
     const li = document.createElement('li'); li.className = 'can';
-    li.innerHTML = `<input class="cn" value="${esc(c.name)}" placeholder="Nom"><label>Vx</label><input class="cx" inputmode="decimal" value="${fmt1(+c.vx)}"><label>Vz</label><input class="cz" inputmode="decimal" value="${fmt1(+c.vz)}"><label>MTE</label><input class="cm" inputmode="numeric" value="${fmtInt(+c.mte)}"><button class="cdel">🗑</button>`;
+    li.innerHTML = `<input class="cn" value="${esc(c.name)}" placeholder="Nom"><label>Vx</label><input class="cx" inputmode="decimal" value="${fmt1(+c.vx)}"><label>Vz</label><input class="cz" inputmode="decimal" value="${fmt1(+c.vz)}"><button class="cdel">🗑</button>`;
     li.querySelector('.cn').addEventListener('change', e => { c.name = e.target.value.trim() || c.name; saveProfile(); changed(); });
     const num = (cls, key, min, max) => li.querySelector(cls).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || v < min || v > max) { toast('Valeur refusée'); e.target.value = fmt1(+c[key]); return; } c[key] = v; saveProfile(); changed(); });
     num('.cx', 'vx', 1, 40); num('.cz', 'vz', 0.5, 20);
-    li.querySelector('.cm').addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || v < 30 || v > 400) { toast('Valeur refusée'); e.target.value = fmtInt(+c.mte); return; } c.mte = Math.round(v); saveProfile(); changed(); });
     li.querySelector('.cdel').addEventListener('click', async () => {
       if (prm.canopies.length < 2) return toast('Il faut au moins un parachute');
       const used = zones.concat([current]).some(z => z.isvs.some(i => i.team.some(p => p.canopy === c.id)));
@@ -1116,7 +1117,7 @@ function renderCans() {
     ul.append(li);
   });
 }
-$('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5, mte: 150 }); saveProfile(); changed(); toast('Parachute ajouté : règle Vx, Vz et MTE'); });
+$('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5 }); saveProfile(); changed(); toast('Parachute ajouté : règle Vx et Vz'); });
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
 onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100);
 
@@ -1518,7 +1519,7 @@ function pdfDataPages(doc) {
   row('Zone de sécurité', `${fmtInt(I.secLong)} m avant et après le vecteur, ${fmtInt(I.secLat)} m de chaque côté,`);
   row('', `prolongée le long de la dérive sous RSE jusqu'à 1013 hPa${I.alti && I.alti.drift != null && I.alti.key === altiKey() ? ` (${fmtInt(I.alti.drift)} m)` : ''}`);
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
-  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} à 1 000 m pour ${fmtInt(+c.mte)} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : +c.mte)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
+  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} à 1 000 m pour ${MTE_DEF} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : MTE_DEF)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
   y += 3; title('Points de la trace (hauteur au-dessus du sol sous le PTU)');
   sol.trace.forEach((p, i) => row(i === 0 ? `OUV  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`, fmtPos(p)));
   if (!F) return;
