@@ -288,15 +288,19 @@
     // plus bas que l'ouverture prévue, le para chute plus longtemps : la consigne devient « ouverture à x m » (centaine supérieure).
     let attach = null; const stPlan = st, capPlan = weak.cap;
     if (isv.manual && isv.capManual == null) {
-      let O = null, sol = null;
+      let O = null, sol = null, hCmd = null;
       for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
         const ach = acHeadingOf(F, isv, st, traceDir(weak.tr.pts), isv.manual), dr = rseDrift(F, isv.manual, st.altRel, st.f, ach);
         O = fromLocal(isv.manual, dr);
         sol = capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O);
-        const hNeed = Math.max(hPtu + 100, Math.ceil(sol.h / 100 - 1e-6) * 100); // centaine supérieure
+        /* v0.18.0 (Henri) : c'est la hauteur de COMMANDE d'ouverture (CDO, où le para tire) qui est arrondie à la centaine
+           supérieure : CDO = arrondi(hauteur de la trace + perte à l'ouverture) ; ouverture terminée = CDO − perte (≥ la trace) */
+        const dOpen = st.f.drop - st.f.dropFF;
+        hCmd = Math.ceil((sol.h + dOpen) / 100 - 1e-6) * 100;
+        const hNeed = Math.max(hPtu + 100, hCmd - dOpen);
         const prev = st.hOpen;
         st = hNeed >= stPlan.hOpen - 1 ? stPlan : relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true, stPlan.kff));
-        if (st !== stPlan) st.hOpen = hNeed; // hauteur ronde exacte (le calcul de chute avance par pas d'un mètre environ)
+        if (st !== stPlan) { st.hOpen = hNeed; st.hCmd = hNeed + dOpen; } // hauteurs exactes (le calcul de chute avance par pas d'un mètre environ)
         weak = { c: weak.c, cap: sol.cap, tr: trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, sol.cap, margin) };
         if (pass > 0 && Math.abs(st.hOpen - prev) < 1) break;
       }
@@ -306,7 +310,7 @@
     const tr = weak.tr, ptsDown = tr.pts.slice().reverse(); // de l'ouverture terminée vers le PTU
     out.cap = n360(weak.cap); out.capAuto = isv.capManual == null && !isv.manual;
     out.trace = ptsDown; out.direct = tr.direct; out.length = tr.length; out.ouv = ptsDown[0];
-    Object.assign(out, { fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, openDrop: st.f.drop - st.f.dropFF, tOpen: st.f.tOpen, elev0, vzRef, margin });
+    Object.assign(out, { hCmd: st.hCmd != null ? st.hCmd : st.hOpen + (st.f.drop - st.f.dropFF), fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, openDrop: st.f.drop - st.f.dropFF, tOpen: st.f.tOpen, elev0, vzRef, margin });
 
     // Cap de l'avion : perpendiculaire au premier segment de la trace, sens le plus face au vent (ou cap choisi), ⇅ Sens l'inverse
     const dir1 = traceDir(tr.pts), acHeading = acHeadingOf(F, isv, st, dir1, ptsDown[0]);

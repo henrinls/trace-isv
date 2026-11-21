@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.17.2';
+const VERSION = '0.18.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -91,7 +91,7 @@ async function wxFetch(z, date) {
   return rec;
 }
 // Champ de vent pour le calcul, à une heure donnée (altitudes en m au-dessus de la mer)
-let zeroWind = (() => { try { return localStorage.getItem('isv.zeroWind') === 'true'; } catch (e) { return false; } })();
+let zeroWind = false; try { localStorage.removeItem('isv.zeroWind'); } catch (e) {} /* v0.18.0 : essai « Vent 0 » retiré */
 const fieldMem = { k: null, F: null };
 function fieldOf(rec, when) {
   if (!rec || !rec.time) return null;
@@ -668,7 +668,7 @@ function syncQuick() {
   $('qRelax').classList.toggle('on', !!current.show.relax);
   $('qRev').classList.toggle('on', !!I.reversed);
   $('qVecAuto').classList.toggle('hidden', !(I.manual || I.vecHeading != null || I.capManual != null));
-  $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
+  if ($('qZero')) $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
   $('qPoint').classList.toggle('on', ptOpen || !!(placing && typeof placing === 'object' && placing.kind !== 'move'));
   if (typeof syncPtPop === 'function') try { syncPtPop(); } catch (e) {}
 }
@@ -676,7 +676,7 @@ function quick(fn) { fn(); persist(); fillInputs(); redraw(); }
 $('qRelax').addEventListener('click', () => quick(() => { current.show.relax = !current.show.relax; }));
 $('qRev').addEventListener('click', () => quick(() => { const I = isv(); I.reversed = !I.reversed; }));
 $('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
-$('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
+/* v0.18.0 : bouton Vent 0 supprimé (Henri) */ if ($('qZero')) $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
 $('qBrief').addEventListener('click', () => toggleTab('brief')); /* v0.16.0 : bouton Briefing sous Prépa ISV */
 
@@ -1177,7 +1177,7 @@ function renderBrief() {
   row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé');
   row('ALPHA', av ? `${av.alpha} hPa` : '–');
   row('Prise de cap', s.turn ? `à ${s.turn}` : 'dans l\'axe', true);
-  row('CDO', s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmt1(s.tFall)} s`, true);
+  row('CDO', s.openLowered ? `${fmtInt(Math.round(s.hCmd))} m` : `${fmt1(s.tFall)} s`, true);
   row('Cap para', hdg(s.cap), true);
   row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`, true);
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
@@ -1198,7 +1198,7 @@ function renderBrief() {
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
   end();
   sec('Chute et ouverture');
-  row('Hauteur d\'ouverture', s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmtInt(Math.round((s.hOpen + s.openDrop) / 10) * 10)} m`); /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
+  row('Hauteur d\'ouverture', `${fmtInt(Math.round(s.hCmd))} m`); /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
   row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
@@ -1803,7 +1803,7 @@ async function renderPdfCanvas() {
     `OSO : ${av && av.max ? av.oso : '....'}`, `ALPHA : ${av ? av.alpha : '....'}`, `H. largage : ${av && av.max ? fmtInt(av.hRel) + ' m' : '....'}`
   ], hi2 = [
     sol.turn ? `Prise de cap à ${sol.turn}` : 'Prise de cap : dans l\'axe',
-    `CDO : ${sol.openLowered ? fmtInt(Math.ceil(sol.hOpen / 100 - 1e-6) * 100) + ' m' : fmt1(sol.tFall) + ' s'}`,
+    `CDO : ${sol.openLowered ? fmtInt(Math.round(sol.hCmd)) + ' m' : fmt1(sol.tFall) + ' s'}`,
     `Cap para : ${hdg(sol.cap)}`,
     sol.hand ? `PTU main ${sol.hand}` : (current.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
   hi.forEach((t, i) => tx(t, col2, l0 + lh * (0.3 + i * 1.9), '#ffd400', big, true));
