@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.11';
+const VERSION = '0.35.12';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -955,7 +955,7 @@ $('t_date').addEventListener('change', e => { if (e.target.value) setTWhen(e.tar
 $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.target.value + ':00'));
 
 // ---------- Placement de la ZMT, du PTU et des points ----------
-function placeBanner() {
+function placeBanner() { if (window._stepsReady) requestAnimationFrame(syncStepBar);
   if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.', 'Type de point ?'); return; }
   setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
     : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Touche la trace au DÉBUT de la zone délicate.' : 'Touche la trace à la FIN de la zone délicate.') : 'Touche la carte pour placer le point libre.') : null,
@@ -979,7 +979,7 @@ let ptColor = '#ffffff'; /* v0.19.1 : plus de choix de couleur (le GPX n'en gard
 /* v0.17.0 (Henri) : ＋ Point ouvre deux boutons à droite (zone de posé alternative, point libre + rond de couleur qui ouvre
    la palette), comme les repères de l'appli PA ; pas de fenêtre ; réappui sur ＋ Point ou appui sur un autre bouton = sortie */
 function syncPtColors() {}
-function syncPtPop() {
+function syncPtPop() { if (window._stepsReady) requestAnimationFrame(syncStepBar); /* v0.35.12 (photo d'Henri) : le bandeau d'étape cachait les boutons du ＋ Point → masqué pendant le choix du type de point et les placements */
   const pop = $('ptPop'); pop.classList.toggle('hidden', !ptOpen);
   if (!ptOpen) return;
   const k = placing && typeof placing === 'object' ? placing.kind : null;
@@ -2576,7 +2576,7 @@ function hideStepInfo() { const el = $('stepInfo'); if (el) el.classList.add('hi
 /* v0.35.7 (Henri) : coche « bandeaux jaunes » à côté du titre Préparation pas à pas — cochée par défaut ; décochée = aucun bandeau de guidage, la liste continue de suivre ce qui est fait */
 function guideOn() { return store.get('isv.guideBar', true) !== false; }
 function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouverte ; l'alerte « trace a bougé » se pose au-dessus */
-  const bar = $('stepBar'), w = $('sumWarn'), hide = !guideOn() || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
+  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing); } catch (e) { return false; } })(), hide = busy || !guideOn() || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
   bar.classList.toggle('off', hide); avoidQuick(bar); if (hide || bar.classList.contains('hidden')) hideStepInfo();
   w.style.bottom = !bar.classList.contains('hidden') && !hide ? `calc(${bar.offsetHeight + 52}px + env(safe-area-inset-bottom))` : '';
   avoidQuick(w);
