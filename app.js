@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.3';
+const VERSION = '0.35.4';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -2547,8 +2547,8 @@ function avoidQuick(el) {
   if (!el || el.classList.contains('hidden') || el.classList.contains('off')) return;
   /* v0.35.2 (2e photo d'Henri : toujours sur le 📏) : dès que le bandeau descend à hauteur de la colonne de gauche, il part à sa droite */
   const q = [...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect()).filter(b => b.height); if (!q.length) { el.style.left = ''; return; }
-  el.style.left = ''; const r = el.getBoundingClientRect(); if (!r.height) return;
-  if (r.top < Math.max(...q.map(b => b.bottom)) + 6) el.style.left = `${Math.round(Math.max(...q.map(b => b.right)) + 8)}px`;
+  /* v0.35.4 (Henri : « tantôt à gauche, tantôt sur les boutons, ça me rend fou ») : TOUJOURS aligné sur le bord droit des boutons de gauche */
+  el.style.left = `${Math.round(Math.max(...q.map(b => b.right)) + 8)}px`;
 }
 new MutationObserver(syncStepBar).observe($('sheet'), { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('resize', () => setTimeout(syncStepBar, 300));
