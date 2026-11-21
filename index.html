@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.27.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.28.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.27.0">
+<link rel="stylesheet" href="style.css?v=0.28.0">
 </head>
 <body>
 <div id="map"></div>
@@ -36,6 +36,7 @@
 
 <div id="banner" class="hidden"></div>
 <div id="sumWarn" class="hidden"><span>⚠️ La trace a bougé : revérifie les sommets S avec une coupe.</span><button id="sumOk">OK</button></div>
+<div id="stepBar" class="hidden"></div>
 
 <nav id="quick">
   <button id="qWhen" title="Date et heure du saut"></button>
@@ -136,6 +137,10 @@
 
   <!-- ===== ISV : préparation ===== -->
   <div id="tab-isv" class="tab hidden">
+    <h3>Préparation pas à pas</h3>
+    <ul id="stepList"></ul>
+    <p class="hint">Touche une étape pour y aller. ✓ = fait, ⏭ = passée (elle ne revient pas toute seule), ⚠ = à revérifier (la trace a bougé), ↺ = remettre à faire.</p>
+
     <h3 class="isvzone">ISV de la zone <span id="isvZone"></span></h3>
     <ul id="isvList"></ul>
     <div class="row grid2"><button id="btnNewIsv">＋ Nouvelle ISV</button><button id="btnDupIsv">⧉ Dupliquer l'ISV ouverte</button></div>
@@ -199,6 +204,7 @@
 
   <!-- ===== Briefing (v0.12.0) : tout ce qui est calculé, en lecture seule ===== -->
   <div id="tab-brief" class="tab hidden">
+    <div id="briefSteps"></div>
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
     <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
@@ -224,12 +230,12 @@
     <p class="hint">Ouverture : elle dure toujours le même temps, celui qui fait perdre cette hauteur en chute stabilisée à 1 000 m (100 m : environ 4 s). La perte de hauteur réelle dépend de la vitesse verticale au moment d'ouvrir : moins juste après la sortie, plus en chute stabilisée en altitude.</p>
     <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation affiché tient compte de cette marge : la trace part de son bord et le vecteur ne peut pas en sortir.</p>
 
-    <h3>Sommets S (coupe)</h3>
+    <h3>Sommets, zones délicates, zones de posé</h3>
     <div class="grid2">
-      <div><label>Marge au-dessus d'un sommet (m)</label><input id="p_sumMargin" inputmode="numeric"></div>
-      <div></div>
+      <div><label>Marge au-dessus d'un sommet ou d'une fin de zone délicate (m)</label><input id="p_sumMargin" inputmode="numeric"></div>
+      <div><label>Point court : à moins de … de la ZMT (km)</label><input id="p_courtKm" inputmode="decimal"></div>
     </div>
-    <p class="hint">Un sommet S posé depuis la coupe va se placer sur le point le plus haut du terrain dans un cercle autour de l'endroit choisi sur la trace (rayon = longueur du vecteur de largage). Le point de la trace juste avant prend « -MINI » : la hauteur alti minimale pour passer ce sommet avec la marge.</p>
+    <p class="hint">Un sommet S posé depuis la coupe va se placer sur le point le plus haut du terrain dans un cercle autour de l'endroit choisi sur la trace (rayon = longueur du vecteur de largage). Le point de la trace juste avant prend « -MINI » : la hauteur alti minimale pour passer ce sommet avec la marge. Une zone de posé alternative se nomme toute seule LONG si elle est au-delà du PTU (dans l'axe de la trace), COURT si elle est avant le PTU et à moins de cette distance de la ZMT ; tu peux toujours écrire un autre nom.</p>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -293,17 +299,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.27.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.27.0"></script>
-<script src="vendor/mgrs.min.js?v=0.27.0"></script>
-<script src="geo.js?v=0.27.0"></script>
-<script src="clubs.js?v=0.27.0"></script>
-<script src="wmm.js?v=0.27.0"></script>
-<script src="calc.js?v=0.27.0"></script>
-<script src="windpick.js?v=0.27.0"></script>
-<script src="pdfview.js?v=0.27.0"></script>
-<script src="lpmove.js?v=0.27.0"></script>
-<script src="app.js?v=0.27.0"></script>
-<script src="photo.js?v=0.27.0"></script>
+<script src="vendor/leaflet.js?v=0.28.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.28.0"></script>
+<script src="vendor/mgrs.min.js?v=0.28.0"></script>
+<script src="geo.js?v=0.28.0"></script>
+<script src="clubs.js?v=0.28.0"></script>
+<script src="wmm.js?v=0.28.0"></script>
+<script src="calc.js?v=0.28.0"></script>
+<script src="windpick.js?v=0.28.0"></script>
+<script src="pdfview.js?v=0.28.0"></script>
+<script src="lpmove.js?v=0.28.0"></script>
+<script src="app.js?v=0.28.0"></script>
+<script src="photo.js?v=0.28.0"></script>
 </body>
 </html>

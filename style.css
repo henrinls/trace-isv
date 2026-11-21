@@ -304,5 +304,21 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 #sumWarn.hidden{display:none}
 #sumWarn button{flex:none;background:#111;color:#ff8c00;border:1px solid #111;padding:6px 16px;font-weight:700;border-radius:9px}
 #banner:not(.hidden)~#sumWarn{display:none}
-#cutAddS{position:absolute;width:36px;height:30px;padding:0;border-radius:10px;background:rgba(30,30,30,.95);border:2px solid #fff;color:#fff;font-weight:800;font-size:14px;z-index:2;touch-action:manipulation}
+#cutAddS{position:absolute;width:36px;height:30px;padding:0;border-radius:10px;background:rgba(30,30,30,.95);border:2px solid #b388ff;color:#b388ff;font-weight:800;font-size:14px;z-index:2;touch-action:manipulation}
 #cutAddS.hidden{display:none}
+
+/* v0.28.0 : préparation pas à pas */
+#stepBar{position:fixed;bottom:calc(44px + env(safe-area-inset-bottom));left:12px;right:72px;background:#ffd400;color:#111;border-radius:10px;padding:7px 10px;z-index:998;box-shadow:0 2px 8px rgba(0,0,0,.5);font-size:13px}
+#stepBar.hidden,#stepBar.off{display:none}
+#stepBar .sh{font-weight:700}#stepBar .sh .rc{color:#b34700;font-weight:700}
+#stepBar .sd{margin:2px 0 5px;line-height:1.25}
+#stepBar .sb{display:flex;flex-wrap:wrap;gap:6px}
+#stepBar .sb button{background:#111;color:#ffd400;border:1px solid #111;padding:6px 11px;font-weight:700;border-radius:9px;font-size:13px}
+#stepBar .sb button.ok{background:#1f7a2e;color:#fff;border-color:#1f7a2e}
+#stepList,.steps{list-style:none;padding:0;margin:4px 0}
+#stepList li,.steps li{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.08)}
+#stepList li .sn{flex:1;cursor:pointer}
+#stepList li button{min-width:38px;height:32px;border-radius:8px;background:#2a2a2a;border:1px solid #555;color:#fff}
+.st .si{display:inline-block;width:20px;text-align:center;font-weight:700}
+.st.done .si{color:#3ad25a}.st.skip .si,.st.skip{color:#999}.st.recheck .si,.st.recheck small{color:#ff8c00}.st.todo .si{color:#ffd400}
+.st small{color:#aaa}
