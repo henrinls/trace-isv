@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.4';
+const VERSION = '0.35.5';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -526,12 +526,18 @@ function ptSuffix(pt) {
 function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if (n.f < 1e-3 && k > 0) k--; return { k: Math.max(0, k - (S.back || 0)), h: n.h }; } /* v0.25.0 : S.back = nombre de points remontés vers l'OUV */
 /* v0.25.0 (Henri) : appui sur un point de passage -MINI de la carte → proposer de basculer le MINI sur le point de la trace d'avant
    (il reprend son nom d'origine ; le précédent prend -MINI recalculé pour sa propre hauteur). Répétable jusqu'à l'OUV. */
-async function miniBack(i) {
+async function miniBack(i) { /* v0.35.5 (Henri) : on peut aussi rebasculer vers l'avant (vers le sommet), jusqu'au point de départ */
   if (!sol || !sol.ok) return; const T = sol.trace, M = traceMini(), S = M.src[i] || [];
   if (!S.length) return;
-  if (i === 0) { toast('C\'est déjà le point d\'ouverture : impossible de remonter plus loin'); return; }
-  if (!(await ask(`Basculer la hauteur mini (${fmtInt(M[i])} m alti) sur le point de la trace d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}) ? Celui-ci reprend son nom d'origine.`, undefined, null, 'Basculer'))) return;
-  S.forEach(q => { q.back = (q.back || 0) + 1; }); persist(); redraw();
+  const canBack = i > 0, canFwd = S.some(q => (q.back || 0) > 0);
+  if (!canBack && !canFwd) { toast('C\'est déjà le point d\'ouverture : impossible de remonter plus loin'); return; }
+  $('dlgDel').classList.remove('danger'); /* « Avancer » n'est pas une suppression : bouton neutre */
+  const r = await ask(`Point d'alerte ${fmtInt(T[i].h)}-MINI${M[i]}.${canBack ? ` Reculer : la hauteur mini passe sur le point d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}).` : ' (Déjà au point d\'ouverture.)'}${canFwd ? ` Avancer : elle revient sur le point suivant (${fmtInt(T[i + 1].h)}).` : ''}`, undefined, canFwd ? '▶ Avancer d\'un point' : null, canBack ? '◀ Reculer d\'un point' : 'OK');
+  $('dlgDel').classList.add('danger');
+  if (r === 'DELETE') S.forEach(q => { if ((q.back || 0) > 0) q.back--; });
+  else if (r === true && canBack) S.forEach(q => { q.back = (q.back || 0) + 1; });
+  else return;
+  persist(); redraw();
 }
 /* v0.27.0 (Henri) : zones délicates = deux points sur la trace (ZD-DEB, ZD-FIN). Le point de la trace avant le début prend
    « -MINI » = hauteur alti mini pour arriver à la fin de la zone avec la marge (même calcul qu'un sommet, avec l'altitude du terrain
