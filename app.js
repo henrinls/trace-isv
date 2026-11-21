@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.19.3';
+const VERSION = '0.19.4';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -443,7 +443,16 @@ function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { drag
 /* Nom affiché d'un point = nom donné + numéro (si homonymes) + écart de hauteur avec la ZMT (P12 / N18, zones alternatives).
    v0.15.0 (Henri) : points de même nom ET même écart de hauteur numérotés 1, 2, 3… collés au nom (sans zéro), dans l'ordre
    de la trace (du vecteur de largage vers la ZMT) — « PONT1 », « ALT2 P12 » ; un point seul garde son nom tel quel. */
-function ptSuffix(pt) { if (pt.kind !== 'alt') return ''; const I = isv(); if (typeof pt.elev !== 'number' || (zmtElev() == null && typeof I.ptuElev !== 'number' && !wxRec)) return ''; const d = Math.round(pt.elev - elev0()); return `${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`; }
+function ptSuffix(pt) {
+  const I = isv();
+  if (pt.kind === 'alt') { if (typeof pt.elev !== 'number' || (zmtElev() == null && typeof I.ptuElev !== 'number' && !wxRec)) return ''; const d = Math.round(pt.elev - elev0()); return `${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`; }
+  /* v0.19.4 (Henri) : point libre posé sur la trace (à moins de 30 m) → nom suivi de la hauteur de la trace au-dessus du terrain à cet endroit */
+  if (!sol || !sol.ok || sol.trace.length < 2) return '';
+  const n = Calc.nearestOn(sol.trace, pt); if (!(n.d <= 30)) return '';
+  if (typeof pt.elev !== 'number') { if (!ptElevAsked.has(pt.id)) { ptElevAsked.add(pt.id); pointElev(pt); } return ''; }
+  return String(Math.round(n.h + elev0() - pt.elev));
+}
+const ptElevAsked = new Set();
 function ptNum(pt) {
   const nm = String(pt.name || '').trim(); if (!nm) return '';
   const sf = ptSuffix(pt), pts = isv().points, grp = pts.filter(q => String(q.name || '').trim() === nm && ptSuffix(q) === sf); if (grp.length < 2) return '';
@@ -467,7 +476,7 @@ function draw(light) {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
       : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${pt.color || '#fff'}"></i><b style="color:${pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
-    keep('pt_' + pt.id, pt, ic, 250, ll => { pt.lat = ll.lat; pt.lng = ll.lng; }, () => { persist(); if (pt.kind === 'alt') pointElev(pt); }, () => pointMenu(pt));
+    keep('pt_' + pt.id, pt, ic, 250, ll => { pt.lat = ll.lat; pt.lng = ll.lng; }, () => { persist(); pt.elev = null; pointElev(pt); }, () => pointMenu(pt));
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
@@ -818,12 +827,14 @@ $('ptAlt').addEventListener('click', () => { ptPal = false; placing = { kind: 'a
 $('ptFree').addEventListener('click', () => { ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
 /* un autre bouton de la colonne ferme le choix */
 $('quick').addEventListener('click', e => { const b = e.target.closest('button'); if (ptOpen && b && b.id !== 'qPoint') closePtPop(); }, true);
-async function pointElev(pt) { try { const [e] = await fetchElev([pt]); if (typeof e === 'number') { pt.elev = Math.round(e); persist(); redraw(); } } catch (e) {} }
+async function pointElev(pt) { /* v0.19.4 : tuiles d'altitude d'abord (même relief que la coupe), Open-Meteo en secours */
+  let e = null; try { [e] = await elevTiles([pt]); } catch (er) {} if (typeof e !== 'number' || isNaN(e)) { try { [e] = await fetchElev([pt]); } catch (er) {} }
+  if (typeof e === 'number' && !isNaN(e)) { pt.elev = Math.round(e); persist(); redraw(); fillInputs(); } }
 async function addPoint(p, spec) {
   const n = await ask(spec.kind === 'alt' ? 'Nom de la zone de posé alternative (l\'écart de hauteur avec le sol de la ZMT est ajouté tout seul, P = plus haut, N = plus bas) :' : 'Nom du point :', '');
   if (n === null) return;
-  const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: null };
-  isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.kind === 'alt') pointElev(pt);
+  const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: typeof p.z === 'number' ? Math.round(p.z) : null };
+  isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.elev == null) pointElev(pt);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
 function renderPtList() {
@@ -929,7 +940,7 @@ map.on('click', e => {
   if (sn.temp) setTempPt(null);
   placing = null; placeBanner();
   if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
-  else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; if (pt.kind === 'alt') { pt.elev = null; pointElev(pt); } persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
+  else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; pt.elev = typeof p.z === 'number' ? Math.round(p.z) : null; if (pt.elev == null) pointElev(pt); persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
   else { ptOpen = false; ptPal = false; addPoint(p, what); }
   fillInputs();
 });
@@ -1268,7 +1279,7 @@ $('capInfo').addEventListener('click', () => {
 let tempPt = null, tempMk = null, cutData = null;
 const tempIcon = L.divIcon({ className: 'tmppt', iconSize: [22, 22], iconAnchor: [11, 11], html: '<span></span>' });
 function setTempPt(q) {
-  tempPt = q ? { lat: q.lat, lng: q.lng } : null;
+  tempPt = q ? { lat: q.lat, lng: q.lng, z: q.z } : null;
   if (tempMk) { map.removeLayer(tempMk); tempMk = null; }
   if (tempPt) tempMk = L.marker(LL(tempPt), { icon: tempIcon, interactive: false, zIndexOffset: 950 }).addTo(map);
 }
@@ -1277,7 +1288,7 @@ function snapPlace(q) {
   const cand = [];
   if (tempPt) cand.push([tempPt, true]);
   if (meas.a) cand.push([meas.a, false]); if (meas.b) cand.push([meas.b, false]);
-  cand.forEach(([c, t]) => { const d = P.distanceTo(map.latLngToContainerPoint(LL(c))); if (d < bd) { bd = d; best = { p: { lat: c.lat, lng: c.lng }, temp: t }; } });
+  cand.forEach(([c, t]) => { const d = P.distanceTo(map.latLngToContainerPoint(LL(c))); if (d < bd) { bd = d; best = { p: { lat: c.lat, lng: c.lng, z: t ? c.z : undefined }, temp: t }; } });
   return best;
 }
 function cutPath() { /* tracé de la coupe : polyligne (trace OUV → PTU avec ses hauteurs, ou les deux bouts de la mesure) */
