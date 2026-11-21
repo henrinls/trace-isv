@@ -296,3 +296,5 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}
 
 /* Point libre : losange de sa couleur, bord noir, comme les repères de prepo-PA (v0.19.1) */
 .crossp i.dia{position:absolute;left:7.5px;top:7.5px;width:11px;height:11px;border:2px solid #111;transform:rotate(45deg);font-size:0}
+#cutPin{position:absolute;width:36px;height:36px;padding:0;border-radius:10px;background:rgba(30,30,30,.95);border:2px solid #fff;display:flex;align-items:center;justify-content:center;z-index:2;touch-action:manipulation}
+#cutPin.hidden{display:none}

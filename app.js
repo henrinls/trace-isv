@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.19.1';
+const VERSION = '0.19.2';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1321,7 +1321,7 @@ function cutView(v0, v1) {
   const c = cutData; if (!c) return;
   const span = Math.max(Math.min(200, c.tot), Math.min(c.tot, v1 - v0)), mid = (v0 + v1) / 2;
   let a = mid - span / 2, b = mid + span / 2; if (a < 0) { b -= a; a = 0; } if (b > c.tot) { a -= b - c.tot; b = c.tot; } a = Math.max(0, a);
-  c.v0 = a; c.v1 = b; c.cur = null; c.pts = c.pts.filter(q => q.d >= a && q.d <= b);
+  c.v0 = a; c.v1 = b; c.cur = null; c.lock = false; c.pts = c.pts.filter(q => q.d >= a && q.d <= b);
   if (c.pts.length < 2) c.pts = [cutAt(c, a), cutAt(c, b)].map(q => Object.assign(q, { z: nearestZ(c, q.d) }));
   drawCut(); cutText(null);
   clearTimeout(cutResT); cutResT = setTimeout(async () => { const k = c.v0 + '|' + c.v1; const pts = await cutSample(c, c.v0, c.v1, 300); if (pts && cutData === c && k === c.v0 + '|' + c.v1) { c.pts = pts; drawCut(); } }, 180);
@@ -1356,16 +1356,23 @@ function drawCut() {
   if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
     g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
   /* curseur */
+  cutPin(c.lock && c.cur != null && c.pts[c.cur] ? X(c.pts[c.cur].d) : null);
   if (c.cur != null && c.pts[c.cur]) { const q = c.pts[c.cur], x = X(q.d); g.strokeStyle = '#fff'; g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, H - pad.b); g.stroke(); g.setLineDash([]);
     g.fillStyle = '#fff'; g.beginPath(); g.arc(x, Y(q.z - c.e0), 3.5, 0, 7); g.fill(); if (q.h != null) { g.fillStyle = '#ff3fb4'; g.beginPath(); g.arc(x, Y(q.h), 4, 0, 7); g.fill(); } }
   g.restore();
 }
+/* v0.19.2 (Henri) : doigt levé → bouton punaise blanche en haut du pointillé ; un appui dessus montre l'endroit sur la carte */
+function cutPin(x) {
+  const b = $('cutPin'), cv = $('cutCv'); if (x == null) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden'); b.style.left = `${Math.round(cv.offsetLeft + x - b.offsetWidth / 2)}px`; b.style.top = `${Math.round(cv.offsetTop - 2)}px`;
+}
+function cutGo() { const c = cutData; if (!c || c.cur == null || !c.pts[c.cur]) return; const q = c.pts[c.cur]; closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14)); }
 function cutText(i) {
   const c = cutData; if (!c) return;
   if (i == null || !c.pts[i]) { /* résumé sur toute la coupe : plus faible hauteur au-dessus du terrain (trace) ou point le plus haut (mesure) */
     if (c.mode === 'trace') { let m = null; c.full.forEach(q => { const v = q.h + c.e0 - q.z; if (!m || v < m.v) m = { v, d: q.d }; });
-      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} de l'OUV. Doigt sur la coupe pour lire ; appui bref = voir sur la carte ; pincer pour zoomer.`; }
-    else { let m = null; c.full.forEach(q => { if (!m || q.z > m.z) m = q; }); $('cutInfo').innerHTML = `Point le plus haut : <b>${fmtInt(m.z)} m</b> d'altitude à ${fmtDist(m.d)} du 1er point. Appui bref = voir sur la carte ; pincer pour zoomer.`; }
+      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} de l'OUV. Doigt sur la coupe pour lire ; doigt levé, la punaise en haut du trait montre l'endroit sur la carte ; pincer pour zoomer.`; }
+    else { let m = null; c.full.forEach(q => { if (!m || q.z > m.z) m = q; }); $('cutInfo').innerHTML = `Point le plus haut : <b>${fmtInt(m.z)} m</b> d'altitude à ${fmtDist(m.d)} du 1er point. Doigt sur la coupe, puis la punaise en haut du trait pour voir l'endroit sur la carte ; pincer pour zoomer.`; }
     return;
   }
   const q = c.pts[i];
@@ -1381,7 +1388,7 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
   cv.addEventListener('pointerdown', e => {
     if (!cutData) return; ptr.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { cv.setPointerCapture(e.pointerId); } catch (er) {}
     if (ptr.size === 2) { const [p1, p2] = [...ptr.values()]; pinch = { dist: Math.abs(p1.x - p2.x) || 1, mid: (p1.x + p2.x) / 2, v0: cutData.v0, v1: cutData.v1 }; down = null; return; }
-    down = { x: e.clientX, y: e.clientY, t: Date.now() }; const i = cutIndex(e.clientX); if (i != null) { cutData.cur = i; drawCut(); cutText(i); }
+    down = { x: e.clientX, y: e.clientY, t: Date.now() }; cutData.lock = false; const i = cutIndex(e.clientX); if (i != null) { cutData.cur = i; drawCut(); cutText(i); }
   });
   cv.addEventListener('pointermove', e => {
     if (!cutData) return; if (ptr.has(e.pointerId)) ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1390,14 +1397,12 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
       const span = (pinch.v1 - pinch.v0) * pinch.dist / dist, fr = (pinch.mid - r.left - G.pad.l) / w, dMid = pinch.v0 + fr * (pinch.v1 - pinch.v0);
       const fr2 = (mid - r.left - G.pad.l) / w, a = dMid - fr2 * span; cutView(a, a + span); return;
     }
-    if (!down && e.pointerType !== 'mouse') return; const i = cutIndex(e.clientX); if (i != null && i !== cutData.cur) { cutData.cur = i; drawCut(); cutText(i); }
+    if (!down && (e.pointerType !== 'mouse' || cutData.lock)) return; const i = cutIndex(e.clientX); if (i != null && i !== cutData.cur) { cutData.cur = i; drawCut(); cutText(i); }
   });
   const end = e => {
     ptr.delete(e.pointerId); if (pinch) { if (ptr.size < 2) pinch = null; down = null; return; }
-    const d0 = down; down = null; if (!d0 || !cutData || e.type !== 'pointerup') return;
-    if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 10 || Date.now() - d0.t > 600) return; /* glissé = on regarde seulement */
-    const i = cutIndex(e.clientX); if (i == null) return; const q = cutData.pts[i];
-    closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14));
+    const d0 = down; down = null; if (!d0 || !cutData) return;
+    cutData.lock = true; drawCut(); /* doigt levé (ou clic) : le curseur reste là, avec la punaise pour aller sur la carte */
   };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   /* trackpad du Mac (pincement = molette avec Ctrl) et molette : zoom ; défilement horizontal : déplacement */
@@ -1411,6 +1416,7 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
 })();
 $('qCut').addEventListener('click', () => { if (!$('cutBox').classList.contains('hidden')) closeCut(); else openCut(); });
 $('cutClose').addEventListener('click', closeCut);
+$('cutPin').addEventListener('click', cutGo);
 $('cutIn').addEventListener('click', () => { const c = cutData; if (c) cutZoomAt(2, (c.v0 + c.v1) / 2); });
 $('cutOut').addEventListener('click', () => { const c = cutData; if (c) cutZoomAt(0.5, (c.v0 + c.v1) / 2); });
 $('cutReset').addEventListener('click', () => { const c = cutData; if (c) { c.pts = c.full; cutView(0, c.tot); } });
