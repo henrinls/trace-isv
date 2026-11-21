@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.20.0';
+const VERSION = '0.21.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -123,6 +123,7 @@ function newIsv(name) {
 function upIsv(I) {
   const d = newIsv(I && I.name); if (!I) return d;
   Object.keys(d).forEach(k => { if (I[k] === undefined) I[k] = d[k]; });
+  if (Array.isArray(I.points)) I.points = I.points.filter(q => q.auto !== 'P'); /* v0.21.0 : le point P de v0.20.0 est remplacé par le nom du point de la trace */
   if (!Array.isArray(I.team) || !I.team.length) I.team = [newPara()];
   if (!Array.isArray(I.points)) I.points = [];
   I.points.forEach(q => { if (q.kind !== 'alt') q.color = '#ffffff'; }); /* v0.19.1 : points libres tous blancs */
@@ -446,26 +447,29 @@ function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { drag
 function ptSuffix(pt) {
   const I = isv();
   if (pt.kind === 'alt') { if (typeof pt.elev !== 'number' || (zmtElev() == null && typeof I.ptuElev !== 'number' && !wxRec)) return ''; const d = Math.round(pt.elev - elev0()); return `${d >= 0 ? 'P' : 'N'}${Math.abs(d)}`; }
-  /* v0.20.0 (Henri) : points créés tout seuls depuis la coupe —
-     S (sommet) : hauteur de la trace au-dessus du terrain à cet endroit ;
-     P (passage) : hauteur alti (altimètre calé sur le sol de la ZMT) minimale au point précédent de la trace pour passer
-     le sommet avec 300 m de marge = altitude du sommet + 300 − sol ZMT + descente prévue de la trace entre P et S */
+  /* v0.20.0 (Henri) : sommet S créé depuis la coupe : hauteur de la trace au-dessus du terrain à cet endroit.
+     v0.21.0 : plus de point P séparé, c'est le point précédent de la trace qui prend « -MINIxxxx » (traceMini) */
   if (pt.auto === 'S') {
     if (typeof pt.elev !== 'number') { if (!ptElevAsked.has(pt.id)) { ptElevAsked.add(pt.id); pointElev(pt); } return pt.val != null ? String(pt.val) : ''; }
     if (sol && sol.ok && sol.trace.length > 1) pt.val = Math.round(Calc.nearestOn(sol.trace, pt).h + elev0() - pt.elev);
     return pt.val != null ? String(pt.val) : '';
   }
-  if (pt.auto === 'P') {
-    const S = I.points.find(q => q.id === pt.sum);
-    if (S && typeof S.elev === 'number' && sol && sol.ok && sol.trace.length > 1) {
-      const hP = Calc.nearestOn(sol.trace, pt).h, hS = Calc.nearestOn(sol.trace, S).h;
-      pt.val = Math.ceil(S.elev + SUM_MARGIN - elev0() + (hP - hS));
-    }
-    return pt.val != null ? String(pt.val) : '';
-  }
   return '';
 }
 const SUM_MARGIN = 300; /* marge au-dessus d'un sommet (m), Henri 21 nov. 2026 */
+/* v0.21.0 (Henri) : pour chaque sommet S, le point de la trace juste avant (côté OUV) est renommé « <hauteur>-MINI<hauteur alti mini> » :
+   hauteur alti (altimètre calé sur le sol de la ZMT) minimale en passant ce point pour passer S avec 300 m de marge
+   = altitude du sommet + 300 − sol ZMT + descente prévue de la trace entre ce point et S. Plusieurs sommets → la plus grande valeur.
+   Recalculé à chaque fois (la trace bouge avec le vent, le PTU…), rien n'est stocké. */
+function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if (n.f < 1e-3 && k > 0) k--; return { k: Math.max(0, k), h: n.h }; }
+function traceMini() {
+  const out = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
+  isv().points.forEach(S => { if (S.auto !== 'S' || typeof S.elev !== 'number') return;
+    const v = sumVertex(sol.trace, S), m = Math.ceil(S.elev + SUM_MARGIN - elev0() + (sol.trace[v.k].h - v.h));
+    if (!(out[v.k] >= m)) out[v.k] = m; });
+  return out;
+}
+const miniTag = (M, i) => M[i] != null ? `-MINI${M[i]}` : '';
 const ptElevAsked = new Set();
 function ptNum(pt) {
   const nm = String(pt.name || '').trim(); if (!nm) return '';
@@ -503,11 +507,12 @@ function draw(light) {
   L.polyline(T, { color: C_TRACE, weight: 3.6, interactive: false }).addTo(fig);
   const TP = sol.trace.map(p => map.latLngToContainerPoint(LL(p))), k0 = TP.length - 1;
   const flat = Math.abs(TP[k0].x - TP[0].x) > Math.abs(TP[k0].y - TP[0].y); let lastLab = null;
+  const MI = traceMini();
   sol.trace.forEach((p, i) => {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
     const show = far && (farPtu || i === 0); if (show) lastLab = TP[i]; /* hauteurs toujours affichées (bouton Infos retiré en v0.5.3) */
-    L.marker(LL(p), { interactive: false, icon: dotIcon(C_TRACE, i === 0 ? 13 : 8, show ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    L.marker(LL(p), { interactive: false, icon: dotIcon(C_TRACE, i === 0 ? 13 : 8, (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
   });
   // Vecteur de largage
   const V = sol.vec, vl = [LL(V.green), LL(V.red)];
@@ -850,18 +855,12 @@ async function addPoint(p, spec) {
   const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: typeof p.z === 'number' ? Math.round(p.z) : null };
   isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.elev == null) pointElev(pt);
 }
-/* v0.20.0 (Henri) : point libre posé sur le point temporaire de la coupe → sommet « S » sans question de nom, et au point
-   précédent de la trace (vers l'ouverture) un point de passage « P » avec la hauteur alti minimale pour passer le sommet + 300 m */
+/* v0.20.0 (Henri) : point libre posé sur le point temporaire de la coupe → sommet « S » sans question de nom ;
+   v0.21.0 : le point précédent de la trace prend « -MINI… » (traceMini), plus de point P */
 function addSummit(p) {
   const I = isv();
   const S = { id: uid('q'), kind: 'free', auto: 'S', name: 'S', lat: p.lat, lng: p.lng, color: '#ffffff', elev: typeof p.z === 'number' ? Math.round(p.z) : null };
   I.points.push(S);
-  if (sol && sol.ok && sol.trace.length > 1) {
-    const T = sol.trace, n = Calc.nearestOn(T, S); let k = n.seg - 1; /* sommet du segment côté ouverture */
-    if (n.f < 1e-3 && k > 0) k--; /* sommet pile sur un point de la trace : on prend le précédent */
-    const v = T[Math.max(0, k)];
-    I.points.push({ id: uid('q'), kind: 'free', auto: 'P', name: 'P', sum: S.id, lat: v.lat, lng: v.lng, color: '#ffffff', elev: null });
-  }
   persist(); redraw(); fillInputs(); if (S.elev == null) pointElev(S);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
@@ -1394,11 +1393,13 @@ function drawCut() {
   g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.z - c.e0); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
   /* trace */
   if (c.mode === 'trace') { g.strokeStyle = '#ff3fb4'; g.lineWidth = 2.2; g.beginPath(); c.pts.forEach((q, i) => { const x = X(q.d), y = Y(q.h); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
-    /* v0.20.0 : points S (sommet) et P (passage) en blanc sur la trace, avec leur nom */
-    isv().points.filter(q => q.auto === 'S' || q.auto === 'P').forEach(q => { const n = Calc.nearestOn(sol.trace, q), d = n.s * c.tot / Math.max(1, sol.trace.reduce((s, _, i, T) => i ? s + map.distance(LL(T[i - 1]), LL(T[i])) : 0, 0));
+    /* v0.20.0 : sommets S et points de passage en blanc sur la trace, avec leur nom */
+    const MI = traceMini(), cutMarks = isv().points.filter(q => q.auto === 'S').map(q => ({ q, t: pointLabel(q), below: true }))
+      .concat(sol.trace.map((v, i) => MI[i] != null ? { q: v, t: String(Math.round(v.h)) + miniTag(MI, i), below: false } : null).filter(Boolean)); /* v0.21.0 : S sous la trace, points « -MINI » de la trace au-dessus */
+    cutMarks.forEach(({ q, t, below }) => { const n = Calc.nearestOn(sol.trace, q), d = n.s * c.tot / Math.max(1, sol.trace.reduce((s, _, i, T) => i ? s + map.distance(LL(T[i - 1]), LL(T[i])) : 0, 0));
       if (d < c.v0 - 1 || d > c.v1 + 1) return; const x = X(d), y = Y(n.h);
       g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 4.5, 0, 7); g.fill(); g.stroke();
-      g.font = 'bold 11px -apple-system,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.8)'; const t = pointLabel(q), ty = q.auto === 'S' ? y + 17 : y - 9; /* S sous la trace, P au-dessus : pas de chevauchement */ g.strokeText(t, x, ty); g.fillText(t, x, ty); g.font = '10px -apple-system,system-ui,sans-serif'; });
+      g.font = 'bold 11px -apple-system,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.8)'; const ty = below ? y + 17 : y - 9; g.strokeText(t, x, ty); g.fillText(t, x, ty); g.font = '10px -apple-system,system-ui,sans-serif'; });
     g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
   /* curseur */
   cutPin(c.lock && c.cur != null && c.pts[c.cur] ? X(c.pts[c.cur].d) : null);
@@ -1839,7 +1840,7 @@ function gpxText() {
   const wpt = (p, name, sym, ele) => `  <wpt ${ll(p)}>${ele != null ? `<ele>${Math.round(ele)}</ele>` : ''}<name>${x(name)}</name><sym>${sym}</sym></wpt>\n`;
   const trk = (name, pts, color) => `  <trk><name>${x(name)}</name><extensions><gpxx:TrackExtension><gpxx:DisplayColor>${color}</gpxx:DisplayColor></gpxx:TrackExtension></extensions><trkseg>\n` +
     pts.map(p => `    <trkpt ${ll(p)}>${p.h != null ? `<ele>${Math.round(s.elev0 + p.h)}</ele>` : ''}</trkpt>\n`).join('') + `  </trkseg></trk>\n`;
-  const tn = (p, i) => i === 0 ? 'OUV' : i === s.trace.length - 1 ? 'PTU' : String(Math.round(p.h));
+  const MI = traceMini(), tn = (p, i) => (i === 0 ? 'OUV' : i === s.trace.length - 1 ? 'PTU' : String(Math.round(p.h))) + miniTag(MI, i);
   let o = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="trace-isv ${VERSION}" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">\n` +
     `  <metadata><name>${x(current.name + ' - ' + I.name)}</name><time>${new Date().toISOString()}</time></metadata>\n`;
   // Points : ZMT, OUV, PTU, début et fin de largage, sorties, points de l'ISV
@@ -1956,7 +1957,7 @@ async function renderPdfCanvas() {
   current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), '#ff2020', 2.2, [10, 6])); });
   if (current.show.relax && sol.circle.R > 0) { const c = toC(sol.circle.c); g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.beginPath(); g.arc(c.x, c.y, sol.circle.R * pxPerM(sol.circle.c), 0, 2 * Math.PI); g.stroke(); g.restore(); }
   line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6);
-  { const cp = toC(I.ptu); sol.trace.forEach((p, i) => { if (i === sol.trace.length - 1) return; const c = dot(p, C_TRACE, i === 0 ? 7 : 4.5); if (i === 0) shadowText(`OUV ${fmtInt(p.h)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); else if (Math.hypot(c.x - cp.x, c.y - cp.y) > 26 * u) shadowText(fmtInt(p.h), c.x + 9 * u, c.y, C_TRACE, 10); }); }
+  { const cp = toC(I.ptu), MI = traceMini(); sol.trace.forEach((p, i) => { if (i === sol.trace.length - 1) return; const c = dot(p, C_TRACE, i === 0 ? 7 : 4.5); if (i === 0) shadowText(`OUV ${fmtInt(p.h)}${miniTag(MI, i)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); else if (MI[i] != null || Math.hypot(c.x - cp.x, c.y - cp.y) > 26 * u) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x + 9 * u, c.y, C_TRACE, 10); }); }
   line([sol.vec.green, sol.vec.red], 'rgba(255,255,255,.9)', 9); line([sol.vec.green, sol.vec.red], '#000', 4.5);
   sol.vec.exits.forEach(e => dot(e, e.i === sol.dropIdx ? '#fff' : '#000', e.i === sol.dropIdx ? 4.2 : 3));
   dot(sol.vec.green, C_START, 8); dot(sol.vec.red, C_END, 8);
@@ -2036,7 +2037,7 @@ function pdfDataPages(doc) {
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
   I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} à 1 000 m pour ${MTE_DEF} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : MTE_DEF)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
   y += 3; title('Points de la trace (hauteur au-dessus du sol de la ZMT)');
-  sol.trace.forEach((p, i) => row(i === 0 ? `OUV  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`, fmtPos(p)));
+  { const MI = traceMini(); sol.trace.forEach((p, i) => row((i === 0 ? `OUV  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`) + (MI[i] != null ? `  (mini ${fmtInt(MI[i])} m alti)` : ''), fmtPos(p))); }
   if (!F) return;
   doc.addPage('a4', 'portrait');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.text(clean(`Vents à la verticale du PTU - ${fmtWhen(current.when).replace(' ', ' à ')}`), 15, 18);
