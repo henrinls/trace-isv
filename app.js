@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.37.1';
+const VERSION = '0.38.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1321,7 +1321,7 @@ onNum('i_tRed', v => { isv().tRed = v; }, 0, 120);
 function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const used = prm.canopies.filter(c => ids.includes(c.id)); return Math.min(...(used.length ? used : prm.canopies).map(c => Calc.canRef(c).vz)); } /* v0.31.0 : Vz ramenée à la référence */
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
-  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) e.innerHTML = `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) : <b>FL${String(sol.flMin4).padStart(3, '0')}</b>`; } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
+  setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) : <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hOpen) : '');
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1425,7 +1425,7 @@ function renderBrief() {
   end(); out.push('</div>');
   sec('Largage');
   row('FL de largage', `FL${s.fl}`, true);
-  if (s.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(s.flMin4).padStart(3, '0')} (même ouverture terminée, ${fmtInt(Math.round(s.hOpen))} m)`); /* v0.37.0 (Henri) */
+  if (s.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(s.flMin4).padStart(3, '0')} (même ouverture terminée, ${fmtInt(Math.round(s.hOpen))} m) <button class="applyFl">Appliquer</button>`); /* v0.37.0 / v0.38.0 (Henri) */
   row('Hauteur au-dessus de la ZMT', `${fmtInt(s.hRel)} m`);
   row('Hauteur au-dessus du point haut', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé');
   row('Cap avion au largage', hdg(s.acHeading), true);
@@ -1462,7 +1462,7 @@ function renderBrief() {
     I.points.forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td><button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`));
     end();
   }
-  box.innerHTML = out.join('');
+  box.innerHTML = out.join(''); box.querySelectorAll('.applyFl').forEach(b => b.onclick = applyFlMin4);
   box.querySelectorAll('.seept').forEach(b => b.onclick = () => { const pt = isv().points.find(x => x.id === b.dataset.id); if (pt) seePoint(pt); });
 }
 /* « Voir sur la carte » (v0.13.1, Henri) : le point n'est pas forcément centré, il doit juste être à l'écran avec :
@@ -2514,6 +2514,17 @@ function capsRound() { if (!sol || !sol.ok) return false; const r = h => Math.ro
 function stepRefreshBefore(id) { /* les étapes « trace » faites avant id acceptent la trace actuelle (elle n'a bougé que par l'action de l'étape id) */
   const st = STEPS.find(x => x.id === id), sig = traceSig(), I = isv(); if (!st) return;
   STEPS.slice(0, STEPS.indexOf(st)).forEach(x => { const r = (I.steps || {})[x.id]; if (x.tr && r && r.s === 'done') r.sig = sig; }); }
+/* v0.38.0 (Henri) : « Appliquer » le FL pour 4 s de chute : change le FL (et remet le temps de chute de référence) ; la trace ne bouge pas,
+   le vecteur oui (vitesse sol plus faible plus bas) → étapes Vecteur et Points OSO à revérifier, retour à la carte */
+function applyFlMin4() {
+  if (!sol || !sol.ok || sol.flMin4 == null) return; const I = isv(), fl = sol.flMin4;
+  /* vecteur rentré à la main → remis en automatique avec le même cap para : l'ouverture à 4 s au nouveau FL est à la même hauteur, la trace ne change pas */
+  if (I.manual) { if (I.capManual == null) I.capManual = sol.cap; I.manual = null; }
+  I.fl = fl; I.tFall = +prm.tRef > 0 ? +prm.tRef : 4; changed();
+  I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; });
+  stepFocus = 'vec'; persist(); closeSheet(); syncSteps(); redraw();
+  toast(`FL${String(fl).padStart(3, '0')} appliqué : revérifie le vecteur de largage puis les points OSO`);
+}
 function roundCaps() {
   if (!sol || !sol.ok) return; const cp = Math.round(magOf(sol.cap) / 10) * 10 % 360;
   ask(`Arrondir à la dizaine ? Cap para ${hdg(sol.cap)} → ${String(cp).padStart(3, '0')}° M, puis cap avion arrondi aussi. Tu pourras ensuite forcer une autre valeur dans Prépa ISV › Données de vol.`, undefined, null, 'Arrondir').then(ok => {
@@ -2545,6 +2556,7 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
 ];
 function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange : faite mais la trace a bougé), 'todo' */
   const H = st.z ? current : isv(), r = (H.steps || {})[st.id]; /* étapes de la zone (documents, ZMT) gardées par la zone, les autres par l'ISV */
+  if (r && r.force) return 'recheck'; /* v0.38.0 : revérification demandée (ex. FL changé pour 4 s de chute) */
   if (r && r.s === 'skip') return 'skip';
   if (st.auto && st.auto()) return 'done';
   if (st.chk) { if (st.tr && (!sol || !sol.ok)) return 'todo'; return stepProblems(st.chk).length ? 'todo' : 'done'; }
@@ -2582,7 +2594,7 @@ function syncSteps() {
   const sb = bar.querySelector('.sb'), btn = (t, f, c) => { const b = document.createElement('button'); b.textContent = t; if (c) b.className = c; b.onclick = f; sb.append(b); };
   if (pr.length) { btn('Reculer le point d\'alerte', () => miniBack(pr[0].k)); btn('Poser une zone', placeAlt); }
   else if (st.go) btn(st.goL || 'Aller', () => st.go(), 'go');
-  if (!st.auto && !st.chk) btn('✓ Fait', () => stepSet(st.id, 'done'), 'ok');
+  if ((!st.auto && !st.chk) || s === 'recheck') btn('✓ Fait', () => stepSet(st.id, 'done'), 'ok');
   btn('Passer', () => stepSet(st.id, 'skip'));
   bar.classList.remove('hidden'); syncStepBar();
 }
