@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.7';
+const VERSION = '0.35.8';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -2490,10 +2490,16 @@ function stepProblems(kind) {
 }
 /* v0.29.0 (Henri) : sommet / zone délicate sans zone de posé avant elle → elle et son point d'alerte en ORANGE (comme « à revérifier ») */
 function probSet() { const L = (sol && sol.ok) ? stepProblems('S').concat(stepProblems('zd')) : []; return { ids: new Set(L.map(x => x.id)), ks: new Set(L.map(x => x.k)) }; }
+/* v0.35.8 (Henri) : étape « caps » validée toute seule quand les DEUX caps sont à la dizaine (plus de boucle « arrondir » → trace bougée → revérifier → arrondir) */
+function capsRound() { if (!sol || !sol.ok) return false; const r = h => Math.round(magOf(h)) % 10 === 0; return r(sol.cap) && r(sol.acHeading); }
+function stepRefreshBefore(id) { /* les étapes « trace » faites avant id acceptent la trace actuelle (elle n'a bougé que par l'action de l'étape id) */
+  const st = STEPS.find(x => x.id === id), sig = traceSig(), I = isv(); if (!st) return;
+  STEPS.slice(0, STEPS.indexOf(st)).forEach(x => { const r = (I.steps || {})[x.id]; if (x.tr && r && r.s === 'done') r.sig = sig; }); }
 function roundCaps() {
   if (!sol || !sol.ok) return; const cp = Math.round(magOf(sol.cap) / 10) * 10 % 360;
   ask(`Arrondir à la dizaine ? Cap para ${hdg(sol.cap)} → ${String(cp).padStart(3, '0')}° M, puis cap avion arrondi aussi. Tu pourras ensuite forcer une autre valeur dans Prépa ISV › Données de vol.`, undefined, null, 'Arrondir').then(ok => {
     if (!ok) return; setCap(cp); compute(); if (sol && sol.ok) { const ca = Math.round(magOf(sol.acHeading) / 10) * 10 % 360; setAcH(ca); }
+    stepRefreshBefore('caps'); persist(); redraw(); /* l'arrondi ne rouvre pas « Vecteur de largage » */
     toast(sol && sol.ok ? `Cap para ${hdg(sol.cap)} · cap avion ${hdg(sol.acHeading)}` : '');
   });
 }
@@ -2508,7 +2514,7 @@ const STEPS = [
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },
   { id: 'team', t: 'Équipe', d: 'Vérifie la composition et la configuration de l\'équipe.', go: () => goSec('isv', 'Équipe') },
   { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points gris (ouverture OSO) et jaunes (arrivée après dérive sous voile). Appui long sur le vecteur : déplacer ou rentrer le long de la trace ; points vert et rouge : pivoter.', go: fitVec },
-  { id: 'caps', t: 'Cap para et cap avion', tr: 1, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
+  { id: 'caps', t: 'Cap para et cap avion', tr: 1, auto: capsRound, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
   { id: 'oso', t: 'Points OSO', tr: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points jaunes (déclenchement du système OSO) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
@@ -2528,7 +2534,7 @@ function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange :
 }
 function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st && st.z ? current : isv(); H.steps = H.steps || {}; if (s) H.steps[id] = { s, sig: traceSig() }; else delete H.steps[id];
   /* valider une étape = accepter la trace telle qu'elle est : les étapes faites avant ne se rouvrent pas pour ce qu'on vient de faire (ex. caps arrondis) */
-  if (s === 'done') { const sig = traceSig(), I = isv(); STEPS.slice(0, STEPS.indexOf(st)).forEach(x => { const r = (I.steps || {})[x.id]; if (x.tr && r && r.s === 'done') r.sig = sig; }); }
+  if (s === 'done') stepRefreshBefore(id);
   persist(); syncSteps(); }
 const STEP_ICON = { done: '✓', skip: '⏭', recheck: '⚠', todo: '○' };
 function syncSteps() {
