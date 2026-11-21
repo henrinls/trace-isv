@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.35.13';
+const VERSION = '0.36.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -321,7 +321,7 @@ map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && cu
 
 const fig = L.layerGroup().addTo(map);     // tracé recalculé à chaque dessin
 const handles = L.layerGroup().addTo(map); // points déplaçables, gardés d'un dessin à l'autre
-let placing = null, posMarker = null, ptOpen = false, ptPal = false; /* ptOpen / ptPal : choix du type de point ouvert, palette ouverte (v0.17.0) */      // placing : null | 'Z' (ZMT) | 'P' (PTU) | { kind, color } (point)
+let placing = null, posMarker = null, ptOpen = false, ptPal = false, suspended = null; /* suspended (v0.36.0) : pose de point mise de côté pendant la mesure 📏 / la coupe */ /* ptOpen / ptPal : choix du type de point ouvert, palette ouverte (v0.17.0) */      // placing : null | 'Z' (ZMT) | 'P' (PTU) | { kind, color } (point)
 let sol = null, solKey = '', F = null, wxRec = null;
 function dotIcon(color, size, label, cls) {
   return L.divIcon({
@@ -986,12 +986,13 @@ function syncPtPop() { if (window._stepsReady) requestAnimationFrame(syncStepBar
   $('ptAlt').classList.toggle('on', k === 'alt'); $('ptFree').classList.toggle('on', k === 'free'); $('ptZd').classList.toggle('on', k === 'zd'); syncPtColors();
   const r = $('qPoint').getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(r.top + r.height / 2 - 22)}px`;
 }
-function openPtPop() { closeSheet(); /* v0.19.0 : la mesure reste affichée pour poser un point sur un de ses bouts */ ptOpen = true; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
+function openPtPop() { closeSheet(); suspended = null; /* v0.19.0 : la mesure reste affichée pour poser un point sur un de ses bouts */ ptOpen = true; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
 function closePtPop() { ptOpen = false; ptPal = false; if (placing && typeof placing === 'object' && placing.kind !== 'move') placing = null; placeBanner(); fillInputs(); syncPtPop(); }
 $('qPoint').addEventListener('click', () => { if (ptOpen) closePtPop(); else openPtPop(); });
 $('ptAlt').addEventListener('click', () => { ptPal = false; placing = { kind: 'alt' }; placeBanner(); fillInputs(); syncPtPop(); });
 $('ptFree').addEventListener('click', () => { ptPal = false; placing = { kind: 'free', color: ptColor }; placeBanner(); fillInputs(); syncPtPop(); });
-$('ptZd').addEventListener('click', () => { ptPal = false; if (!sol || !sol.ok) { toast('Il faut d\'abord une trace (ZMT et PTU)'); return; } placing = { kind: 'zd', stage: 'deb' }; placeBanner(); fillInputs(); syncPtPop(); });
+$('ptZd').addEventListener('click', () => { ptPal = false; if (!sol || !sol.ok) { toast('Il faut d\'abord une trace (ZMT et PTU)'); return; } const P = isv().points, orph = P.find(d => d.kind === 'zd' && d.role === 'deb' && !P.some(f => f.kind === 'zd' && f.role === 'fin' && f.zid === d.zid)); /* v0.36.0 : un début sans fin → on pose sa fin */
+  placing = orph ? { kind: 'zd', stage: 'fin', zid: orph.zid } : { kind: 'zd', stage: 'deb' }; if (orph) toast('Zone délicate sans fin : touche la trace à la FIN'); placeBanner(); fillInputs(); syncPtPop(); });
 function addZd(p, what) { /* v0.27.0 : début puis fin d'une zone délicate, posés exactement sur la trace */
   if (!sol || !sol.ok) return; const q = Calc.nearestOn(sol.trace, p).pt, zid = what.zid || uid('z');
   const pt = { id: uid('q'), kind: 'zd', auto: 'ZD', role: what.stage, zid, name: 'ZD', lat: q.lat, lng: q.lng, color: C_ZD, elev: null, sig: traceSig() };
@@ -1000,7 +1001,16 @@ function addZd(p, what) { /* v0.27.0 : début puis fin d'une zone délicate, pos
   persist(); redraw(); placeBanner(); fillInputs(); syncPtPop();
 }
 /* un autre bouton de la colonne ferme le choix */
-$('quick').addEventListener('click', e => { const b = e.target.closest('button'); if (ptOpen && b && b.id !== 'qPoint') closePtPop(); }, true);
+$('quick').addEventListener('click', e => { const b = e.target.closest('button');
+  if (b && (b.id === 'qMeasure' || b.id === 'qCut') && (placing || ptOpen)) suspendPlacing(); /* v0.36.0 : la pose en cours attend la fin de la mesure / de la coupe */
+  if (ptOpen && b && b.id !== 'qPoint') closePtPop(); }, true);
+/* v0.36.0 (Henri, bloqué avec un ZD-DEB sans fin) : pendant une pose de point (n'importe laquelle), on peut faire une mesure 📏 et sa coupe ;
+   en quittant la mesure et la coupe, on revient à la pose en cours (ex. la fin d'une zone délicate). */
+function suspendPlacing() { if (suspended || !(placing || ptOpen)) return; suspended = { placing, ptOpen }; placing = null; ptOpen = false; ptPal = false; placeBanner(); syncPtPop(); fillInputs(); }
+function resumePlacing() {
+  if (!suspended || meas.active || !$('cutBox').classList.contains('hidden')) return;
+  const s = suspended; suspended = null; placing = s.placing; ptOpen = s.ptOpen; placeBanner(); syncPtPop(); fillInputs(); toast('Retour à la pose du point en cours');
+}
 async function pointElev(pt) { /* v0.19.4 : tuiles d'altitude d'abord (même relief que la coupe), Open-Meteo en secours */
   let e = null; try { [e] = await elevTiles([pt]); } catch (er) {} if (typeof e !== 'number' || isNaN(e)) { try { [e] = await fetchElev([pt]); } catch (er) {} }
   if (typeof e === 'number' && !isNaN(e)) { pt.elev = Math.round(e); persist(); redraw(); fillInputs(); } }
@@ -1080,10 +1090,11 @@ function stopMeasure() {
   Object.assign(meas, { active: false, a: null, b: null, ma: null, mb: null, line: null, halo: null, lbl: null });
   map.getContainer().classList.remove('measuring');
   measLayer.clearLayers(); measBox(null); $('qMeasure').classList.remove('on');
+  setTimeout(resumePlacing, 0);
 }
 $('qMeasure').addEventListener('click', () => {
   if (meas.active) { stopMeasure(); return; }
-  if (placing) return toast('Termine d\'abord le placement en cours');
+  if (placing) suspendPlacing();
   meas.active = true; $('qMeasure').classList.add('on'); map.getContainer().classList.add('measuring');
   measBox('Mesure : touche le <b>1er point</b>');
 });
@@ -1546,7 +1557,7 @@ async function openCut() {
   if (!pts) { $('cutInfo').textContent = 'Terrain impossible à relever (réseau ?).'; return; }
   c.full = pts; c.pts = pts; c.v0 = 0; c.v1 = c.tot; c.e0 = elev0(); c.cur = null; cutData = c; drawCut(); cutText(null);
 }
-function closeCut() { $('cutBox').classList.add('hidden'); $('qCut').classList.remove('on'); cutData = null; }
+function closeCut() { $('cutBox').classList.add('hidden'); $('qCut').classList.remove('on'); cutData = null; setTimeout(resumePlacing, 0); }
 /* v0.19.1 : zoom sur la coupe (pincement à deux doigts, pincement du trackpad, molette avec Ctrl, boutons － / ＋ / ⤢) ;
    la hauteur s'ajuste à la partie visible et le terrain est relevé finement pour cette partie */
 let cutResT = 0;
@@ -1861,7 +1872,7 @@ function renderZones() {
     const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => {
       if (!(await ask(`Supprimer « ${z.name} » et ses ${z.isvs.length} ISV ?`))) return;
       zones = zones.filter(x => x.id !== z.id); store.set('isv.zones', zones); if ((typeof Photo !== 'undefined')) Photo.remove(z.id);
-      if (current.id === z.id) { current = newZone(map.getCenter()); current.zoom = map.getZoom(); resetMarkers(); placing = null; persist(); redraw(); }
+      if (current.id === z.id) { current = newZone(map.getCenter()); current.zoom = map.getZoom(); resetMarkers(); placing = null; suspended = null; persist(); redraw(); }
       fillInputs();
     };
     /* v0.32.0 (Henri, comme les autres applis) : hors-ligne par zone */
@@ -1903,7 +1914,7 @@ function renderIsvList() {
     li.append(ren, del); ul.append(li);
   });
 }
-function openIsv(id) { current.cur = id; current.when = isv().when || current.when; resetMarkers(); placing = null; closeSheet(); persist(); fillInputs(); draw(); if (sol && sol.ok) fitFigure(); ensureWx(false); refreshPtuElev(); toast(`ISV « ${isv().name} »`); }
+function openIsv(id) { current.cur = id; current.when = isv().when || current.when; resetMarkers(); placing = null; suspended = null; closeSheet(); persist(); fillInputs(); draw(); if (sol && sol.ok) fitFigure(); ensureWx(false); refreshPtuElev(); toast(`ISV « ${isv().name} »`); }
 $('btnNewIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const I = newIsv(); I.when = current.when; I.nameAuto = true; I.name = isvAutoName(I); current.isvs.push(I); openIsv(I.id); startPlacing(current.zmt ? 'P' : 'Z');
@@ -1921,7 +1932,7 @@ $('btnDupIsv').addEventListener('click', async () => {
 function loadZone(id, keepIsvTab) {
   const z = zones.find(x => x.id === id); if (!z) return;
   current = upgrade(clone(z));
-  resetMarkers(); placing = null; setBanner(null); stopMeasure();
+  resetMarkers(); placing = null; suspended = null; setBanner(null); stopMeasure();
   map.setBearing(current.bearing || 0);
   map.setView([current.center.lat, current.center.lng], current.zoom || 11);
   if (keepIsvTab) openSheet('isv'); else closeSheet(); fillInputs(); draw(); persist();
@@ -2576,7 +2587,7 @@ function hideStepInfo() { const el = $('stepInfo'); if (el) el.classList.add('hi
 /* v0.35.7 (Henri) : coche « bandeaux jaunes » à côté du titre Préparation pas à pas — cochée par défaut ; décochée = aucun bandeau de guidage, la liste continue de suivre ce qui est fait */
 function guideOn() { return store.get('isv.guideBar', true) !== false; }
 function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouverte ; l'alerte « trace a bougé » se pose au-dessus */
-  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing); } catch (e) { return false; } })(), hide = busy || !guideOn() || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
+  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing || suspended); } catch (e) { return false; } })(), hide = busy || !guideOn() || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
   bar.classList.toggle('off', hide); avoidQuick(bar); if (hide || bar.classList.contains('hidden')) hideStepInfo();
   w.style.bottom = !bar.classList.contains('hidden') && !hide ? `calc(${bar.offsetHeight + 52}px + env(safe-area-inset-bottom))` : '';
   avoidQuick(w);
