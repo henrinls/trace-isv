@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.12.0';
+const VERSION = '0.13.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -492,11 +492,10 @@ function draw(light) {
 }
 /* Cap avion / longueur du vecteur et cap para / longueur de la trace, sous les boutons ronds du haut (v0.5.3) */
 function capInfo() {
-  altiState();
   const el = $('capInfo'); if (!el) return;
   if (!sol || !sol.ok) { el.classList.add('hidden'); el.innerHTML = ''; return; }
-  el.innerHTML = `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div>`;
-  el.classList.remove('hidden');
+  el.innerHTML = `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div><div class="altil">Alti : <span id="altiState" class="ast wait">…</span></div>`;
+  el.classList.remove('hidden'); altiState(); /* v0.13.0 : l'état du point haut (… / ✓ / !) remplace le bouton Alti */
 }
 /* Bouton Alti : « … » tant que le point haut n'est pas calculé pour le vecteur actuel, coche verte quand c'est fait (v0.5.3) */
 function altiState() {
@@ -641,7 +640,6 @@ function fillInputs() {
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
   if (open && lastTab === 'isv') { renderIsvList(); renderPtList(); renderIsvTab(); renderVol(); } /* v0.6.2 : onglet Vol fusionné dans ISV ; v0.6.3 : liste des ISV en tête */
-  if (open && lastTab === 'alti') renderAlti();
   if (open && lastTab === 'brief') renderBrief();
   if (open && lastTab === 'params') renderCans();
   if (open && lastTab === 'zones') { renderZones(); renderZrt(); }
@@ -659,7 +657,6 @@ $('qRelax').addEventListener('click', () => quick(() => { current.show.relax = !
 $('qRev').addEventListener('click', () => quick(() => { const I = isv(); I.reversed = !I.reversed; }));
 $('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
-$('qAlti').addEventListener('click', () => toggleTab('alti'));
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
 
 // ---------- Saut : date et heure ----------
@@ -966,7 +963,7 @@ function setSheetSize(sz) { sheetSize = sz; $('sheet').classList.toggle('mini', 
   g.addEventListener('mousedown', e => start(e.clientY));
   window.addEventListener('mouseup', e => end(e.clientY));
 })();
-const TABS = ['params', 'zones', 'isv', 'alti', 'brief'];
+const TABS = ['params', 'zones', 'isv', 'brief']; /* v0.13.0 : onglet Alti fondu dans Prépa ISV */
 let lastTab = 'isv';
 function openSheet(tab) {
   lastTab = tab;
@@ -1117,79 +1114,110 @@ $('v_acAuto').addEventListener('click', () => { const I = isv(); I.vecHeading = 
 $('v_drop').addEventListener('change', e => { isv().dropId = e.target.value || null; e.target.blur(); changed(); });
 $('v_relax').addEventListener('change', e => { isv().relaxRef = e.target.value; e.target.blur(); changed(); });
 
-// ---------- Onglet Briefing (v0.12.0, demande d'Henri) : tout ce qui est calculé, en lecture seule ----------
+// ---------- Onglet Briefing (v0.12.0 ; v0.13.0 : ordre et contenu revus par Henri) : lecture seule ----------
+const C_GREEN_DOT = '#1ec83c', C_RED_DOT = '#ff3b30';
 function renderBrief() {
   const box = $('briefBody'), I = isv(), s = sol, ok = s && s.ok, out = [];
   const sec = t => out.push(`<h3>${t}</h3><table class="vals"><tbody>`), end = () => out.push('</tbody></table>');
   const row = (k, v, hi) => out.push(`<tr${hi ? ' class="hi"' : ''}><td>${k}</td><td>${v}</td></tr>`);
+  const pname = i => I.team[i] && I.team[i].name ? esc(I.team[i].name) : `n° ${i + 1}`;
   sec('Saut');
   row('Zone', esc(current.id ? current.name : 'Nouvelle zone')); row('ISV', esc(I.name));
   row('Date et heure', fmtWhen(current.when).replace(' ', ' à '));
   row('Météo', wxRec ? `${esc(wxRec.model.split(' (')[0])}, prévision du ${fmtFetched(wxRec.fetched)}` : '<b class="warn">aucune prévision : calcul sans vent</b>');
   if (zeroWind) row('', '<b class="warn">ESSAI VENT 0</b>');
-  if (current.zmt && F) { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); row('Vent au sol (ZMT)', `${hdg(w.dir)} · ${Math.round(w.spd * KT)} kt`); }
+  if (current.zmt && F) { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); row('Vent au sol (ZMT)', `${Math.round(w.spd * KT)} kt du ${hdg(w.dir)}`); }
   end();
   if (!ok) { out.push(`<p class="hint">${esc(s && s.err ? s.err : 'Place la ZMT (onglet Zones) puis le PTU (onglet Prépa ISV).')}</p>`); box.innerHTML = out.join(''); return; }
   if (s.warn) out.push(`<p class="hint"><b class="warn">⚠️ ${esc(s.warn)}</b></p>`);
+  sec(`Équipe (${I.team.length})`);
+  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0];
+    row(`${i + 1}. ${esc(p.name || 'Para ' + (i + 1))}${i === s.dropIdx ? ' · sur le point de largage' : ''}`, `${esc(c.name)} · ${fmtInt(+p.mte || MTE_DEF)} kg · sortie vert +${fmt1(s.ex.te[i])} s`); });
+  end();
+  const av = altiVals();
   sec('Consignes para');
+  row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé', true);
+  row('ALPHA', av ? `${av.alpha} hPa` : '–', true);
   row('Prise de cap', s.turn ? `à ${s.turn}` : 'dans l\'axe', true);
   row('CDO', s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmt1(s.tFall)} s`, true);
-  row('Cap para', hdg(s.cap) + (s.capAuto ? '' : ' (choisi à la main)'), true);
+  row('Cap para', hdg(s.cap), true);
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
   end();
   sec('Largage');
-  row('FL de largage', `FL${s.fl} = ${fmtInt(s.hRel)} m au-dessus du sol de la ZMT`, true);
-  row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(s.tas * KT)} kt vraie`);
+  row('FL de largage', `FL${s.fl}`, true);
+  row('Hauteur au-dessus de la ZMT', `${fmtInt(s.hRel)} m`);
+  row('Hauteur au-dessus du point haut', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé');
+  row('Cap avion au largage', hdg(s.acHeading), true);
+  row('Point de relaxation', fmtPos(s.relax.pt), true);
+  row('Créneau de largage', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true);
+  row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`, true);
+  row('Vent au largage', `${Math.round(s.windRel.spd * KT)} kt du ${hdg(s.windRel.dir)}`);
+  { const parts = [`S ${fmt1(+I.tGreen)}`].concat(I.team.slice(1).map(p => fmt1(+p.dt))).concat([`S ${fmt1(+I.tRed)}`]);
+    row('Sorties (s)', `<span style="color:${C_GREEN_DOT}">•</span> ${parts.join(' · ')} <span style="color:${C_RED_DOT}">•</span>`); }
+  row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} KIAS) = ${Math.round(s.tas * KT)} kt vraie`);
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
-  row('Vent au largage', `${hdg(s.windRel.dir)} · ${Math.round(s.windRel.spd * KT)} kt`);
-  row('Cap avion (vecteur)', hdg(s.acHeading), true);
-  row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`);
-  row('Temps de largage (au point de relaxation)', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true);
-  row('Marges', `vert → 1er para ${fmt1(+I.tGreen)} s · dernier para → rouge ${fmt1(+I.tRed)} s`);
-  row('Début de largage (vert)', fmtPos(s.vec.green)); row('Fin de largage (rouge)', fmtPos(s.vec.red));
   end();
   sec('Chute et ouverture');
-  row(s.openLowered ? 'Ouverture commandée' : 'Temps de chute', s.openLowered ? `à ${fmtInt(Math.round(s.hOpen))} m (${fmt1(s.tFall)} s de chute, vecteur déplacé à la main)` : `${fmt1(s.tFall)} s`);
+  { const hCmd = s.openLowered ? `${fmtInt(Math.ceil(s.hOpen / 100 - 1e-6) * 100)} m` : `${fmtInt(Math.round((s.hOpen + s.openDrop) / 10) * 10)} m`;
+    if (s.openLowered) { row('Hauteur d\'ouverture', hCmd, true); row('Temps de chute', `${fmt1(s.tFall)} s`); }
+    else { row('Temps de chute', `${fmt1(s.tFall)} s`, true); row('Hauteur d\'ouverture', hCmd); } }
+  row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
+  row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
   row('Dérive sous RSE', `${fmtInt(s.rseLen)} m`);
-  row('Ouverture terminée (OUV)', `${fmtInt(s.hOpen)} m au-dessus du sol de la ZMT`);
-  row('Position OUV', fmtPos(s.ouv));
+  row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après le vecteur, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE jusqu'au sol`);
   end();
   sec('Navigation sous voile');
-  row('Trace', `${fmtKm(s.length)} · ${fmtKm(s.direct)} en ligne droite`, true);
-  row(`Temps sous voile (para ${esc(pName(s.dropIdx))}, ${esc(s.own.canopy.name)})`, fmtMin(s.own.tCanopy), true);
-  if (s.own.t180 != null) row('Passage du FL180, depuis le vert', fmtMin(s.own.t180));
-  if (s.own.t120 != null) row('Passage du FL120, depuis le vert', fmtMin(s.own.t120));
-  row('Voile la moins performante', `${esc(s.weak.canopy.name)}${s.weak.several ? ' · para ' + esc(pName(s.weak.idx)) + ' (' + fmtInt(s.weak.mte) + ' kg)' : ''}`);
-  row('Cercle de relaxation', `rayon ${fmtKm(s.circle.R)} (marge comprise)`);
+  row('Trace', `${fmtKm(s.length)} · ${fmtKm(s.direct)} en ligne droite`);
+  row('Temps sous voile', fmtMin(s.own.tCanopy), true);
+  if (s.own.t180 != null) row('Passage du FL180, depuis le vert', fmtMin(s.own.t180), true);
+  if (s.own.t120 != null) row('Passage du FL120, depuis le vert', fmtMin(s.own.t120), true);
+  { const w = s.weak, i = w.idx >= 0 ? w.idx : 0, nm = I.team[i] && I.team[i].name;
+    row('Para le moins performant', nm ? `${esc(nm)} (${esc(w.canopy.name)}, n° ${i + 1})` : `n° ${i + 1} (${esc(w.canopy.name)})`); }
   row('Marge sur le vent', `${prm.margin} %`);
   end();
   sec('Arrivée');
-  row('Point d\'entrée PTU', fmtPos(I.ptu));
-  row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`, true);
+  { const hp = typeof I.ptuElev === 'number' ? +I.hPtu + s.elev0 - I.ptuElev : null;
+    row('Hauteur d\'arrivée au PTU', hp != null ? `${fmtInt(hp)} m au-dessus du sol du PTU` : `${fmtInt(I.hPtu)} m (sol du PTU en attente)`, true); }
   { const ze = zmtElev(); row('Sol de la ZMT', `${fmtInt(s.elev0)} m${ze == null && current.zmt ? ' (provisoire, relevé en attente)' : ''}`); }
-  if (typeof I.ptuElev === 'number') { row('Sol sous le PTU', `${fmtInt(I.ptuElev)} m`); row('Hauteur réelle au-dessus du sol du PTU', `${fmtInt(+I.hPtu + s.elev0 - I.ptuElev)} m`); }
   if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
   end();
-  sec('Altimétrie');
-  { const av = altiVals();
-    row('OSO', av && av.max ? `${av.oso} hPa` : 'non calculé', true);
-    row('ALPHA', av ? `${av.alpha} hPa` : '–', true);
-    row('Hauteur de largage (au-dessus du point haut)', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé', true);
-    row('Point haut', av && av.max ? `${fmtInt(av.max.elev)} m · ${fmtPos(av.max)}` : 'non calculé');
-    row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE${I.alti && I.alti.drift != null && I.alti.key === altiKey() ? ` (${fmtInt(I.alti.drift)} m)` : ''}`); }
-  end();
-  sec(`Équipe (${I.team.length})`);
-  I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0];
-    row(`${i + 1}. ${esc(p.name || 'Para ' + (i + 1))}${i === s.dropIdx ? ' · sur le point de largage' : ''}`, `${esc(c.name)} · ${fmtInt(+p.mte || MTE_DEF)} kg · sortie vert +${fmt1(s.ex.te[i])} s`, i === s.dropIdx); });
-  end();
-  if (I.points.length) { sec('Points de l\'ISV'); I.points.forEach(pt => row(esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point')), fmtPos(pt))); end(); }
-  sec('Points de la trace');
-  s.trace.forEach((p, i) => row(i === 0 ? `OUV ${fmtInt(p.h)} m` : i === s.trace.length - 1 ? `PTU ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`, fmtPos(p)));
-  end();
+  if (I.points.length) {
+    sec('Points de l\'ISV');
+    I.points.forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td><button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`));
+    end();
+  }
   box.innerHTML = out.join('');
+  box.querySelectorAll('.seept').forEach(b => b.onclick = () => { const pt = isv().points.find(x => x.id === b.dataset.id); if (pt) seePoint(pt); });
+}
+/* « Voir sur la carte » (v0.13.0, Henri) : point centré, avec la trace qui passe à côté ;
+   zone de posé alternative : avec la ligne des points jaunes (arrivée au sol après ouverture automatique) */
+function seePoint(pt) {
+  const pts = [pt];
+  const yel = pt.kind === 'alt' ? greyPoints() : null;
+  if (yel && yel.length) yel.forEach(q => pts.push(q));
+  else if (sol && sol.ok && sol.trace.length > 1) pts.push(Calc.nearestOn(sol.trace, pt).pt);
+  closeSheet(); map.invalidateSize({ animate: false });
+  const R = freeRects()[0], pad = 70; /* marge pour que la trace ne colle pas aux boutons */
+  /* centré sur le point : l'étendue est le double de l'écart le plus grand au point */
+  map.setView(LL(pt), map.getZoom(), { animate: false });
+  for (let k = 0; k < 3; k++) {
+    const c = map.latLngToContainerPoint(LL(pt)), P = pts.map(q => map.latLngToContainerPoint(LL(q)));
+    const dx = Math.max(1, ...P.map(q => Math.abs(q.x - c.x))), dy = Math.max(1, ...P.map(q => Math.abs(q.y - c.y)));
+    const kx = ((R.r - R.l) / 2 - pad) / dx, ky = ((R.b - R.t) / 2 - pad) / dy;
+    const z = Math.min(17, Math.floor((map.getZoom() + Math.log2(Math.min(kx, ky))) * 20) / 20);
+    map.setView(LL(pt), z, { animate: false });
+  }
+  const S = map.getSize(); map.panBy([S.x / 2 - (R.l + R.r) / 2, S.y / 2 - (R.t + R.b) / 2], { animate: false });
+  redraw();
 }
 
+/* v0.13.0 (Henri) : appui sur le cadre Cap avion / Cap para → onglet Prépa ISV, paragraphe Données de vol */
+$('capInfo').addEventListener('click', () => {
+  openSheet('isv');
+  requestAnimationFrame(() => { const s = $('sheet'), h = $('a_vol').nextElementSibling, t = s.querySelector('.tabs');
+    s.scrollTop += h.getBoundingClientRect().top - t.getBoundingClientRect().bottom; });
+});
 // ---------- Onglet Altimétrie ----------
 /* Zone de sécurité (v0.3.0, demande d'Henri) : le para n'est pas à la verticale du vecteur quand son système de sécurité
    déclenche, il a dérivé sous RSE. La zone est donc le rectangle autour du vecteur (marges avant / après et de côté) ET tout ce
@@ -1286,6 +1314,7 @@ function greyPoints() {
   greyMem.k = k; greyMem.v = v; return v;
 }
 function renderAlti() {
+  if (!$('altiTable')) return; /* v0.13.0 : tableau retiré (valeurs dans le Briefing) */
   const tb = $('altiTable').querySelector('tbody'), v = altiVals(); tb.innerHTML = '';
   if (!v) { tb.innerHTML = '<tr><td class="mut">Pas encore de vecteur.</td></tr>'; return; }
   const rows = [];

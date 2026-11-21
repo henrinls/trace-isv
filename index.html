@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.12.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.13.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.12.0">
+<link rel="stylesheet" href="style.css?v=0.13.0">
 </head>
 <body>
 <div id="map"></div>
@@ -40,7 +40,6 @@
   <button id="qWhen" title="Date et heure du saut"></button>
   <button id="qWinds" title="Tableau des vents">🌬</button>
   <button id="qIsv" title="Préparer l'ISV : PTU, points, équipe, exports">ISV</button>
-  <button id="qAlti" title="Altimétrie : point haut, OSO, ALPHA">Alti <span id="altiState" class="ast wait">…</span></button>
   <button id="qRev" title="Inverser le sens de vol de l'avion">⇅ Sens</button>
   <button id="qVecAuto" class="hidden" title="Revenir au vecteur et au cap calculés, avec le temps de chute prévu">Vect. auto</button>
   <button id="qRelax" title="Afficher / masquer le cercle de relaxation">Relax</button>
@@ -73,7 +72,6 @@
     <button data-tab="params">Param.</button>
     <button data-tab="zones">Zones</button>
     <button data-tab="isv" class="on">Prépa ISV</button>
-    <button data-tab="alti">Alti</button>
     <button data-tab="brief">Briefing</button>
     <button id="btnClose" class="close">✕</button>
   </div>
@@ -138,11 +136,6 @@
     <div class="grid2"><div><label>Hauteur d'arrivée au PTU (m, sol ZMT)</label><input id="i_hPtu" inputmode="numeric"></div><div></div></div>
     <p class="hint" id="ptuInfo"></p>
 
-    <h3>Points de cette ISV</h3>
-    <ul id="ptList"></ul>
-    <div class="row"><button id="btnAddPt" class="wide">＋ Ajouter un point</button></div>
-    <p class="hint">Zones de posé alternatives et points libres, propres à cette ISV (une nouvelle ISV part sans point ; « Dupliquer » les recopie). Touche un nom pour centrer la carte dessus.</p>
-
     <h3>Équipe <span id="teamCount" class="mut"></span></h3>
     <ul id="teamList"></ul>
     <div class="row grid2"><button id="btnAddPara">＋ Ajouter un para</button><button id="btnAddN">＋ Plusieurs…</button></div>
@@ -155,6 +148,7 @@
       <div><label>Dernier para → rouge (s)</label><input id="i_tRed" inputmode="decimal"></div>
     </div>
 
+    <div id="a_vol"></div>
     <h3>Données de vol</h3>
     <div class="grid2">
       <div><label>Largage (FL)</label><input id="v_fl" inputmode="numeric"></div>
@@ -177,19 +171,22 @@
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
     <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
-  </div>
 
-  <!-- ===== Altimétrie ===== -->
-  <div id="tab-alti" class="tab hidden">
     <h3>Altimétrie</h3>
     <div class="grid2">
       <div><label>Sécurité avant / après le vecteur (m)</label><input id="a_long" inputmode="numeric"></div>
       <div><label>Sécurité latérale (m)</label><input id="a_lat" inputmode="numeric"></div>
     </div>
-    <table class="vals" id="altiTable"><tbody></tbody></table>
     <div class="row"><button id="btnAlti" class="wide">🔄 Recalculer le point haut</button></div>
-    <p class="hint">La zone de sécurité est le vecteur avec ses marges, prolongé le long de la dérive sous RSE d'un para qui chuterait sans ouvrir, jusqu'à 1013,25 hPa (vent prévu). Son point le plus haut est marqué sur la carte par un triangle. Altitudes : relevé Copernicus (un point tous les 90 m), par Internet. OSO : pression prévue au point haut ; ALPHA : pression prévue au sol de la ZMT ; à l'heure du saut. Toutes les hauteurs de l'appli sont comptées au-dessus du sol de la ZMT.</p>
+    <p class="hint">La zone de sécurité est le vecteur avec ses marges, prolongé le long de la dérive sous RSE d'un para qui chuterait sans ouvrir, jusqu'à 1013,25 hPa (vent prévu). Son point le plus haut est marqué sur la carte par un triangle. Altitudes : tuiles d'altitude (AWS Terrarium, environ 30 m), par Internet. OSO : pression prévue au point haut ; ALPHA : pression prévue au sol de la ZMT ; à l'heure du saut. Calcul fait : coche verte dans le cadre Cap avion / Cap para. Résultats dans l'onglet Briefing.</p>
+
+    <h3>Points de cette ISV</h3>
+    <ul id="ptList"></ul>
+    <div class="row"><button id="btnAddPt" class="wide">＋ Ajouter un point</button></div>
+    <p class="hint">Zones de posé alternatives et points libres, propres à cette ISV (une nouvelle ISV part sans point ; « Dupliquer » les recopie). Touche un nom pour centrer la carte dessus.</p>
   </div>
+
+  <!-- ===== Altimétrie ===== -->
 
   <!-- ===== Briefing (v0.12.0) : tout ce qui est calculé, en lecture seule ===== -->
   <div id="tab-brief" class="tab hidden">
@@ -279,16 +276,16 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.12.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.12.0"></script>
-<script src="vendor/mgrs.min.js?v=0.12.0"></script>
-<script src="geo.js?v=0.12.0"></script>
-<script src="clubs.js?v=0.12.0"></script>
-<script src="wmm.js?v=0.12.0"></script>
-<script src="calc.js?v=0.12.0"></script>
-<script src="windpick.js?v=0.12.0"></script>
-<script src="pdfview.js?v=0.12.0"></script>
-<script src="app.js?v=0.12.0"></script>
-<script src="photo.js?v=0.12.0"></script>
+<script src="vendor/leaflet.js?v=0.13.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.13.0"></script>
+<script src="vendor/mgrs.min.js?v=0.13.0"></script>
+<script src="geo.js?v=0.13.0"></script>
+<script src="clubs.js?v=0.13.0"></script>
+<script src="wmm.js?v=0.13.0"></script>
+<script src="calc.js?v=0.13.0"></script>
+<script src="windpick.js?v=0.13.0"></script>
+<script src="pdfview.js?v=0.13.0"></script>
+<script src="app.js?v=0.13.0"></script>
+<script src="photo.js?v=0.13.0"></script>
 </body>
 </html>
