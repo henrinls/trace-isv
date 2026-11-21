@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.23.1';
+const VERSION = '0.24.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50 };
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300 }; /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -456,7 +456,7 @@ function ptSuffix(pt) {
   }
   return '';
 }
-const SUM_MARGIN = 300; /* marge au-dessus d'un sommet (m), Henri 21 nov. 2026 */
+/* marge au-dessus d'un sommet (m) : 300 m donnés par Henri le 21 nov. 2026, réglable dans Param. depuis v0.24.0 */
 /* v0.21.0 (Henri) : pour chaque sommet S, le point de la trace juste avant (côté OUV) est renommé « <hauteur>-MINI<hauteur alti mini> » :
    hauteur alti (altimètre calé sur le sol de la ZMT) minimale en passant ce point pour passer S avec 300 m de marge
    = altitude du sommet + 300 − sol ZMT + descente prévue de la trace entre ce point et S. Plusieurs sommets → la plus grande valeur.
@@ -465,7 +465,7 @@ function sumVertex(T, S) { const n = Calc.nearestOn(T, S); let k = n.seg - 1; if
 function traceMini() {
   const out = []; out.stale = []; if (!sol || !sol.ok || sol.trace.length < 2) return out;
   isv().points.forEach(S => { if (S.auto !== 'S' || typeof S.elev !== 'number') return;
-    const v = sumVertex(sol.trace, S), m = Math.ceil(S.elev + SUM_MARGIN - elev0() + (sol.trace[v.k].h - v.h));
+    const v = sumVertex(sol.trace, S), m = Math.ceil(S.elev + (+prm.sumMargin || 0) - elev0() + (sol.trace[v.k].h - v.h));
     if (!(out[v.k] >= m)) out[v.k] = m; if (sStale(S)) out.stale[v.k] = true; });
   return out;
 }
@@ -505,7 +505,7 @@ function draw(light) {
     seen['pt_' + pt.id] = 1;
     const ic = pt.kind === 'alt' ? L.divIcon({ className: 'tgt alt', iconSize: [30, 30], iconAnchor: [15, 15], html: `<span></span><b>${esc(pointLabel(pt))}</b>` })
       : L.divIcon({ className: 'crossp', iconSize: [26, 26], iconAnchor: [13, 13], html: `<i class="dia" style="background:${sStale(pt) ? C_WARN : pt.color || '#fff'}"></i><b style="color:${sStale(pt) ? C_WARN : pt.color || '#fff'}">${esc(pointLabel(pt))}</b>` }); /* v0.19.1 : losange comme les repères de prepo-PA (avant : croix) */
-    keep('pt_' + pt.id, pt, ic, 250, ll => { if (pt.auto === 'S' && sol && sol.ok && sol.trace.length > 1) { ll = Calc.nearestOn(sol.trace, ll).pt; if (mk['pt_' + pt.id]) mk['pt_' + pt.id].setLatLng(LL(ll)); } /* v0.23.0 (Henri) : un sommet S reste sur la trace (projeté à la perpendiculaire) */ pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') pt.sig = traceSig(); persist(); pt.elev = null; pointElev(pt); syncSumWarn(); redraw(); }, () => pointMenu(pt));
+    keep('pt_' + pt.id, pt, ic, 250, ll => { if (pt.auto === 'S' && sol && sol.ok && sol.trace.length > 1) { ll = Calc.nearestOn(sol.trace, ll).pt; if (mk['pt_' + pt.id]) mk['pt_' + pt.id].setLatLng(LL(ll)); } /* v0.23.0 (Henri) : un sommet S reste sur la trace (projeté à la perpendiculaire) */ pt.lat = ll.lat; pt.lng = ll.lng; }, () => { if (pt.auto === 'S') { placeSummit(pt, { lat: pt.lat, lng: pt.lng }); return; } persist(); pt.elev = null; pointElev(pt); syncSumWarn(); redraw(); }, () => pointMenu(pt));
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
@@ -694,7 +694,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff);
+  setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -868,11 +868,30 @@ async function addPoint(p, spec) {
 }
 /* v0.20.0 (Henri) : point libre posé sur le point temporaire de la coupe → sommet « S » sans question de nom ;
    v0.21.0 : le point précédent de la trace prend « -MINI… » (traceMini), plus de point P */
-function addSummit(p) {
-  const I = isv();
+/* v0.24.0 (Henri) : le sommet S n'est pas forcément sur la trace : c'est le point le plus haut du terrain dans un cercle de rayon
+   = longueur du vecteur de largage (Henri : « ça multiplie par 2 la marge de sécu » ; fixe, pas dans Param.), centré sur le point de la trace choisi.
+   Il s'affiche sur la coupe en projection perpendiculaire sur la trace ; le point de la trace précédent prend le -MINI. */
+async function findSummit(c) {
+  if (!sol || !sol.ok) return null;
+  const R = map.distance(LL(sol.vec.green), LL(sol.vec.red)); if (!(R > 1)) return null;
+  const st = Math.max(25, R / 25), pts = [], kLat = 111320, kLng = 111320 * Math.cos(c.lat * Math.PI / 180);
+  for (let y = -R; y <= R + 1e-6; y += st) for (let x = -R; x <= R + 1e-6; x += st) if (x * x + y * y <= R * R) pts.push({ lat: c.lat + y / kLat, lng: c.lng + x / kLng });
+  let el; try { el = await elevTiles(pts); } catch (e) { return null; }
+  let b = -1; el.forEach((v, i) => { if (typeof v === 'number' && !isNaN(v) && (b < 0 || v > el[b])) b = i; });
+  return b < 0 ? null : { lat: pts[b].lat, lng: pts[b].lng, z: el[b] };
+}
+async function placeSummit(S, p) { /* p = point choisi sur la trace (avec son altitude z si connue) → S au point le plus haut autour */
+  const c = (sol && sol.ok && sol.trace.length > 1) ? Calc.nearestOn(sol.trace, p).pt : p;
+  toast('Recherche du point le plus haut autour…');
+  const hi = await findSummit(c);
+  if (hi) { S.lat = hi.lat; S.lng = hi.lng; S.elev = Math.round(hi.z); }
+  else { S.lat = c.lat; S.lng = c.lng; S.elev = typeof p.z === 'number' ? Math.round(p.z) : null; toast('Relief indisponible : sommet posé sur la trace'); }
+  S.val = null; S.sig = traceSig(); persist(); redraw(); fillInputs(); syncSumWarn(); if (cutData) { drawCut(); cutText(cutData.cur); }
+  if (S.elev == null) pointElev(S);
+}
+async function addSummit(p) {
   const S = { id: uid('q'), kind: 'free', auto: 'S', name: 'S', lat: p.lat, lng: p.lng, color: '#ffffff', elev: typeof p.z === 'number' ? Math.round(p.z) : null };
-  I.points.push(S); compute(); S.sig = traceSig();
-  persist(); redraw(); fillInputs(); if (S.elev == null) pointElev(S);
+  isv().points.push(S); await placeSummit(S, p);
 }
 // Point déjà posé : nom (et couleur pour un point libre) modifiables, ou suppression
 function delPoint(pt) { isv().points = isv().points.filter(x => x.id !== pt.id && x.sum !== pt.id); persist(); redraw(); fillInputs(); } /* v0.20.0 : supprimer un sommet S supprime son point de passage P */
@@ -1431,7 +1450,7 @@ function cutPin(x) {
   s.style.left = `${Math.round(cv.offsetLeft + x - s.offsetWidth / 2)}px`; s.style.top = `${Math.round(cv.offsetTop + 38)}px`;
 }
 function cutAddS() { const c = cutData; if (!c || c.mode !== 'trace' || c.cur == null || !c.pts[c.cur]) return; const q = c.pts[c.cur];
-  addSummit({ lat: q.lat, lng: q.lng, z: q.z }); drawCut(); cutText(c.cur); }
+  addSummit({ lat: q.lat, lng: q.lng, z: q.z }); }
 function cutGo() { const c = cutData; if (!c || c.cur == null || !c.pts[c.cur]) return; const q = c.pts[c.cur]; closeCut(); setTempPt(q); map.setView(LL(q), Math.max(map.getZoom(), 14)); }
 function cutText(i) {
   const c = cutData; if (!c) return;
@@ -1479,7 +1498,7 @@ function cutIndex(clientX) { const c = cutData; if (!c) return null; const r = $
   const end = e => {
     ptr.delete(e.pointerId);
     if (cutData && cutData.dragS) { const { S, d } = cutData.dragS, q = cutData.pts[cutNear(d)]; cutData.dragS = null; /* relâché : nouvelle place du sommet, sur la trace, altitude du terrain de la coupe ; compte comme revérifié */
-      if (q) { S.lat = q.lat; S.lng = q.lng; S.elev = Math.round(q.z); S.val = null; S.sig = traceSig(); persist(); redraw(); syncSumWarn(); }
+      if (q) placeSummit(S, { lat: q.lat, lng: q.lng, z: q.z });
       cutData.lock = true; drawCut(); cutText(cutData.cur); return; }
     if (pinch) { if (ptr.size < 2) pinch = null; down = null; return; }
     const d0 = down; down = null; if (!d0 || !cutData) return;
@@ -1645,7 +1664,7 @@ function renderCans() {
 }
 $('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5 }); saveProfile(); changed(); toast('Parachute ajouté : règle Vx et Vz'); });
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
-onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100);
+onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
