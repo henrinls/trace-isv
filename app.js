@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.29.0';
+const VERSION = '0.30.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2 }; /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900 }; /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -801,7 +801,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm);
+  setVal('p_margin', prm.margin); setVal('p_openLoss', prm.openLoss); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -1723,12 +1723,12 @@ function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est p
 }
 // Ouverture basse : pour chaque para, point d'ouverture terminée s'il chutait jusqu'à LOW_FT au-dessus du point haut
 // au lieu d'ouvrir comme prévu (projection + vent de chaque tranche, depuis son point de largage). Points GRIS depuis la v0.5.9 (jaunes avant), sans nom.
-const LOW_FT = 1900, lowMem = { k: null, v: null };
+const lowFt = () => { const v = +prm.osoFt; return isFinite(v) && v >= 0 ? v : 1900; }, lowMem = { k: null, v: null }; /* v0.30.0 : plus de 1 900 ft en dur */
 function lowPoints() {
   const av = altiVals(); if (!av || !av.max || !sol || !sol.ok) return null;
-  const k = solKey + '|' + altiKey() + '|' + av.max.elev; if (lowMem.k === k) return lowMem.v;
+  const k = solKey + '|' + altiKey() + '|' + av.max.elev + '|' + lowFt(); if (lowMem.k === k) return lowMem.v;
   let v = null;
-  const drop = sol.altRel - (av.max.elev + LOW_FT * 0.3048), vff = Math.max(10, +prm.vff || 50), ol = Math.max(0, +prm.openLoss || 0);
+  const drop = sol.altRel - (av.max.elev + lowFt() * 0.3048), vff = Math.max(10, +prm.vff || 50), ol = Math.max(0, +prm.openLoss || 0);
   if (drop > ol + 1) {
     const kff = Calc.ffK(F, isv().ptu, sol.altRel), f = Calc.fall(Calc.tFallFor(drop, sol.tas, vff, ol, vzRefNow(), true, kff), sol.tas, vff, ol, vzRefNow(), kff);
     v = sol.vec.exits.map(e => Calc.fromLocal(e, Calc.rseDrift(F, e, sol.altRel, f, sol.acHeading)));
@@ -1743,7 +1743,7 @@ const C_GREY = '#9a9a9a', greyMem = { k: null, v: null };
 function greyPoints() {
   const low = lowPoints(), av = altiVals(); if (!low || !av || !av.max) return null;
   const k = lowMem.k; if (greyMem.k === k) return greyMem.v;
-  const I = isv(), z0 = av.max.elev + LOW_FT * 0.3048, z1 = av.max.elev, STEP = 50;
+  const I = isv(), z0 = av.max.elev + lowFt() * 0.3048, z1 = av.max.elev, STEP = 50;
   const v = low.map((p0, n) => {
     const ex = sol.vec.exits[n], para = I.team[ex ? ex.i : 0] || I.team[0], can = prm.canopies.find(c => c.id === para.canopy) || prm.canopies[0];
     const mk = Math.sqrt((+para.mte > 0 ? +para.mte : MTE_DEF) / Calc.MTE_REF); let p = p0;
@@ -1803,7 +1803,7 @@ function renderCans() {
 }
 $('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom du parachute :', ''); if (!n) return; prm.canopies.push({ id: uid('c'), name: String(n).trim(), vx: 9, vz: 2.5 }); saveProfile(); changed(); toast('Parachute ajouté : règle Vx et Vz'); });
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
-onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100);
+onPrm('p_margin', 'margin', 0, 80); onPrm('p_openLoss', 'openLoss', 0, 1000); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }

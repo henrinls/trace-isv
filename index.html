@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.29.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.30.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.29.0">
+<link rel="stylesheet" href="style.css?v=0.30.0">
 </head>
 <body>
 <div id="map"></div>
@@ -225,7 +225,8 @@
       <div><label>Perte de hauteur à l'ouverture, chute stabilisée à 1 000 m (m)</label><input id="p_openLoss" inputmode="numeric"></div>
     </div>
     <div class="grid2">
-      <div><label>Vitesse de chute stabilisée à 1 000 m (m/s)</label><input id="p_vff" inputmode="numeric"></div><div></div>
+      <div><label>Vitesse de chute stabilisée à 1 000 m (m/s)</label><input id="p_vff" inputmode="numeric"></div>
+      <div><label>Déclenchement de l'ouvreur de sécurité OSO (ft au-dessus du point haut)</label><input id="p_osoFt" inputmode="numeric"></div>
     </div>
     <p class="hint">Ouverture : elle dure toujours le même temps, celui qui fait perdre cette hauteur en chute stabilisée à 1 000 m (100 m : environ 4 s). La perte de hauteur réelle dépend de la vitesse verticale au moment d'ouvrir : moins juste après la sortie, plus en chute stabilisée en altitude.</p>
     <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation affiché tient compte de cette marge : la trace part de son bord et le vecteur ne peut pas en sortir.</p>
@@ -302,17 +303,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.29.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.29.0"></script>
-<script src="vendor/mgrs.min.js?v=0.29.0"></script>
-<script src="geo.js?v=0.29.0"></script>
-<script src="clubs.js?v=0.29.0"></script>
-<script src="wmm.js?v=0.29.0"></script>
-<script src="calc.js?v=0.29.0"></script>
-<script src="windpick.js?v=0.29.0"></script>
-<script src="pdfview.js?v=0.29.0"></script>
-<script src="lpmove.js?v=0.29.0"></script>
-<script src="app.js?v=0.29.0"></script>
-<script src="photo.js?v=0.29.0"></script>
+<script src="vendor/leaflet.js?v=0.30.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.30.0"></script>
+<script src="vendor/mgrs.min.js?v=0.30.0"></script>
+<script src="geo.js?v=0.30.0"></script>
+<script src="clubs.js?v=0.30.0"></script>
+<script src="wmm.js?v=0.30.0"></script>
+<script src="calc.js?v=0.30.0"></script>
+<script src="windpick.js?v=0.30.0"></script>
+<script src="pdfview.js?v=0.30.0"></script>
+<script src="lpmove.js?v=0.30.0"></script>
+<script src="app.js?v=0.30.0"></script>
+<script src="photo.js?v=0.30.0"></script>
 </body>
 </html>
