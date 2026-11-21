@@ -285,14 +285,12 @@
     if (vg < 5) { out.err = 'Vent de face plus fort que l\'avion sur ce cap : change le sens ou le cap du vecteur.'; return out; }
 
     // Cercle de relaxation : en points d'ouverture, puis décalé de la dérive sous RSE pour l'avoir en points de largage
-    // Deux cercles (demande du 21 nov. 2026) :
-    // - AFFICHÉ : le cercle de relaxation SANS marge (vent prévu exact), pour le largage prévu ;
-    // - NON AFFICHÉ : la zone avec la marge (plus petite, à l'intérieur), d'où le vecteur ne doit pas sortir. La trace, calculée
-    //   avec la marge, part du bord de cette zone : elle reste donc toujours dans le cercle affiché.
+    // Cercle de relaxation affiché = zone avec marge (v0.2.1, choix d'Henri ; en v0.2.0 on affichait le cercle sans marge).
+    // La trace, calculée avec la marge, part de son bord ; le vecteur ne peut pas en sortir.
     const man = !!(isv.manual && isv.capManual == null), capShow = man ? capPlan : weak.cap;
     const circ = relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);          // contrôle du vecteur (hauteur d'ouverture réelle)
     const zonePlan = man ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan) : circ; // limite du déplacement à la main
-    const circShow = margin > 0 || man ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, 0, capShow) : circ;
+    const circShow = zonePlan; /* v0.2.1 (Henri) : le cercle affiché EST la zone avec marge */
     const drShow = st !== stPlan ? rseDrift(F, circShow.c, stPlan.altRel, stPlan.f, acHeading) : dr;
     if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`;
     const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });
@@ -309,7 +307,7 @@
     const ends = o => [fromLocal(o, { x: -a.x * sBefore, y: -a.y * sBefore }), fromLocal(o, { x: a.x * sAfter, y: a.y * sAfter })];
     let s0 = attach ? nearestOn(ptsDown, attach).s : 0, sFit = null;
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
-    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de largage${margin > 0 ? ' avec la marge' : ''}${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de largage${margin > 0 ? ' avec la marge' : ''} sur ce cap : tourne-le ou change de para sur le point de largage.`); sFit = s0; }
+    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que le cercle de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans le cercle de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.`); sFit = s0; }
     const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
     out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
     out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),

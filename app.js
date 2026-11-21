@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -348,7 +348,7 @@ function keep(key, ll, icon, z, onMove, onEnd, onClick) {
   m._icoKey = icon.options.html + icon.options.className;
   return m;
 }
-/* Le vecteur déplacé à la main est retenu dans la zone AVEC marge (non affichée), pas dans le cercle affiché (sans marge). */
+/* Le vecteur déplacé à la main est retenu dans le cercle de relaxation (zone avec marge). */
 function clampToCircle(ll) { if (!sol || !sol.ok) return ll; const z = sol.zone || sol.circle, q = Calc.toLocal(z.c, ll), d = Math.hypot(q.x, q.y), R = Math.max(0, z.R - 20); return d <= R ? ll : Calc.fromLocal(z.c, { x: q.x * R / d, y: q.y * R / d }); }
 let dragT = 0;
 function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { dragT = n; draw(true); } }
@@ -977,8 +977,8 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Voile la moins performante', `${esc(s.weak.canopy.name)}${s.weak.several ? ' · para ' + esc(pName(s.weak.idx)) : ''}`]);
   if (s.turn) rows.push(['Prise de cap', `à ${s.turn}`, true]);
   if (s.hand) rows.push(['PTU', `main ${s.hand}`, true]);
-  rows.push(['Cercle de relaxation affiché', `rayon ${fmtKm(s.circle.R)} · sans marge`]);
-  rows.push(['Marge sur le vent', `${prm.margin} %${+prm.margin > 0 ? ` · vecteur tenu dans un rayon de ${fmtKm(s.zoneOuv.R)} (non affiché)` : ''}${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
+  rows.push(['Cercle de relaxation', `rayon ${fmtKm(s.circle.R)} (marge comprise)`]);
+  rows.push(['Marge sur le vent', `${prm.margin} %${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
   return rows;
 }
 onNum('v_fl', v => { isv().fl = Math.round(v); }, 20, 400);
