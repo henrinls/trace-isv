@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.39.5';
+const VERSION = '0.39.6';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1031,7 +1031,7 @@ async function pointElev(pt) { /* v0.19.4 : tuiles d'altitude d'abord (même rel
   let e = null; try { [e] = await elevTiles([pt]); } catch (er) {} if (typeof e !== 'number' || isNaN(e)) { try { [e] = await fetchElev([pt]); } catch (er) {} }
   if (typeof e === 'number' && !isNaN(e)) { pt.elev = Math.round(e); persist(); redraw(); fillInputs(); } }
 /* v0.39.5 (Henri) : nom saisi d'un point → sans accents, en MAJUSCULES, espaces du début et de la fin retirés, espaces du milieu → tiret */
-function cleanPtName(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[Œœ]/g, 'OE').replace(/[Ææ]/g, 'AE').replace(/ß/g, 'SS').toUpperCase().trim().replace(/\s+/g, '-'); }
+function cleanPtName(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[Œœ]/g, 'OE').replace(/[Ææ]/g, 'AE').replace(/ß/g, 'SS').replace(/['’‘`´ʼ]/g, '').toUpperCase().trim().replace(/\s+/g, '-'); } /* v0.39.6 : apostrophes supprimées (texte collé) */
 async function addPoint(p, spec) {
   const auto = spec.kind === 'alt' ? altAutoName(p) : '';
   const n = await ask(spec.kind === 'alt' ? `Nom de la zone de posé alternative (l'écart de hauteur avec le sol de la ZMT est ajouté tout seul, P = plus haut, N = plus bas)${auto ? ` : « ${auto} » proposé d'après sa position, garde-le ou écris un autre nom` : ''} :` : 'Nom du point :', auto);
