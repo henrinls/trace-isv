@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.40.1';
+const VERSION = '0.40.2';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1505,7 +1505,7 @@ function renderBrief() {
   if (s.own.t120 != null) row('Passage du FL120, depuis le vert', fmtMin(s.own.t120), true);
   { const w = s.weak, i = w.idx >= 0 ? w.idx : 0, nm = I.team[i] && I.team[i].name;
     row('Para le moins performant', nm ? `${esc(nm)} (${esc(w.canopy.name)}, n° ${i + 1})` : `n° ${i + 1} (${esc(w.canopy.name)})`); }
-  if (s.keepH && s.frac != null && s.frac < 0.995) row('Voile plus performante que la trace', 'utiliser la descente rapide'); /* v0.40.1 (Henri) : pas de pourcentage */
+  if (s.keepH && s.frac != null && s.frac < 0.995) row('Voile plus performante que la trace', 'utiliser la descente rapide'); /* v0.40.1 (Henri) : pas de pourcentage ; v0.40.2 : la descente rapide n'est PAS calculée, c'est le para qui la met pour tenir les points */
   row('Marge sur le vent', `${prm.margin} %`);
   end();
   if (I.points.length) {
