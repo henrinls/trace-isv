@@ -177,14 +177,14 @@
   // tel quel. La marge est la même à tous les caps : les ouvertures possibles forment un cercle, et toute trace part de son bord.
   // (Avant la v0.2.0 : vent multiplié par 0,8 ou 1,2 selon son signe dans l'axe du cap → marge dans l'axe du vent seulement,
   // zone pincée, traces qui sortaient du cercle. Ne pas y revenir.)
-  function trace(F, ptu, elev0, hPtu, hOpen, can, cap, margin, frac) { /* frac (v0.40.2, retour au modèle v0.40.0) : part de l'avance dans l'air utilisée (1 par défaut) ; le temps de descente reste le temps normal */
+  function trace(F, ptu, elev0, hPtu, hOpen, can, cap, margin, frac) { /* frac (v0.40.1) : descente rapide — chaque tranche de hauteur est descendue en frac × son temps normal (1 par défaut), à pleine vitesse horizontale */
     const fr = frac == null ? 1 : frac;
     const hd = unit(cap), hs = heights(hPtu, hOpen), pts = [{ h: hPtu, lat: ptu.lat, lng: ptu.lng, t: 0 }];
     let P = { lat: ptu.lat, lng: ptu.lng }, len = 0, time = 0;
     for (let i = 1; i < hs.length; i++) {
       const kv = (can.mk || 1) * kRho(F, P.lat, P.lng, elev0 + (hs[i] + hs[i - 1]) / 2); // densité de la tranche, MTE
-      const dt = (hs[i] - hs[i - 1]) / (can.vz * kv), W = windMean(F, P.lat, P.lng, elev0 + hs[i - 1], elev0 + hs[i]);
-      const va = (can.vx * kv - margin * Math.hypot(W.u, W.v)) * fr;
+      const dt = (hs[i] - hs[i - 1]) / (can.vz * kv) * fr, W = windMean(F, P.lat, P.lng, elev0 + hs[i - 1], elev0 + hs[i]);
+      const va = can.vx * kv - margin * Math.hypot(W.u, W.v);
       const dx = (va * hd.x + W.u) * dt, dy = (va * hd.y + W.v) * dt;
       P = fromLocal(P, { x: -dx, y: -dy }); len += Math.hypot(dx, dy); time += dt;
       pts.push({ h: hs[i], lat: P.lat, lng: P.lng, t: time });
@@ -254,21 +254,29 @@
     const R = mins.map(refine), ok = R.filter(r => r.d < 30);
     return ok.length ? ok.reduce((a, b) => (b.h < a.h ? b : a)) : R.reduce((a, b) => (b.d < a.d ? b : a)); // { d (écart restant, m), h (hauteur sur la trace), cap, pt }
   }
-  /* v0.40.2 (Henri, 22/11) : « garder la hauteur d'ouverture » = ouverture à hOpen en un point O à l'intérieur du cercle.
-     Doctrine : le para VISE LE CENTRE DU CERCLE, tout droit, point. Le calcul NE modélise PAS la descente rapide : la trace est
-     celle du cap « centre », temps de descente normal, avance dans l'air réduite à la part f (0 à 1) qui fait arriver au PTU.
-     Comme les points sont plus près que ce que la voile permet, le para met de la descente rapide de lui-même pour les tenir.
-     Centre = ouverture de la trace sans avance dans l'air (dérive du vent seule). Hors du cercle : f = 1, d = écart.
-     NE PAS revenir au modèle v0.40.1 (temps réduit, pleine vitesse) : le cap ne visait plus le centre hors de l'axe du vent. */
+  /* v0.40.0 / v0.40.1 (Henri : « garder la hauteur d'ouverture ») : ouverture à hOpen en un point O à l'intérieur du cercle.
+     La voile est alors plus performante que nécessaire : le para utilise sa descente rapide (vitesse verticale augmentée, vitesse
+     horizontale inchangée), régulièrement, pour rester sur les points. Chaque tranche est descendue en frac × son temps normal :
+     la trace est celle à pleine performance au même cap, réduite d'autant — les points restent répartis régulièrement.
+     On cherche le cap dont la trace complète part dans la direction de O vue du PTU, puis frac = distance de O / portée à ce cap.
+     Par vent fort deux caps conviennent : on garde le plus loin (vent dans le dos). Hors de portée : frac = 1, d = écart.
+     v0.40.3 (Henri, 22/11) : modèle CONFIRMÉ. La v0.40.2 avait remis « viser le centre du cercle de départ » (temps normal, avance
+     réduite) ; Henri est revenu dessus : en descente rapide le para reste moins longtemps dans la masse d'air, il faut le compter.
+     Ne pas y revenir. Non modélisé : la descente rapide réduit aussi un peu la vitesse horizontale (pas de chiffre donné). */
   function fracThrough(F, ptu, elev0, hPtu, hOpen, can, margin, O) {
-    const top = (c, fr) => trace(F, ptu, elev0, hPtu, hOpen, can, c, margin, fr).top;
-    const C0 = top(0, 0); let V = O, cap = 0, fr = 0, T = C0, best = null;
-    for (let i = 0; i < 8; i++) {
-      const v = toLocal(C0, V), L = Math.hypot(v.x, v.y); if (L < 1) { fr = 0; T = C0; best = { cap, f: 0, top: C0, d: dist(C0, O) }; break; }
-      cap = bearingOf({ x: -v.x, y: -v.y });
-      const a = toLocal(C0, top(cap, 1)), A = Math.hypot(a.x, a.y); fr = A > 1 ? Math.min(1, L / A) : 0;
-      T = top(cap, fr); const e = toLocal(T, O), d = Math.hypot(e.x, e.y);
-      if (!best || d < best.d) best = { cap: n360(cap), f: fr, top: T, d };
+    const full = c => toLocal(ptu, trace(F, ptu, elev0, hPtu, hOpen, can, c, margin).top);
+    const sd = (q, bv) => ((bearingOf(q) - bv + 540) % 360) - 180, N = 120, Q = []; for (let k = 0; k < N; k++) Q.push(full(k * 3));
+    let V = O, best = null;
+    for (let it = 0; it < 6; it++) {
+      const v = toLocal(ptu, V), L = Math.hypot(v.x, v.y); if (L < 1) { best = { cap: 0, f: 0, top: ptu, d: dist(ptu, O) }; break; }
+      const bv = bearingOf(v), cands = [];
+      for (let k = 0; k < N; k++) { const a0 = sd(Q[k], bv), a1 = sd(Q[(k + 1) % N], bv); if (Math.abs(a0) > 90 || Math.abs(a1) > 90 || a0 * a1 > 0) continue;
+        let lo = k * 3, hi = lo + 3, flo = a0; for (let b = 0; b < 14; b++) { const m = (lo + hi) / 2, fm = sd(full(m), bv); if (fm * flo <= 0) hi = m; else { lo = m; flo = fm; } }
+        const c = (lo + hi) / 2, q = full(c); cands.push({ cap: n360(c), r: Math.hypot(q.x, q.y) }); }
+      if (!cands.length) { let kb = 0, ab = 1e9; for (let k = 0; k < N; k++) { const a = Math.abs(sd(Q[k], bv)); if (a < ab) { ab = a; kb = k; } } cands.push({ cap: kb * 3, r: Math.hypot(Q[kb].x, Q[kb].y) }); }
+      const c = cands.reduce((a, b) => (b.r > a.r ? b : a)), fr = c.r > 1 ? Math.min(1, L / c.r) : 0;
+      const T = trace(F, ptu, elev0, hPtu, hOpen, can, c.cap, margin, fr).top, e = toLocal(T, O), d = Math.hypot(e.x, e.y);
+      if (!best || d < best.d) best = { cap: c.cap, f: fr, top: T, d };
       if (d < 2) break; V = fromLocal(V, e);
     }
     return best;
@@ -417,7 +425,7 @@
     // Temps de descente d'une voile entre deux hauteurs, le long de la trace (densité de chaque tranche de 250 m)
     const posAtH = h => { const P = tr.pts; for (let i = 1; i < P.length; i++) if (h <= P[i].h || i === P.length - 1) { const f = Math.max(0, Math.min(1, (h - P[i - 1].h) / Math.max(1e-6, P[i].h - P[i - 1].h))); return { lat: P[i - 1].lat + (P[i].lat - P[i - 1].lat) * f, lng: P[i - 1].lng + (P[i].lng - P[i - 1].lng) * f }; } return P[0]; };
     const tUnder = (can, hTop, hBot) => { let t = 0; for (let h = hBot; h < hTop - 1e-6;) { const h2 = Math.min(hTop, h + 250), hm = (h + h2) / 2, q = posAtH(hm); t += (h2 - h) / (can.vz * can.mk * kRho(F, q.lat, q.lng, elev0 + hm)); h = h2; } return t; };
-    const kf = 1; /* v0.40.2 : la descente rapide n'est pas modélisée — temps sous voile = temps normal (majorant) */
+    const kf = keepH && out.frac != null ? out.frac : 1; /* hauteur gardée : descente rapide, temps sous voile réduit d'autant */
     const own = effOf(team[idx]), tCan = tUnder(own, st.hOpen, hPtu) * kf;
     const tPass = fl => {
       if (st.fl <= fl) return null;
