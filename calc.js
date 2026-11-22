@@ -247,14 +247,15 @@
     const refine = b => { for (const st of [1, 0.3, 0.1, 0.03, 0.01]) { let moved = true, guard = 0; while (moved && guard++ < 8) { moved = false; for (const s of [-1, 1]) { const r = f(b.cap + s * st); if (r.d < b.d) { b = r; moved = true; } } } } return b; };
     const S = []; for (let c = 0; c < 360; c += 3) S.push(f(c));
     /* Par vent fort, deux traces peuvent passer par le même point (une basse, vent dans le dos ; une haute, face au vent).
-       v0.43.0 (Henri, 22/11) : on garde la plus HAUTE (sans dépasser la hauteur d'ouverture, hMax) — c'est « viser le centre du
-       cercle » ; sur la trace basse le para serait très au-dessus, la descente rapide ne suffirait pas, il devrait se retourner à un
-       moment non prévu et risquerait la collision avec les autres. (v0.40.0 gardait la plus basse : NE PAS y revenir.)
+       v0.44.1 (Henri, 22/11, décision finale) : on garde la plus BASSE, vent dans le dos, face à la zone de posé — MÊME RÈGLE PARTOUT,
+       y compris au bord du cercle à l'opposé (plus de cap inversé face au vent). Le danger d'un para très au-dessus de cette trace
+       est réglé par la règle des 30 % (ouverture abaissée, bloc keepH de solve). Historique : v0.40.0 la plus basse, v0.43.0 la plus
+       haute (cap inversé), v0.44.1 retour à la plus basse.
        « Rentrer le long de la trace » ne passe plus par ici : la route y est figée (isv.along). */
     const n = S.length, mins = []; for (let k = 0; k < n; k++) if (S[k].d <= S[(k + n - 1) % n].d && S[k].d < S[(k + 1) % n].d) mins.push(S[k]);
     if (!mins.length) mins.push(S.reduce((a, b) => (b.d < a.d ? b : a)));
     const R = mins.map(refine), ok = R.filter(r => r.d < 30);
-    return ok.length ? ok.reduce((a, b) => (b.h > a.h ? b : a)) : R.reduce((a, b) => (b.d < a.d ? b : a)); // { d (écart restant, m), h (hauteur sur la trace), cap, pt }
+    return ok.length ? ok.reduce((a, b) => (b.h < a.h ? b : a)) : R.reduce((a, b) => (b.d < a.d ? b : a)); // { d (écart restant, m), h (hauteur sur la trace), cap, pt }
   }
   /* (v0.42.0 : fracThrough et la « descente rapide » calculée sont supprimés — voir le bloc keepH de solve.) */
 
