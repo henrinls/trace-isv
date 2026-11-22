@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.39.4';
+const VERSION = '0.39.5';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1030,11 +1030,13 @@ function resumePlacing() {
 async function pointElev(pt) { /* v0.19.4 : tuiles d'altitude d'abord (même relief que la coupe), Open-Meteo en secours */
   let e = null; try { [e] = await elevTiles([pt]); } catch (er) {} if (typeof e !== 'number' || isNaN(e)) { try { [e] = await fetchElev([pt]); } catch (er) {} }
   if (typeof e === 'number' && !isNaN(e)) { pt.elev = Math.round(e); persist(); redraw(); fillInputs(); } }
+/* v0.39.5 (Henri) : nom saisi d'un point → sans accents, en MAJUSCULES, espaces du début et de la fin retirés, espaces du milieu → tiret */
+function cleanPtName(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[Œœ]/g, 'OE').replace(/[Ææ]/g, 'AE').replace(/ß/g, 'SS').toUpperCase().trim().replace(/\s+/g, '-'); }
 async function addPoint(p, spec) {
   const auto = spec.kind === 'alt' ? altAutoName(p) : '';
   const n = await ask(spec.kind === 'alt' ? `Nom de la zone de posé alternative (l'écart de hauteur avec le sol de la ZMT est ajouté tout seul, P = plus haut, N = plus bas)${auto ? ` : « ${auto} » proposé d'après sa position, garde-le ou écris un autre nom` : ''} :` : 'Nom du point :', auto);
   if (n === null) return;
-  const pt = { id: uid('q'), kind: spec.kind, name: String(n).trim(), nameAuto: !!auto && String(n).trim() === auto, lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: typeof p.z === 'number' ? Math.round(p.z) : null };
+  const pt = { id: uid('q'), kind: spec.kind, name: cleanPtName(n), nameAuto: !!auto && cleanPtName(n) === cleanPtName(auto), lat: p.lat, lng: p.lng, color: spec.kind === 'alt' ? '#ff2020' : spec.color, elev: typeof p.z === 'number' ? Math.round(p.z) : null };
   isv().points.push(pt); persist(); redraw(); fillInputs(); if (pt.elev == null) pointElev(pt);
 }
 /* v0.20.0 (Henri) : point libre posé sur le point temporaire de la coupe → sommet « S » sans question de nom ;
@@ -1084,8 +1086,8 @@ function pointMenu(pt) {
   $('peText').innerHTML = `<b>${pt.kind === 'alt' ? 'Zone de posé alternative' : pt.kind === 'zd' ? 'Zone délicate' : 'Point libre'}</b><br><small>${fmtPos(pt)}${typeof pt.elev === 'number' ? ' · ' + fmtInt(pt.elev) + ' m' : ''}</small>`;
   $('peName').value = ptName(pt); $('peName').readOnly = !!pt.auto; /* v0.20.0 : S et P nommés tout seuls, pas de renommage */
   const close = () => { $('ptEdit').classList.add('hidden'); $('peOk').onclick = $('peCancel').onclick = $('peDel').onclick = $('peMove').onclick = null; };
-  $('peOk').onclick = () => { if (!pt.auto) { const v = $('peName').value.trim(); if (!(pt.nameAuto && v === ptName(pt))) { pt.name = v; pt.nameAuto = false; } } close(); persist(); redraw(); fillInputs(); };
-  $('peMove').onclick = () => { if (!pt.auto) { const v = $('peName').value.trim(); if (!(pt.nameAuto && v === ptName(pt))) { pt.name = v; pt.nameAuto = false; } } close(); persist(); redraw();
+  $('peOk').onclick = () => { if (!pt.auto) { const v = cleanPtName($('peName').value); if (!(pt.nameAuto && v === cleanPtName(ptName(pt)))) { pt.name = v; pt.nameAuto = false; } } close(); persist(); redraw(); fillInputs(); };
+  $('peMove').onclick = () => { if (!pt.auto) { const v = cleanPtName($('peName').value); if (!(pt.nameAuto && v === cleanPtName(ptName(pt)))) { pt.name = v; pt.nameAuto = false; } } close(); persist(); redraw();
     startPlacing({ kind: 'move', id: pt.id, name: pointLabel(pt) || (pt.kind === 'alt' ? 'zone de posé alternative' : 'point libre') }); };
   $('peCancel').onclick = close;
   $('peDel').onclick = async () => { close(); if (!(await ask(`Supprimer « ${pointLabel(pt) || 'ce point'} » ?`))) return; delPoint(pt); };
