@@ -246,12 +246,15 @@
     const f = c => { const tr = trace(F, ptu, elev0, hPtu, hMax, can, c, margin); return Object.assign(nearestOn(tr.pts, O), { cap: n360(c) }); };
     const refine = b => { for (const st of [1, 0.3, 0.1, 0.03, 0.01]) { let moved = true, guard = 0; while (moved && guard++ < 8) { moved = false; for (const s of [-1, 1]) { const r = f(b.cap + s * st); if (r.d < b.d) { b = r; moved = true; } } } } return b; };
     const S = []; for (let c = 0; c < 360; c += 3) S.push(f(c));
-    /* v0.40.0 : par vent fort, deux traces peuvent passer par le même point (une basse, vent dans le dos ; une haute, face au vent).
-       On affine chaque creux et on garde la plus BASSE des traces qui passent vraiment par le point : c'est la suite de la trace. */
+    /* Par vent fort, deux traces peuvent passer par le même point (une basse, vent dans le dos ; une haute, face au vent).
+       v0.43.0 (Henri, 22/11) : on garde la plus HAUTE (sans dépasser la hauteur d'ouverture, hMax) — c'est « viser le centre du
+       cercle » ; sur la trace basse le para serait très au-dessus, la descente rapide ne suffirait pas, il devrait se retourner à un
+       moment non prévu et risquerait la collision avec les autres. (v0.40.0 gardait la plus basse : NE PAS y revenir.)
+       « Rentrer le long de la trace » ne passe plus par ici : la route y est figée (isv.along). */
     const n = S.length, mins = []; for (let k = 0; k < n; k++) if (S[k].d <= S[(k + n - 1) % n].d && S[k].d < S[(k + 1) % n].d) mins.push(S[k]);
     if (!mins.length) mins.push(S.reduce((a, b) => (b.d < a.d ? b : a)));
     const R = mins.map(refine), ok = R.filter(r => r.d < 30);
-    return ok.length ? ok.reduce((a, b) => (b.h < a.h ? b : a)) : R.reduce((a, b) => (b.d < a.d ? b : a)); // { d (écart restant, m), h (hauteur sur la trace), cap, pt }
+    return ok.length ? ok.reduce((a, b) => (b.h > a.h ? b : a)) : R.reduce((a, b) => (b.d < a.d ? b : a)); // { d (écart restant, m), h (hauteur sur la trace), cap, pt }
   }
   /* (v0.42.0 : fracThrough et la « descente rapide » calculée sont supprimés — voir le bloc keepH de solve.) */
 
@@ -334,7 +337,8 @@
       for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
         const ach = acHeadingOf(F, isv, st, traceDir(weak.tr.pts), isv.manual), dr = rseDrift(F, isv.manual, st.altRel, st.f, ach);
         O = fromLocal(isv.manual, dr);
-        sol = capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O);
+        const alC = isv.along && isv.along.cap != null ? +isv.along.cap : null; /* v0.43.0 : rentré le long de la trace → route figée */
+        sol = alC != null ? Object.assign(nearestOn(trace(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, alC, margin).pts, O), { cap: alC }) : capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O);
         /* v0.18.0 (Henri) : c'est la hauteur de COMMANDE d'ouverture (CDO, où le para tire) qui est arrondie à la centaine
            supérieure : CDO = arrondi(hauteur de la trace + perte à l'ouverture) ; ouverture terminée = CDO − perte (≥ la trace) */
         const dOpen = st.f.drop - st.f.dropFF;

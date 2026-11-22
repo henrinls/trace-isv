@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.42.2';
+const VERSION = '0.43.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -395,7 +395,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 function calcInput(I) {
   const di = I.team.findIndex(p => p.id === I.dropId), ri = I.team.findIndex(p => p.id === I.relaxRef);
   return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall, tRef: +prm.tRef > 0 ? +prm.tRef : 4,
-    capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), along: (I.manual && I.keepH && I.along && I.along.cap != null) ? { cap: +I.along.cap } : null, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
+    capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), along: (I.manual && I.along && I.along.cap != null) ? { cap: +I.along.cap } : null, /* v0.43.0 : aussi en mode Changer */ relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
 function keepOuvSolve(inp, fl, target, e0) { /* inp peut déjà porter d'autres changements (ex. tFall) */ /* même point d'ouverture sur la trace à un autre FL : on décale le point de largage */
@@ -548,7 +548,7 @@ function vecHitLine(V, I) {
              d'ouverture : en déplaçant seulement le point de largage, l'ouverture quittait la trace et le cap para changeait) */
           const I2 = isv(), s0 = Calc.nearestOn(T, sol.attachOuv).s, target = Calc.pointAt(T, Math.max(0, Math.min(sol.length - 1, s0 + k)));
           /* v0.41.0 / v0.42.0 (Henri) : rentrer en GARDANT la hauteur = la trace ne bouge pas du tout (I.along), seul le vecteur est ramené dessus ; le para, trop haut, rattrape aux oreilles */
-          I2.along = md === 'keep' ? (I2.manual && I2.keepH && I2.along ? I2.along : { cap: sol.cap }) : null;
+          I2.along = I2.manual && I2.along ? I2.along : { cap: sol.cap }; /* v0.43.0 : rentrer = route figée, en Garder comme en Changer */
           I2.keepH = md === 'keep'; I2.capManual = null; if (!I2.manual) I2.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng };
           const r = keepOuvSolve(calcInput(I2), +I2.fl, { lat: target.lat, lng: target.lng }, elev0()); if (r.s && r.s.ok) I2.manual = r.m; else I2.manual = Calc.fromLocal(sol.vec.attach, { x: u.x * k, y: u.y * k });
           solKey = null; vecHit.gl = null; vecEndFn(); }); } }];
@@ -1445,7 +1445,7 @@ function setCap(m) { const I = isv();
   /* v0.29.0 (Henri) : le vecteur déplacé à la main est prioritaire — on ne le remet plus en automatique : il tourne autour du PTU
      (même distance) jusqu'à donner le cap para voulu (la trace est droite de l'OUV au PTU, donc tourner l'ensemble autour du PTU
      tourne le cap d'autant ; 4 passes pour la dérive en chute qui change un peu) */
-  if (I.manual && I.keepH && I.along && I.ptu && sol && sol.ok) { /* v0.41.0 : trace d'origine gardée — c'est elle qui prend le cap demandé, le vecteur tourne autour du PTU avec elle */
+  if (I.manual && I.along && I.ptu && sol && sol.ok) { /* v0.41.0 : trace d'origine gardée — c'est elle qui prend le cap demandé, le vecteur tourne autour du PTU avec elle */
     const want = trueOf(n360(m)), r = (want - sol.cap) * Math.PI / 180, q0 = Calc.toLocal(I.ptu, I.manual);
     I.manual = Calc.fromLocal(I.ptu, { x: q0.x * Math.cos(r) + q0.y * Math.sin(r), y: -q0.x * Math.sin(r) + q0.y * Math.cos(r) }); I.along = { cap: want };
     solKey = null; manualFit(); changed(); return;
@@ -2684,13 +2684,14 @@ function flKeepTrace(fl, manualPre) {
   if (!I.manual) { /* v0.42.2 (Henri) : changer le FL avec le vecteur automatique ne remet PAS tout en automatique — le vecteur tel qu'il
                       est est considéré comme forcé (point de largage figé, hauteur d'ouverture = celle de la trace là où est le para),
                       puis on garde la trace comme pour un vecteur à la main. Seul « Vect. auto » recalcule tout. */
-    I.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }; I.keepH = false; I.along = null; I.capManual = null; solKey = null; compute();
+    I.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }; I.keepH = false; I.along = { cap: sol.cap }; I.capManual = null; solKey = null; compute();
     if (!sol || !sol.ok) { I.fl = fl; changed(); return false; } }
   if (I.keepH) { /* v0.40.0 — hauteur d'ouverture gardée : c'est le temps de chute qui est gardé, donc l'ouverture et le cercle suivent le FL ; le vecteur est ramené dans le nouveau cercle au besoin */
     /* v0.42.2 (Henri) : changer le FL ne bouge jamais la trace — la route actuelle est figée (I.along) et le point d'ouverture du para
        reste où il est ; seuls le vecteur, le temps de chute et la hauteur d'ouverture changent */
     const tgt = sol.ouvO ? { lat: sol.ouvO.lat, lng: sol.ouvO.lng } : null; if (!I.along) I.along = { cap: sol.cap }; I.fl = fl; solKey = null;
     if (tgt) keepO(tgt); manualFit(); I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0); changed(); return 'keep'; }
+  if (!I.along) I.along = { cap: sol.cap }; /* v0.43.0 : changer le FL fige la route (sinon la trace la plus haute possible change avec le FL) */
   const capM = Math.round(magOf(sol.cap)) % 360, sig0 = traceSig();
   /* v0.42.2 : FL trop bas pour que le para s'ouvre encore au même point (l'avion est plus bas que cette ouverture + le temps de chute
      réglé) → le point d'ouverture DESCEND le long de la même trace jusqu'à la hauteur d'ouverture possible à ce FL. La route ne bouge pas. */
