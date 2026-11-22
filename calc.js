@@ -327,7 +327,7 @@
          Au-delà, l'ouverture est abaissée : il chute plus longtemps, consigne CDO en hauteur, arrondie à la CENTAINE SUPÉRIEURE
          (« tant pis si ça dépasse à la marge »). La trace et le cap ne bougent pas. La dérive en chute dépend du temps de chute,
          donc on recale (boucle extérieure). */
-      for (let lv = 0; lv < 5; lv++) { capPrev = null;
+      for (let lv = 0; lv < 8; lv++) { capPrev = null;
       for (let pass = 0; pass < 8; pass++) {
         const d1 = traceDir(weak.tr.pts); let ach = acHeadingOf(F, isv, st, d1, isv.manual);
         if (achKeep != null && isv.vecHeading == null) { if (flips >= 2) ach = perpNear(d1, achKeep); else if (Math.abs(((ach - achKeep + 540) % 360) - 180) > 90) flips++; }
@@ -338,7 +338,7 @@
       }
       const prevH = st.hOpen, pct = Math.max(0, prm.keepPct == null ? 30 : +prm.keepPct) / 100, hMax = nr.h + pct * Math.max(0, nr.h - hPtu);
       if ((al || nr.d <= 30) && hMax < stPlan.hOpen - 1) { /* rentré le long de la trace : la chute plus longue décale l'ouverture hors de la trace → manualFix la ramène (sinon oscillation) */
-        const dOpen = stPlan.f.drop - stPlan.f.dropFF, hCmd = Math.ceil((hMax + dOpen) / 100 - 1e-6) * 100, hNeed = Math.max(hPtu + 100, hCmd - dOpen);
+        const dOpen = st.f.drop - st.f.dropFF /* v0.44.2 : perte à l'ouverture de l'état en cours (elle grandit avec le temps de chute), recalée par la boucle — avec celle du plan (4 s), la CDO affichée était 70 m sous la hauteur où le calcul faisait tirer le para */, hCmd = Math.ceil((hMax + dOpen) / 100 - 1e-6) * 100, hNeed = Math.max(hPtu + 100, hCmd - dOpen);
         if (hNeed >= stPlan.hOpen - 1) st = stPlan; else { st = relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true, stPlan.kff)); st.hOpen = hNeed; st.hCmd = hNeed + dOpen; }
       } else st = stPlan;
       if (Math.abs(st.hOpen - prevH) < 1) break;
