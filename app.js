@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.42.0';
+const VERSION = '0.42.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -641,7 +641,9 @@ function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig) return f
 function syncSumWarn() {
   const sig = traceSig(), S = isv().points.filter(q => q.auto === 'S' || q.kind === 'zd');
   if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
-  $('sumWarn').classList.toggle('hidden', !sig || !S.some(q => q.sig !== sig));
+  const st = S.filter(q => q.sig !== sig), hasS = st.some(q => q.auto === 'S'), hasZ = st.some(q => q.kind === 'zd'); /* v0.42.1 (Henri) : nommer aussi les zones délicates */
+  $('sumWarn').querySelector('span').textContent = '⚠️ La trace a bougé : revérifie ' + (hasS && hasZ ? 'les sommets S et les zones délicates' : hasZ ? 'les zones délicates' : 'les sommets S') + ' avec une coupe.';
+  $('sumWarn').classList.toggle('hidden', !sig || !st.length);
 }
 $('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S' || q.kind === 'zd') q.sig = sig; }); persist(); syncSumWarn(); redraw(); });
 const miniTag = (M, i) => M[i] != null ? `-MINI${M[i]}` : '';
@@ -2658,25 +2660,34 @@ function cdoRefT() { /* consigne de temps de chute donnée au para quand le FL a
 /* v0.39.4 (Henri) : vecteur à la main + changement de FL (Appliquer OU saisie, plus haut ou plus bas) = RIEN ne change sauf le vecteur :
    même point d'ouverture sur la trace (point de largage recalé de la dérive en chute), même cap para ; seules les étapes Vecteur et
    Points OSO sont à revérifier. Aller-retour de FL = retour à l'identique. « Vect. auto » reste le seul moyen de tout recalculer. */
+/* v0.42.1 (Henri, photo Oloron 22/11) : « Appliquer » le FL pour 4 s affichait « La trace a bougé : revérifie les sommets S ». Cause : la
+   signature de la trace (traceSig) englobe le point du haut (OUV) ; changer de FL change la hauteur d'ouverture, donc ce seul point
+   (ouverture terminée 7 859 → 7 812 m), alors que la route ne bouge pas. Les étapes étaient recalées, pas les sommets S ni les zones
+   délicates. Règle : si tous les points de la trace sous l'ouverture sont restés au même endroit (2 m près, mêmes hauteurs), on recale
+   aussi les sommets S et zones délicates qui étaient à jour. Sinon (route vraiment changée), l'alerte reste. */
+function traceGrid() { return sol && sol.ok ? sol.trace.slice(1).map(q => ({ h: Math.round(q.h), lat: q.lat, lng: q.lng })) : []; }
+function sameRoute(g0) { const g1 = traceGrid(), m = new Map(g0.map(q => [q.h, q])); let n = 0;
+  for (const q of g1) { const p = m.get(q.h); if (!p) continue; n++; if (Calc.dist(p, q) > 2) return false; } return n >= Math.min(2, g1.length); }
+function rebaseSum(sig0, g0) { if (!sameRoute(g0)) return; const sig = traceSig(); isv().points.forEach(q => { if ((q.auto === 'S' || q.kind === 'zd') && (!q.sig || q.sig === sig0)) q.sig = sig; }); syncSumWarn(); }
 function flKeepTrace(fl, manualPre) {
-  const I = isv(); compute(); if (!I.manual || !sol || !sol.ok) { I.fl = fl; changed(); return false; }
+  const I = isv(); compute(); const g0 = traceGrid(), s0 = traceSig(); if (!I.manual || !sol || !sol.ok) { I.fl = fl; changed(); return false; }
   if (I.keepH) { /* v0.40.0 — hauteur d'ouverture gardée : c'est le temps de chute qui est gardé, donc l'ouverture et le cercle suivent le FL ; le vecteur est ramené dans le nouveau cercle au besoin */
-    I.fl = fl; manualFit(); I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); changed(); return 'keep'; }
+    I.fl = fl; manualFit(); I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0); changed(); return 'keep'; }
   const capM = Math.round(magOf(sol.cap)) % 360, sig0 = traceSig();
   let m = manualPre; if (!m) { const r = keepOuvSolve(calcInput(I), fl, sol.attachOuv, elev0()); if (r.s && r.s.ok && !(r.s.manualGap > 100)) m = r.m; }
   if (m) I.manual = m; I.fl = fl; changed();
   if (sol && sol.ok && Math.round(magOf(sol.cap)) % 360 !== capM) setCap(capM);
   I.steps = I.steps || {}; const sig = traceSig();
   STEPS.forEach(st => { const r = I.steps[st.id]; if (st.tr && r && r.s === 'done' && (!r.sig || r.sig === sig0 || r.force)) { r.sig = sig; delete r.force; } }); /* seules les étapes à jour avant le changement suivent */
-  ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig, force: 1 }; });
+  ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig, force: 1 }; }); rebaseSum(s0, g0);
   persist(); syncSteps(); return true;
 }
 function applyFlMin4() {
-  if (!sol || !sol.ok || sol.flMin4 == null) return; const I = isv(), fl = sol.flMin4;
+  if (!sol || !sol.ok || sol.flMin4 == null) return; const I = isv(), fl = sol.flMin4, g0 = traceGrid(), s0 = traceSig();
   if (I.manual && I.keepH) { /* hauteur gardée et temps de chute ≠ référence : même ouverture au même endroit, avec le temps de référence */
     const tR = +prm.tRef > 0 ? +prm.tRef : 4, r = keepOuvSolve(Object.assign(calcInput(I), { tFall: tR }), fl, sol.attachOuv, elev0());
     if (r.s && r.s.ok) I.manual = r.m; I.fl = fl; I.tFall = tR; I.cdoRef = null; manualFit();
-    I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); }
+    I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0); }
   else if (flKeepTrace(fl, sol.flMin4Manual)) I.cdoRef = { t: +prm.tRef > 0 ? +prm.tRef : 4, fl, m: JSON.stringify(I.manual) }; /* v0.39.0 (Henri) : consigne « 4 s » même si le réel est un peu plus long (arrondis) */
   else { I.tFall = +prm.tRef > 0 ? +prm.tRef : 4; I.cdoRef = null; I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); }
   stepFocus = 'vec'; persist(); closeSheet(); changed(); syncSteps(); redraw();
