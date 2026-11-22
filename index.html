@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.42.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.42.2">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.42.1">
+<link rel="stylesheet" href="style.css?v=0.42.2">
 </head>
 <body>
 <div id="map"></div>
@@ -211,7 +211,7 @@
     <div id="briefSteps"></div>
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
-    <p class="hint">PDF : carte avec le cap para vers le haut et toutes les données de vol. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
+    <p class="hint">PDF : une page A4 paysage, carte cap para vers le haut et Briefing. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
 
     <div id="briefBody"></div>
   </div>
@@ -245,7 +245,7 @@
     <div class="grid2">
       <div><label>Marge de sécurité sur le vent (%)</label><input id="p_margin" inputmode="numeric"></div><div></div>
     </div>
-    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation affiché tient compte de cette marge : la trace part de son bord et le vecteur ne peut pas en sortir.</p>
+    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation tient compte de cette marge : c'est la zone des points de largage d'où le PTU reste atteignable ; le vert et le rouge doivent y rester.</p>
 
     <h3>Sommets et zones délicates</h3>
     <div class="grid2">
@@ -258,7 +258,7 @@
       <div><label>OSO : à moins de … du point jaune le plus proche (km)</label><input id="p_osoKm" inputmode="decimal"></div>
       <div><label>COURT : à moins de … de la ZMT (km)</label><input id="p_courtKm" inputmode="decimal"></div>
     </div>
-    <p class="hint">Une zone de posé alternative se nomme toute seule OSO, LONG (au-delà du PTU, dans l'axe de la trace) ou COURT (avant le PTU, près de la ZMT) ; tu peux toujours écrire un autre nom.</p>
+    <p class="hint">Une zone de posé alternative se nomme toute seule selon sa position : OSO (près d'un point jaune), LONG (au-delà du PTU, dans l'axe de la trace), COURT (avant le PTU, près de la ZMT), sinon INT. Mêmes nom et écart de hauteur : numérotées dans l'ordre de la trace (INT1, INT2…). Tu peux toujours écrire un autre nom.</p>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -322,17 +322,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.42.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.42.1"></script>
-<script src="vendor/mgrs.min.js?v=0.42.1"></script>
-<script src="geo.js?v=0.42.1"></script>
-<script src="clubs.js?v=0.42.1"></script>
-<script src="wmm.js?v=0.42.1"></script>
-<script src="calc.js?v=0.42.1"></script>
-<script src="windpick.js?v=0.42.1"></script>
-<script src="pdfview.js?v=0.42.1"></script>
-<script src="lpmove.js?v=0.42.1"></script>
-<script src="app.js?v=0.42.1"></script>
-<script src="photo.js?v=0.42.1"></script>
+<script src="vendor/leaflet.js?v=0.42.2"></script>
+<script src="vendor/leaflet-rotate.js?v=0.42.2"></script>
+<script src="vendor/mgrs.min.js?v=0.42.2"></script>
+<script src="geo.js?v=0.42.2"></script>
+<script src="clubs.js?v=0.42.2"></script>
+<script src="wmm.js?v=0.42.2"></script>
+<script src="calc.js?v=0.42.2"></script>
+<script src="windpick.js?v=0.42.2"></script>
+<script src="pdfview.js?v=0.42.2"></script>
+<script src="lpmove.js?v=0.42.2"></script>
+<script src="app.js?v=0.42.2"></script>
+<script src="photo.js?v=0.42.2"></script>
 </body>
 </html>

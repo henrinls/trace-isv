@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.42.1';
+const VERSION = '0.42.2';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -505,7 +505,7 @@ let vecHit = null;
 function manualFit() { const I = isv(); compute(); for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
 async function askOpenMode() {
   $('dlgDel').classList.remove('danger');
-  const r = await ask('Hauteur d\'ouverture : la GARDER (le vecteur doit rester dans le cercle de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, le cercle est recalculé) ?', undefined, 'Changer', 'Garder');
+  const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; le vecteur reste dans le cercle de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, le cercle est recalculé) ?', undefined, 'Changer', 'Garder');
   $('dlgDel').classList.add('danger');
   return r === 'DELETE' ? 'change' : r === true ? 'keep' : null;
 }
@@ -639,8 +639,12 @@ function traceSig() { if (!sol || !sol.ok) return ''; let h = 0; const s = sol.t
 const C_WARN = '#ff8c00'; /* v0.23.0 : sommet S pas revérifié depuis que la trace a bougé (et son point de passage) → orange */
 function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig) return false; const s = traceSig(); return !!s && q.sig !== s; }
 function syncSumWarn() {
-  const sig = traceSig(), S = isv().points.filter(q => q.auto === 'S' || q.kind === 'zd');
+  const sig = traceSig(), I = isv(), S = I.points.filter(q => q.auto === 'S' || q.kind === 'zd');
   if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
+  /* v0.42.2 : la signature englobe le point du haut ; si la ROUTE est la même que la dernière fois où tout était à jour (Vect. auto,
+     changement de FL, vecteur rentré…), les sommets S et zones délicates qui étaient à jour le restent */
+  if (sig && I.sumSig && I.sumSig !== sig && I.sumRoute && sameRoute(I.sumRoute)) { S.forEach(q => { if (q.sig === I.sumSig) q.sig = sig; }); I.sumSig = sig; I.sumRoute = traceGrid(); }
+  if (sig && S.every(q => q.sig === sig)) { I.sumSig = sig; I.sumRoute = traceGrid(); }
   const st = S.filter(q => q.sig !== sig), hasS = st.some(q => q.auto === 'S'), hasZ = st.some(q => q.kind === 'zd'); /* v0.42.1 (Henri) : nommer aussi les zones délicates */
   $('sumWarn').querySelector('span').textContent = '⚠️ La trace a bougé : revérifie ' + (hasS && hasZ ? 'les sommets S et les zones délicates' : hasZ ? 'les zones délicates' : 'les sommets S') + ' avec une coupe.';
   $('sumWarn').classList.toggle('hidden', !sig || !st.length);
@@ -659,15 +663,21 @@ function altPos(p) { /* position d'une zone alternative : OSO (à moins de prm.o
   else if (current.zmt) { const z = Calc.toLocal(current.zmt, p); r.court = Math.hypot(z.x, z.y) <= (+prm.courtKm || 0) * 1000; }
   return r;
 }
-function altAutoName(p) { const r = altPos(p); return r.oso ? 'OSO' : r.long ? 'LONG' : r.court ? 'COURT' : ''; } /* v0.29.0 : OSO ajouté (règle validée par Henri : 2 km autour du point jaune le plus proche, réglable) */
-function ptName(pt) { return String((pt.kind === 'alt' && pt.nameAuto ? altAutoName(pt) : pt.name) || '').trim(); }
+function altAutoName(p) { const r = altPos(p); return r.oso ? 'OSO' : r.long ? 'LONG' : r.court ? 'COURT' : 'INT'; } /* v0.42.2 (Henri) : ni OSO, ni long, ni court → INT (INT1, INT2… si homonymes, même règle que les autres) */ /* v0.29.0 : OSO ajouté (règle validée par Henri : 2 km autour du point jaune le plus proche, réglable) */
+function ptName(pt) { return String((pt.kind === 'alt' && (pt.nameAuto || !String(pt.name || '').trim()) ? altAutoName(pt) : pt.name) || '').trim(); } /* v0.42.2 : zone alternative sans nom = nom automatique */
+/* v0.42.2 : rang d'un point le long de la trace (de l'OUV vers la ZMT), prolongé au-delà des deux bouts : deux points au-delà du PTU
+   (LONG) ne sont plus à égalité, le plus proche du PTU passe avant. */
+function trOrd(q) { if (!sol || !sol.ok || sol.trace.length < 2) return 0; const T = sol.trace, n = Calc.nearestOn(T, q), k = T.length - 1;
+  let L = 0; for (let i = 1; i <= k; i++) L += Calc.dist(T[i - 1], T[i]);
+  const along = (A, B) => { const u = Calc.toLocal(A, B), l = Math.hypot(u.x, u.y) || 1, v = Calc.toLocal(B, q); return (v.x * u.x + v.y * u.y) / l; };
+  if (n.s >= L - 0.5) return L + Math.max(0, along(T[k - 1], T[k])); if (n.s <= 0.5) return -Math.max(0, along(T[1], T[0])); return n.s; }
 function ptNum(pt) {
   if (pt.kind === 'zd') { /* v0.28.0 : ZD1-DEB / ZD1-FIN, ZD2-… numérotées par zone dans le sens de la trace */
     if (!sol || !sol.ok) return ''; const Z = zdPairs().map(z => ({ zid: z.d.zid, s: Math.min(Calc.nearestOn(sol.trace, z.d).s, Calc.nearestOn(sol.trace, z.f).s) })).sort((a, b) => a.s - b.s);
     return Z.length < 2 ? '' : String(Z.findIndex(z => z.zid === pt.zid) + 1); }
   const nm = ptName(pt); if (!nm) return '';
   const sf = ptSuffix(pt), pts = isv().points, grp = pts.filter(q => q.kind !== 'zd' && ptName(q) === nm && ptSuffix(q) === sf); if (grp.length < 2) return '';
-  const pos = q => (sol && sol.ok && sol.trace.length > 1) ? Calc.nearestOn(sol.trace, q).s : pts.indexOf(q);
+  const pos = q => (sol && sol.ok && sol.trace.length > 1) ? trOrd(q) : pts.indexOf(q);
   grp.sort((a, b) => pos(a) - pos(b) || pts.indexOf(a) - pts.indexOf(b));
   return String(grp.indexOf(pt) + 1);
 }
@@ -1421,7 +1431,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Marge sur le vent', `${prm.margin} %${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
   return rows;
 }
-onNum('v_fl', v => { const I = isv(), fl = Math.round(v); if (I.manual && fl !== +I.fl) { const r = flKeepTrace(fl); if (r === 'keep') toast('FL changé : même temps de chute, hauteur d\'ouverture et cercle recalculés'); else if (r) toast('FL changé : trace inchangée, revérifie le vecteur puis les points OSO'); } else I.fl = fl; }, 20, 400);
+onNum('v_fl', v => { const I = isv(), fl = Math.round(v); if (sol && sol.ok && fl !== +I.fl) { /* v0.42.2 : aussi avec le vecteur automatique */ const r = flKeepTrace(fl); if (r === 'keep') toast('FL changé : trace inchangée, même temps de chute, hauteur d\'ouverture recalculée ; revérifie le vecteur puis les points OSO'); else if (r) toast('FL changé : trace inchangée, revérifie le vecteur puis les points OSO'); } else I.fl = fl; }, 20, 400);
 onNum('v_ac', v => { isv().acMs = v; }, 20, 200);
 onNum('v_acKt', v => { isv().acMs = Math.round(v / KT * 100) / 100; }, 40, 400); /* v0.14.0 : saisie en KIAS, convertie en m/s badin */
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
@@ -1538,7 +1548,7 @@ function renderBrief() {
   end();
   if (I.points.length) {
     sec('Points de l\'ISV');
-    I.points.forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td>${fmtPos(pt)} <button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`)); /* v0.39.3 (Henri) : coordonnées remises (Briefing et PDF) */
+    (sol && sol.ok && sol.trace.length > 1 ? I.points.slice().sort((p, q) => trOrd(p) - trOrd(q)) : I.points).forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td>${fmtPos(pt)} <button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`)); /* v0.39.3 (Henri) : coordonnées remises (Briefing et PDF) */
     end();
   }
   box.innerHTML = out.join(''); box.querySelectorAll('.applyFl').forEach(b => b.onclick = applyFlMin4);
@@ -2667,14 +2677,32 @@ function cdoRefT() { /* consigne de temps de chute donnée au para quand le FL a
    aussi les sommets S et zones délicates qui étaient à jour. Sinon (route vraiment changée), l'alerte reste. */
 function traceGrid() { return sol && sol.ok ? sol.trace.slice(1).map(q => ({ h: Math.round(q.h), lat: q.lat, lng: q.lng })) : []; }
 function sameRoute(g0) { const g1 = traceGrid(), m = new Map(g0.map(q => [q.h, q])); let n = 0;
-  for (const q of g1) { const p = m.get(q.h); if (!p) continue; n++; if (Calc.dist(p, q) > 2) return false; } return n >= Math.min(2, g1.length); }
+  const P0 = isv().ptu; for (const q of g1) { const p = m.get(q.h); if (!p) continue; n++; if (Calc.dist(p, q) > 2 + 0.001 * (P0 ? Calc.dist(P0, q) : 0)) return false; } /* tolérance : 2 m + 1 m par km depuis le PTU (précision du cap recalculé, 0,01°) */ return n >= Math.min(2, g1.length); }
 function rebaseSum(sig0, g0) { if (!sameRoute(g0)) return; const sig = traceSig(); isv().points.forEach(q => { if ((q.auto === 'S' || q.kind === 'zd') && (!q.sig || q.sig === sig0)) q.sig = sig; }); syncSumWarn(); }
 function flKeepTrace(fl, manualPre) {
-  const I = isv(); compute(); const g0 = traceGrid(), s0 = traceSig(); if (!I.manual || !sol || !sol.ok) { I.fl = fl; changed(); return false; }
+  const I = isv(); compute(); const g0 = traceGrid(), s0 = traceSig(); if (!sol || !sol.ok) { I.fl = fl; changed(); return false; }
+  if (!I.manual) { /* v0.42.2 (Henri) : changer le FL avec le vecteur automatique ne remet PAS tout en automatique — le vecteur tel qu'il
+                      est est considéré comme forcé (point de largage figé, hauteur d'ouverture = celle de la trace là où est le para),
+                      puis on garde la trace comme pour un vecteur à la main. Seul « Vect. auto » recalcule tout. */
+    I.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }; I.keepH = false; I.along = null; I.capManual = null; solKey = null; compute();
+    if (!sol || !sol.ok) { I.fl = fl; changed(); return false; } }
   if (I.keepH) { /* v0.40.0 — hauteur d'ouverture gardée : c'est le temps de chute qui est gardé, donc l'ouverture et le cercle suivent le FL ; le vecteur est ramené dans le nouveau cercle au besoin */
-    I.fl = fl; manualFit(); I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0); changed(); return 'keep'; }
+    /* v0.42.2 (Henri) : changer le FL ne bouge jamais la trace — la route actuelle est figée (I.along) et le point d'ouverture du para
+       reste où il est ; seuls le vecteur, le temps de chute et la hauteur d'ouverture changent */
+    const tgt = sol.ouvO ? { lat: sol.ouvO.lat, lng: sol.ouvO.lng } : null; if (!I.along) I.along = { cap: sol.cap }; I.fl = fl; solKey = null;
+    if (tgt) keepO(tgt); manualFit(); I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0); changed(); return 'keep'; }
   const capM = Math.round(magOf(sol.cap)) % 360, sig0 = traceSig();
-  let m = manualPre; if (!m) { const r = keepOuvSolve(calcInput(I), fl, sol.attachOuv, elev0()); if (r.s && r.s.ok && !(r.s.manualGap > 100)) m = r.m; }
+  /* v0.42.2 : FL trop bas pour que le para s'ouvre encore au même point (l'avion est plus bas que cette ouverture + le temps de chute
+     réglé) → le point d'ouverture DESCEND le long de la même trace jusqu'à la hauteur d'ouverture possible à ce FL. La route ne bouge pas. */
+  let target = { lat: sol.attachOuv.lat, lng: sol.attachOuv.lng };
+  { const p = Calc.solve(Object.assign({}, calcInput(I), { fl, manual: null, keepH: false, along: null, capManual: sol.cap }), prm, F, elev0());
+    if (p.ok && p.hOpen < sol.attachH - 1) { const T = sol.trace; for (let i = 1; i < T.length; i++) if (T[i].h <= p.hOpen) { const f = (T[i - 1].h - p.hOpen) / Math.max(1e-6, T[i - 1].h - T[i].h); target = { lat: T[i - 1].lat + (T[i].lat - T[i - 1].lat) * f, lng: T[i - 1].lng + (T[i].lng - T[i - 1].lng) * f }; break; } manualPre = null; } }
+  let m = manualPre; if (!m) { /* recalage sur le point d'ouverture lui-même (ouvO = largage + dérive en chute) : converge même quand l'ancien
+                                 point de largage est hors de portée au nouveau FL (keepOuvSolve, qui suit attachOuv, divergeait : 12 km) */
+    const inp = calcInput(I); let mm = I.manual, s = null;
+    for (let k = 0; k < 8; k++) { s = Calc.solve(Object.assign({}, inp, { fl, manual: mm }), prm, F, elev0()); if (!s.ok || !s.ouvO) break;
+      const d = Calc.toLocal(s.ouvO, target); if (Math.hypot(d.x, d.y) < 2) break; mm = Calc.fromLocal(mm, d); }
+    if (s && s.ok && !(s.manualGap > 100)) m = mm; }
   if (m) I.manual = m; I.fl = fl; changed();
   if (sol && sol.ok && Math.round(magOf(sol.cap)) % 360 !== capM) setCap(capM);
   I.steps = I.steps || {}; const sig = traceSig();
@@ -2711,22 +2739,27 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'zmt', z: 1, t: 'Point ZMT', d: 'Pose la zone de posé (ZMT).', auto: () => !!(current.id && current.zmt), go: () => startPlacing('Z') },
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },
   { id: 'team', t: 'Équipe', d: 'Vérifie la composition et la configuration de l\'équipe.', go: () => goSec('isv', 'Équipe') },
-  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points gris (ouverture OSO) et jaunes (arrivée après dérive sous voile). Appui long sur le vecteur : déplacer ou rentrer le long de la trace ; points vert et rouge : pivoter.', go: fitVec },
+  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points gris (ouverture OSO) et jaunes (arrivée après dérive sous voile). Appui long sur le vecteur : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', t: 'Cap para et cap avion', tr: 1, auto: capsRound, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
-  { id: 'oso', t: 'Points OSO', tr: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points jaunes (déclenchement du système OSO) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
+  { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points jaunes (déclenchement du système OSO) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
   { id: 'zd', t: 'Zones délicates', tr: 1, d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
   { id: 'zdz', t: 'Zone de posé avant chaque zone délicate', tr: 1, chk: 'zd', d: 'Entre le point d\'alerte et le début de chaque zone délicate, il faut une zone de posé.' },
-  { id: 'inter', t: 'Zones de posé intermédiaires', tr: 1, d: 'Parcours la trace et pose autant de zones de posé alternatives que nécessaire.', go: placeAlt, goL: 'Poser' },
-  { id: 'cl', t: 'Point court et point long', tr: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).court) && isv().points.some(q => q.kind === 'alt' && altPos(q).long),
+  { id: 'inter', t: 'Zones de posé intermédiaires', tr: 1, d: 'Parcours la trace et pose autant de zones de posé alternatives que nécessaire : elles se nomment INT toutes seules.', go: placeAlt, goL: 'Poser' },
+  { id: 'cl', t: 'Point court et point long', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).court) && isv().points.some(q => q.kind === 'alt' && altPos(q).long),
     d: 'Pose une zone alternative en amont de la ZMT (COURT) et une en aval, au-delà du PTU (LONG) : elles se nomment toutes seules.', go: placeAlt, goL: 'Poser' },
 ];
 function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange : faite mais la trace a bougé), 'todo' */
   const H = st.z ? current : isv(), r = (H.steps || {})[st.id]; /* étapes de la zone (documents, ZMT) gardées par la zone, les autres par l'ISV */
+  if (r && r.s === 'skip' && !r.force) return 'skip';
+  if (st.pts && st.auto && !st.auto()) return 'todo'; /* v0.42.2, voir ci-dessous */
   if (r && r.force) return 'recheck'; /* v0.38.0 : revérification demandée (ex. FL changé pour 4 s de chute) */
   if (r && r.s === 'skip') return 'skip';
-  if (st.auto && st.auto()) return 'done';
+  /* v0.42.2 (Henri) : étapes qui dépendent de points posés (OSO, court/long) : si le point n'existe plus (supprimé, ou plus à la bonne
+     place), l'étape redevient « à faire », même si elle avait été validée (« Fait » après un changement de FL…) */
+  if (st.pts && st.auto && !st.auto()) return 'todo';
+  if (st.auto && st.auto()) return r && r.force ? 'recheck' : 'done';
   if (st.chk) { if (st.tr && (!sol || !sol.ok)) return 'todo'; return stepProblems(st.chk).length ? 'todo' : 'done'; }
   if (r && r.s === 'done') return st.tr && r.sig && r.sig !== traceSig() ? 'recheck' : 'done';
   return 'todo';
