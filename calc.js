@@ -328,13 +328,35 @@
     // Vecteur déplacé à la main : le FL ne change pas. La trace doit passer par le nouveau point d'ouverture ; si elle y passe
     // plus bas que l'ouverture prévue, le para chute plus longtemps : la consigne devient « ouverture à x m » (centaine supérieure).
     let attach = null; const stPlan = st, capPlan = weak.cap;
-    const keepH = !!(isv.manual && isv.capManual == null && isv.keepH); let achKeep = null;
+    const keepH = !!(isv.manual && isv.capManual == null && isv.keepH); let achKeep = null, alS = null;
     if (keepH) { /* v0.40.0 : hauteur d'ouverture gardée — le vecteur reste dans le cercle, la trace part du point d'ouverture du para */
       /* Le cap de l'avion (perpendiculaire à la trace, côté le plus face au vent) dépend de la trace, qui dépend du point d'ouverture,
          qui dépend de la dérive en chute donc du cap de l'avion : si le côté bascule d'une passe à l'autre (vent presque dans l'axe
          de la trace), on garde le côté en cours, sinon le vecteur ne serait pas là où il a été posé. */
       let O = null, fit = null, capPrev = null, flips = 0;
       const perpNear = (d1, prev) => { const c1 = n360(d1 + 90), c2 = n360(d1 - 90), g = c => Math.abs(((c - prev + 540) % 360) - 180); return g(c1) <= g(c2) ? c1 : c2; };
+      const al = isv.along && isv.along.cap != null ? isv.along : null;
+      if (al) { /* v0.41.0 (Henri, 22/11) : vecteur RENTRÉ LE LONG DE LA TRACE en gardant la hauteur d'ouverture → la trace et le cap
+                   d'origine sont gardés (route au sol inchangée), le para s'ouvre dessus, plus haut qu'elle : les hauteurs sont
+                   resserrées régulièrement entre l'ouverture et le PTU, et c'est le para qui se débrouille aux oreilles. Aucun
+                   calcul de descente rapide ici. along = { cap, f } = la trace d'origine (f = sa part de temps si elle venait
+                   déjà d'un vecteur déplacé dans le cercle). Ne pas recalculer un cap par ce point (v0.40.3 : jusqu'à 38° d'écart). */
+        const fB = al.f == null ? 1 : Math.max(0, Math.min(1, +al.f)), base = trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, al.cap, margin, fB), bd = base.pts.slice().reverse();
+        const upAt = hb => { const P = base.pts; for (let i = 1; i < P.length; i++) if (hb <= P[i].h || i === P.length - 1) { const f = Math.max(0, Math.min(1, (hb - P[i - 1].h) / Math.max(1e-6, P[i].h - P[i - 1].h))); return { lat: P[i - 1].lat + (P[i].lat - P[i - 1].lat) * f, lng: P[i - 1].lng + (P[i].lng - P[i - 1].lng) * f, t: P[i - 1].t + (P[i].t - P[i - 1].t) * f }; } return P[0]; };
+        const squeeze = hTop => { const r = Math.max(0, Math.min(1, (hTop - hPtu) / Math.max(1, st.hOpen - hPtu))), pts = []; let len = 0;
+          heights(hPtu, st.hOpen).forEach((H, i) => { const q = upAt(hPtu + (H - hPtu) * r); pts.push({ h: H, lat: q.lat, lng: q.lng, t: q.t }); if (i) len += dist(pts[i - 1], pts[i]); });
+          const T = pts[pts.length - 1], d = toLocal(ptu, T); return { pts, cap: al.cap, length: len, direct: Math.hypot(d.x, d.y), time: T.t, top: T, r }; };
+        let nr = null;
+        for (let pass = 0; pass < 6; pass++) {
+          const d1 = traceDir(weak.tr.pts); let ach = acHeadingOf(F, isv, st, d1, isv.manual);
+          if (achKeep != null && isv.vecHeading == null) { if (flips >= 2) ach = perpNear(d1, achKeep); else if (Math.abs(((ach - achKeep + 540) % 360) - 180) > 90) flips++; }
+          achKeep = ach; const O2 = fromLocal(isv.manual, rseDrift(F, isv.manual, st.altRel, st.f, ach));
+          nr = nearestOn(bd, O2); weak = { c: weak.c, cap: al.cap, tr: squeeze(nr.h) };
+          const same = O && dist(O, O2) < 1; O = O2; if (same) break;
+        }
+        out.manualGap = nr.d; out.frac = fB * weak.tr.r; out.along = true; attach = nr.pt; out.ouvO = nr.pt; alS = { bd, s: nr.s, capC: fB >= 0.995 ? al.cap : null };
+        if (nr.d > 30) out.manualFix = fromLocal(isv.manual, toLocal(O, nr.pt)); /* l'ouverture a quitté la trace (météo, FL…) : on l'y ramène */
+      } else {
       for (let pass = 0; pass < 8; pass++) {
         const d1 = traceDir(weak.tr.pts); let ach = acHeadingOf(F, isv, st, d1, isv.manual);
         if (achKeep != null && isv.vecHeading == null) { if (flips >= 2) ach = perpNear(d1, achKeep); else if (Math.abs(((ach - achKeep + 540) % 360) - 180) > 90) flips++; }
@@ -344,8 +366,9 @@
         weak = { c: weak.c, cap: fit.cap, tr: trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, fit.cap, margin, fit.f) };
         if (capPrev != null && Math.abs(((fit.cap - capPrev + 540) % 360) - 180) < 0.05) break; capPrev = fit.cap;
       }
-      out.manualGap = fit.d; out.frac = fit.f; attach = O;
+      out.manualGap = fit.d; out.frac = fit.f; attach = O; out.ouvO = O;
       if (fit.d > 30) { out.manualFix = fromLocal(isv.manual, toLocal(O, fit.top)); out.warn = 'Vecteur hors du cercle de relaxation : à cette hauteur d\'ouverture, le PTU ne peut pas être rejoint depuis là.'; }
+      }
     } else if (isv.manual && isv.capManual == null) {
       let O = null, sol = null, hCmd = null;
       for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
@@ -363,7 +386,7 @@
         weak = { c: weak.c, cap: sol.cap, tr: trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, sol.cap, margin) };
         if (pass > 0 && Math.abs(st.hOpen - prev) < 1) break;
       }
-      out.manualGap = sol.d; attach = O;
+      out.manualGap = sol.d; attach = O; out.ouvO = O; /* v0.41.0 : point d'ouverture qui définit la trace (avant glissement du vecteur) */
       if (sol.d > 30 && sol.pt) out.manualFix = fromLocal(isv.manual, toLocal(O, sol.pt)); /* v0.40.0 : point de largage le plus proche d'où le PTU reste joignable */
       if (sol.d > 100) out.warn = 'Ce point de largage est hors de portée : le PTU ne peut pas être rejoint depuis là.';
     }
@@ -386,7 +409,7 @@
     const man = !!(isv.manual && isv.capManual == null), capShow = man ? capPlan : weak.cap;
     /* v0.40.0 (Henri) : le cercle est TOUJOURS celui de la hauteur d'ouverture réelle. Hauteur gardée : cercle de l'ouverture prévue
        (il ne bouge pas quand on déplace le vecteur dedans). Hauteur changée : cercle recalculé pour la nouvelle hauteur. */
-    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, capPlan) : relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
+    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, alS && alS.capC != null ? alS.capC : capPlan) : relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
     const zonePlan = circ, circShow = circ, drShow = dr;
     if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`;
     const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });
@@ -405,6 +428,14 @@
     if (keepH) { /* v0.40.0 — hauteur gardée : le vecteur reste là où il est posé (pas de glissement le long de la trace) ; s'il dépasse
                     du cercle, on dit de combien le ramener vers le centre (manualFix), sauf s'il est plus long que le cercle */
       sFit = 0; const e = ends(ptsDown[0]), ex = Math.max(dist(cO, e[0]), dist(cO, e[1])) - circ.R;
+      if (alS && ex > 0.5 && !out.manualFix && L <= 2 * circ.R) { /* v0.41.0 (Henri) : rentré le long de la trace — une extrémité sort du cercle (vecteur tourné…) : il rentre encore le long de la trace, qui ne change pas */
+        const B = alS.bd; let tot = 0, sF = null; for (let i = 1; i < B.length; i++) tot += dist(B[i - 1], B[i]);
+        /* on cherche l'endroit le plus proche le long de la trace, vers le PTU comme vers le bord : par vent fort la trace ressort du
+           cercle avant le PTU, et un vecteur rentré trop loin doit remonter */
+        const okAt = s => { const e2 = ends(pointAt(B, s)); return dist(cO, e2[0]) <= circ.R - 2 && dist(cO, e2[1]) <= circ.R - 2; }, st2 = Math.max(5, tot / 4000);
+        for (let k = 1; k * st2 <= tot && sF == null; k++) { const s1 = alS.s + k * st2, s2 = alS.s - k * st2; if (s1 <= tot && okAt(s1)) sF = s1; else if (s2 >= 0 && okAt(s2)) sF = s2; }
+        if (sF != null) out.manualFix = fromLocal(isv.manual, toLocal(ptsDown[0], pointAt(B, sF))); else sFit = null;
+      } else
       if (ex > 0.5 && !out.manualFix && L <= 2 * circ.R) { const v = toLocal(ptsDown[0], cO), lv = Math.hypot(v.x, v.y) || 1, k = Math.min(lv, ex + 5) / lv;
         out.manualFix = fromLocal(isv.manual, { x: v.x * k, y: v.y * k }); out.warn = (out.warn ? out.warn + ' ' : '') + 'Vecteur hors du cercle de relaxation : à cette hauteur d\'ouverture, il doit rester dedans.'; }
       else if (L > 2 * circ.R) sFit = null;

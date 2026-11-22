@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.40.3';
+const VERSION = '0.41.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -395,7 +395,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 function calcInput(I) {
   const di = I.team.findIndex(p => p.id === I.dropId), ri = I.team.findIndex(p => p.id === I.relaxRef);
   return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall, tRef: +prm.tRef > 0 ? +prm.tRef : 4,
-    capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
+    capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), along: (I.manual && I.keepH && I.along && I.along.cap != null) ? { cap: +I.along.cap, f: I.along.f == null ? 1 : +I.along.f } : null, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
 function keepOuvSolve(inp, fl, target, e0) { /* inp peut déjà porter d'autres changements (ex. tFall) */ /* même point d'ouverture sur la trace à un autre FL : on décale le point de largage */
@@ -403,6 +403,23 @@ function keepOuvSolve(inp, fl, target, e0) { /* inp peut déjà porter d'autres 
   for (let k = 0; k < 6; k++) { s = Calc.solve(Object.assign({}, inp, { fl, manual: m }), prm, F, e0); if (!s.ok || !s.attachOuv) break;
     const d = Calc.toLocal(s.attachOuv, target); if (Math.hypot(d.x, d.y) < 2) break; m = Calc.fromLocal(m, d); }
   return { s, m };
+}
+/* v0.41.0 (Henri, 22/11) : tourner un vecteur déplacé à la main ne doit PAS bouger la trace. I.manual est le point de LARGAGE : la
+   dérive en chute change avec le cap de l'avion, donc l'ouverture bougeait (200 à 600 m) et la trace était recalculée (cap para
+   jusqu'à 3° d'écart). On recale le point de largage pour que l'ouverture qui définit la trace (sol.ouvO) reste où elle était.
+   Si une extrémité sort alors du cercle, le vecteur rentre LE LONG DE LA TRACE (en hauteur gardée : passage en I.along). */
+function keepO(target) {
+  const I = isv(); if (!I.manual || !target) return; const e0 = elev0(), inp = calcInput(I); let m = I.manual;
+  for (let k = 0; k < 6; k++) { const s = Calc.solve(Object.assign({}, inp, { manual: m }), prm, F, e0); if (!s.ok || !s.ouvO) break;
+    const d = Calc.toLocal(s.ouvO, target); if (Math.hypot(d.x, d.y) < 2) break; m = Calc.fromLocal(m, d); }
+  I.manual = m; solKey = null;
+}
+function ouvONow() { const I = isv(); compute(); return I.manual && sol && sol.ok && sol.ouvO ? { lat: sol.ouvO.lat, lng: sol.ouvO.lng } : null; }
+function rotKeep(target) { /* après un changement de cap avion */
+  const I = isv(); if (!target || !I.manual) return; const c0 = sol && sol.ok ? { cap: sol.cap, f: sol.keepH && sol.frac != null ? sol.frac : 1 } : null;
+  keepO(target); compute();
+  if (I.keepH && !I.along && c0 && sol && sol.ok && sol.manualFix) { I.along = c0; solKey = null; } /* hauteur gardée, vecteur hors trace d'origine : il rentre le long de SA trace */
+  manualFit();
 }
 function compute() {
   const I = isv();
@@ -496,15 +513,15 @@ function vecMoveFn(ll) {
       if (!sol || !sol.ok) return; const I2 = isv();
       if (!vecHit.off) vecHit.off = Calc.toLocal(ll, sol.vec.attach); // écart entre le doigt et le point de largage, gardé pendant tout le glissement
       if (vecHit.mode) I2.keepH = vecHit.mode === 'keep'; /* mode choisi avant (menu) */
-      else if (!vecHit.gl) { vecHit.gl = { m: I2.manual, k: !!I2.keepH, cap: I2.capManual }; I2.keepH = false; } /* glissement direct : libre, question au lâcher */
-      I2.manual = Calc.fromLocal(ll, vecHit.off); I2.capManual = null;
+      else if (!vecHit.gl) { vecHit.gl = { m: I2.manual, k: !!I2.keepH, cap: I2.capManual, al: I2.along || null }; I2.keepH = false; } /* glissement direct : libre, question au lâcher */
+      I2.manual = Calc.fromLocal(ll, vecHit.off); I2.capManual = null; I2.along = null; /* v0.41.0 : déplacé hors de la trace = trace recalculée */
       const n = performance.now(); if (n - dragT > 220) { dragT = n; if (vecHit.h._lpDragging) manualFit(); draw(true); }
 }
 const vecEndFn = async () => {
   vecHit.off = null; const I = isv(), g = vecHit.gl; vecHit.gl = null; vecHit.mode = null;
   if (g) { manualFit(); draw(true);
     const r = await askOpenMode();
-    if (r === null) { I.manual = g.m; I.keepH = g.k; I.capManual = g.cap; } else I.keepH = r === 'keep'; }
+    if (r === null) { I.manual = g.m; I.keepH = g.k; I.capManual = g.cap; I.along = g.al; } else I.keepH = r === 'keep'; }
   manualFit(); persist(); fillInputs(); redraw();
   toast(sol && sol.ok ? `${sol.openLowered ? 'Ouverture à ' + fmtInt(sol.hOpen) + ' m' : fmt1(sol.tFall) + ' s de chute' + (I.manual && I.keepH ? ' (hauteur d\'ouverture gardée)' : '')} · cap para ${hdg(sol.cap)}` : (sol && sol.err) || '');
 };
@@ -530,6 +547,8 @@ function vecHitLine(V, I) {
           /* v0.40.0 : c'est le point d'OUVERTURE du para qui glisse le long de la trace (la dérive en chute change avec la hauteur
              d'ouverture : en déplaçant seulement le point de largage, l'ouverture quittait la trace et le cap para changeait) */
           const I2 = isv(), s0 = Calc.nearestOn(T, sol.attachOuv).s, target = Calc.pointAt(T, Math.max(0, Math.min(sol.length - 1, s0 + k)));
+          /* v0.41.0 (Henri) : rentrer en GARDANT la hauteur = la trace et le cap d'origine sont gardés (I.along), le para se débrouille aux oreilles */
+          I2.along = md === 'keep' ? (I2.manual && I2.keepH && I2.along ? I2.along : { cap: sol.cap, f: sol.keepH && sol.frac != null ? sol.frac : 1 }) : null;
           I2.keepH = md === 'keep'; I2.capManual = null; if (!I2.manual) I2.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng };
           const r = keepOuvSolve(calcInput(I2), +I2.fl, { lat: target.lat, lng: target.lng }, elev0()); if (r.s && r.s.ok) I2.manual = r.m; else I2.manual = Calc.fromLocal(sol.vec.attach, { x: u.x * k, y: u.y * k });
           solKey = null; vecHit.gl = null; vecEndFn(); }); } }];
@@ -550,6 +569,8 @@ function keep(key, ll, icon, z, onMove, onEnd, onClick) {
 /* Le vecteur déplacé à la main est retenu dans le cercle de relaxation (zone avec marge). */
 function clampToCircle(ll) { if (!sol || !sol.ok) return ll; const z = sol.zone || sol.circle, q = Calc.toLocal(z.c, ll), d = Math.hypot(q.x, q.y), R = Math.max(0, z.R - 20); return d <= R ? ll : Calc.fromLocal(z.c, { x: q.x * R / d, y: q.y * R / d }); }
 let dragT = 0;
+let rotO; /* v0.41.0 : ouverture à garder pendant qu'on fait pivoter le vecteur (undefined = pas de rotation en cours) */
+function rotRecalc() { const n = performance.now(); if (n - dragT > 220) { dragT = n; if (rotO) keepO(rotO); draw(true); } }
 function dragRecalc() { const n = performance.now(); if (n - dragT > 220) { dragT = n; draw(true); } }
 /* Nom affiché d'un point = nom donné + numéro (si homonymes) + écart de hauteur avec la ZMT (P12 / N18, zones alternatives).
    v0.15.0 (Henri) : points de même nom ET même écart de hauteur numérotés 1, 2, 3… collés au nom (sans zéro), dans l'ordre
@@ -698,12 +719,12 @@ function draw(light) {
   keep('drop', null);
   vecHitLine(V, I);
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
-    ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
-    () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
+    ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; if (rotO === undefined) rotO = ouvONow(); I.vecHeading = Calc.bearingOf(q); I.reversed = false; rotRecalc(); },
+    () => { if (rotO) rotKeep(rotO); rotO = undefined; persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
   /* v0.26.0 (Henri) : le point rouge fait aussi pivoter le vecteur (cap du point de largage vers le doigt) */
   keep('rotR', V.red, dotIcon(C_END, 15, '', 'big'), 650,
-    ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(sol.vec.attach, ll); if (Math.hypot(q.x, q.y) < 20) return; I.vecHeading = Calc.bearingOf(q); I.reversed = false; dragRecalc(); },
-    () => { persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
+    ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(sol.vec.attach, ll); if (Math.hypot(q.x, q.y) < 20) return; if (rotO === undefined) rotO = ouvONow(); I.vecHeading = Calc.bearingOf(q); I.reversed = false; rotRecalc(); },
+    () => { if (rotO) rotKeep(rotO); rotO = undefined; persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
   // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   // Ouverture basse : un point jaune par para
   /* v0.5.9 (Henri) : gris = ouverture automatique à 1 900 ft au-dessus du point haut ; jaune = arrivée au sol (hauteur du point haut) après la dérive sous voile */
@@ -895,8 +916,8 @@ function syncQuick() {
 }
 function quick(fn) { fn(); persist(); fillInputs(); redraw(); }
 $('qRelax').addEventListener('click', () => quick(() => { current.show.relax = !current.show.relax; }));
-$('qRev').addEventListener('click', () => quick(() => { const I = isv(); I.reversed = !I.reversed; }));
-$('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
+$('qRev').addEventListener('click', () => quick(() => { const I = isv(), t = ouvONow(); I.reversed = !I.reversed; rotKeep(t); }));
+$('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.along = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 /* v0.18.0 : bouton Vent 0 supprimé (Henri) */ if ($('qZero')) $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
 $('qBrief').addEventListener('click', () => toggleTab('brief')); /* v0.16.0 : bouton Briefing sous Prépa ISV */
@@ -1412,6 +1433,11 @@ function setCap(m) { const I = isv();
   /* v0.29.0 (Henri) : le vecteur déplacé à la main est prioritaire — on ne le remet plus en automatique : il tourne autour du PTU
      (même distance) jusqu'à donner le cap para voulu (la trace est droite de l'OUV au PTU, donc tourner l'ensemble autour du PTU
      tourne le cap d'autant ; 4 passes pour la dérive en chute qui change un peu) */
+  if (I.manual && I.keepH && I.along && I.ptu && sol && sol.ok) { /* v0.41.0 : trace d'origine gardée — c'est elle qui prend le cap demandé, le vecteur tourne autour du PTU avec elle */
+    const want = trueOf(n360(m)), r = (want - sol.cap) * Math.PI / 180, q0 = Calc.toLocal(I.ptu, I.manual);
+    I.manual = Calc.fromLocal(I.ptu, { x: q0.x * Math.cos(r) + q0.y * Math.sin(r), y: -q0.x * Math.sin(r) + q0.y * Math.cos(r) }); I.along = { cap: want, f: I.along.f };
+    solKey = null; manualFit(); changed(); return;
+  }
   if (I.manual && I.ptu && sol && sol.ok) {
     /* le cap para est celui que vole le para (pas la route au sol) : la relation n'est pas simple avec le vent → recherche
        numérique (sécante) de l'angle de rotation du vecteur autour du PTU qui donne le cap voulu */
@@ -1426,16 +1452,16 @@ function setCap(m) { const I = isv();
     at(best.t); manualFit(); if (best.f > 0.5) toast('Cap para impossible à obtenir exactement en gardant le vecteur à la main : le plus proche est gardé');
     changed(); return;
   }
-  I.capManual = trueOf(n360(m)); I.manual = null; changed(); }
-function setAcH(m) { const I = isv(); I.vecHeading = trueOf(n360(m)); I.reversed = false; changed(); }
+  I.capManual = trueOf(n360(m)); I.manual = null; I.along = null; changed(); }
+function setAcH(m) { const I = isv(), t = ouvONow(); I.vecHeading = trueOf(n360(m)); I.reversed = false; rotKeep(t); changed(); }
 $('v_cap').addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v)) return fillInputs(); setCap(v); });
 $('v_capM').addEventListener('click', () => { if (sol && sol.ok) setCap(magOf(sol.cap) - 1); });
 $('v_capP').addEventListener('click', () => { if (sol && sol.ok) setCap(magOf(sol.cap) + 1); });
-$('v_capAuto').addEventListener('click', () => { const I = isv(); I.capManual = null; I.manual = null; changed(); toast('CAP PARA : le plus loin possible du PTU'); });
+$('v_capAuto').addEventListener('click', () => { const I = isv(); I.capManual = null; I.manual = null; I.along = null; changed(); toast('CAP PARA : le plus loin possible du PTU'); });
 $('v_acH').addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v)) return fillInputs(); setAcH(v); });
 $('v_acM').addEventListener('click', () => { if (sol && sol.ok) setAcH(magOf(sol.acHeading) - 1); });
 $('v_acP').addEventListener('click', () => { if (sol && sol.ok) setAcH(magOf(sol.acHeading) + 1); });
-$('v_acAuto').addEventListener('click', () => { const I = isv(); I.vecHeading = null; I.reversed = false; changed(); toast('Vecteur perpendiculaire à la trace, face au vent'); });
+$('v_acAuto').addEventListener('click', () => { const I = isv(), t = ouvONow(); I.vecHeading = null; I.reversed = false; rotKeep(t); changed(); toast('Vecteur perpendiculaire à la trace, face au vent'); });
 $('v_drop').addEventListener('change', e => { isv().dropId = e.target.value || null; e.target.blur(); changed(); });
 $('v_relax').addEventListener('change', e => { isv().relaxRef = e.target.value; e.target.blur(); changed(); });
 
