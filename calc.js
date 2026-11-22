@@ -316,17 +316,31 @@
          viser le centre du cercle (v0.40.2).
          Cap de l'avion : il dépend de la trace, qui dépend du point d'ouverture, qui dépend de la dérive en chute donc du cap de
          l'avion — si le côté « face au vent » bascule d'une passe à l'autre, on garde le côté en cours. */
-      const al = isv.along && isv.along.cap != null ? isv.along : null, full = c => trace(F, ptu, elev0, hPtu, st.hOpen, weak.c, c, margin);
+      const al = isv.along && isv.along.cap != null ? isv.along : null, full = c => trace(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, c, margin);
       const perpNear = (d1, prev) => { const c1 = n360(d1 + 90), c2 = n360(d1 - 90), g = c => Math.abs(((c - prev + 540) % 360) - 180); return g(c1) <= g(c2) ? c1 : c2; };
       let O = null, nr = null, capPrev = null, flips = 0; isAl = !!al;
       if (al) weak = { c: weak.c, cap: al.cap, tr: full(al.cap) };
+      /* v0.44.0 (Henri, 22/11) : le para ne doit pas s'ouvrir trop au-dessus de la trace (sinon la descente rapide ne suffit pas et il
+         devrait se retourner à un moment non prévu → collisions). Ouverture terminée au plus à hTrace + keepPct % × (hTrace − hPtu),
+         keepPct réglable (Param., 30 % par défaut ; un pourcentage et non des mètres : 1 000 m loin du PTU ≠ 1 000 m près du PTU).
+         Au-delà, l'ouverture est abaissée : il chute plus longtemps, consigne CDO en hauteur, arrondie à la CENTAINE SUPÉRIEURE
+         (« tant pis si ça dépasse à la marge »). La trace et le cap ne bougent pas. La dérive en chute dépend du temps de chute,
+         donc on recale (boucle extérieure). */
+      for (let lv = 0; lv < 5; lv++) { capPrev = null;
       for (let pass = 0; pass < 8; pass++) {
         const d1 = traceDir(weak.tr.pts); let ach = acHeadingOf(F, isv, st, d1, isv.manual);
         if (achKeep != null && isv.vecHeading == null) { if (flips >= 2) ach = perpNear(d1, achKeep); else if (Math.abs(((ach - achKeep + 540) % 360) - 180) > 90) flips++; }
         achKeep = ach; const O2 = fromLocal(isv.manual, rseDrift(F, isv.manual, st.altRel, st.f, ach)), still = O && dist(O, O2) < 1; O = O2;
         if (al) { nr = nearestOn(weak.tr.pts, O); if (still) break; }
-        else { const sol = capThrough(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, O); nr = sol; weak = { c: weak.c, cap: sol.cap, tr: full(sol.cap) };
+        else { const sol = capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O); nr = sol; weak = { c: weak.c, cap: sol.cap, tr: full(sol.cap) };
           if (capPrev != null && Math.abs(((sol.cap - capPrev + 540) % 360) - 180) < 0.05) break; capPrev = sol.cap; }
+      }
+      const prevH = st.hOpen, pct = Math.max(0, prm.keepPct == null ? 30 : +prm.keepPct) / 100, hMax = nr.h + pct * Math.max(0, nr.h - hPtu);
+      if ((al || nr.d <= 30) && hMax < stPlan.hOpen - 1) { /* rentré le long de la trace : la chute plus longue décale l'ouverture hors de la trace → manualFix la ramène (sinon oscillation) */
+        const dOpen = stPlan.f.drop - stPlan.f.dropFF, hCmd = Math.ceil((hMax + dOpen) / 100 - 1e-6) * 100, hNeed = Math.max(hPtu + 100, hCmd - dOpen);
+        if (hNeed >= stPlan.hOpen - 1) st = stPlan; else { st = relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true, stPlan.kff)); st.hOpen = hNeed; st.hCmd = hNeed + dOpen; }
+      } else st = stPlan;
+      if (Math.abs(st.hOpen - prevH) < 1) break;
       }
       /* out.frac = part de la descente qu'il reste au para sur la trace (1 = il s'ouvre à la hauteur de la trace) : sert seulement à
          afficher la ligne du Briefing « Voile plus performante que la trace » */
@@ -374,7 +388,7 @@
     const man = !!(isv.manual && isv.capManual == null), capShow = man ? capPlan : weak.cap;
     /* v0.40.0 (Henri) : le cercle est TOUJOURS celui de la hauteur d'ouverture réelle. Hauteur gardée : cercle de l'ouverture prévue
        (il ne bouge pas quand on déplace le vecteur dedans). Hauteur changée : cercle recalculé pour la nouvelle hauteur. */
-    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, capPlan) : relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
+    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan) : /* v0.44.0 : en Garder, cercle de la hauteur gardée, même si l'ouverture est abaissée par la règle des 30 % (le vecteur ne sort pas du cercle) */ relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
     const zonePlan = circ, circShow = circ, drShow = dr;
     if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`;
     const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });
