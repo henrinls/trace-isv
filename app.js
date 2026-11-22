@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.41.0';
+const VERSION = '0.42.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -395,7 +395,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 function calcInput(I) {
   const di = I.team.findIndex(p => p.id === I.dropId), ri = I.team.findIndex(p => p.id === I.relaxRef);
   return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall, tRef: +prm.tRef > 0 ? +prm.tRef : 4,
-    capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), along: (I.manual && I.keepH && I.along && I.along.cap != null) ? { cap: +I.along.cap, f: I.along.f == null ? 1 : +I.along.f } : null, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
+    capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), along: (I.manual && I.keepH && I.along && I.along.cap != null) ? { cap: +I.along.cap } : null, relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
 function keepOuvSolve(inp, fl, target, e0) { /* inp peut déjà porter d'autres changements (ex. tFall) */ /* même point d'ouverture sur la trace à un autre FL : on décale le point de largage */
@@ -416,7 +416,7 @@ function keepO(target) {
 }
 function ouvONow() { const I = isv(); compute(); return I.manual && sol && sol.ok && sol.ouvO ? { lat: sol.ouvO.lat, lng: sol.ouvO.lng } : null; }
 function rotKeep(target) { /* après un changement de cap avion */
-  const I = isv(); if (!target || !I.manual) return; const c0 = sol && sol.ok ? { cap: sol.cap, f: sol.keepH && sol.frac != null ? sol.frac : 1 } : null;
+  const I = isv(); if (!target || !I.manual) return; const c0 = sol && sol.ok ? { cap: sol.cap } : null;
   keepO(target); compute();
   if (I.keepH && !I.along && c0 && sol && sol.ok && sol.manualFix) { I.along = c0; solKey = null; } /* hauteur gardée, vecteur hors trace d'origine : il rentre le long de SA trace */
   manualFit();
@@ -547,8 +547,8 @@ function vecHitLine(V, I) {
           /* v0.40.0 : c'est le point d'OUVERTURE du para qui glisse le long de la trace (la dérive en chute change avec la hauteur
              d'ouverture : en déplaçant seulement le point de largage, l'ouverture quittait la trace et le cap para changeait) */
           const I2 = isv(), s0 = Calc.nearestOn(T, sol.attachOuv).s, target = Calc.pointAt(T, Math.max(0, Math.min(sol.length - 1, s0 + k)));
-          /* v0.41.0 (Henri) : rentrer en GARDANT la hauteur = la trace et le cap d'origine sont gardés (I.along), le para se débrouille aux oreilles */
-          I2.along = md === 'keep' ? (I2.manual && I2.keepH && I2.along ? I2.along : { cap: sol.cap, f: sol.keepH && sol.frac != null ? sol.frac : 1 }) : null;
+          /* v0.41.0 / v0.42.0 (Henri) : rentrer en GARDANT la hauteur = la trace ne bouge pas du tout (I.along), seul le vecteur est ramené dessus ; le para, trop haut, rattrape aux oreilles */
+          I2.along = md === 'keep' ? (I2.manual && I2.keepH && I2.along ? I2.along : { cap: sol.cap }) : null;
           I2.keepH = md === 'keep'; I2.capManual = null; if (!I2.manual) I2.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng };
           const r = keepOuvSolve(calcInput(I2), +I2.fl, { lat: target.lat, lng: target.lng }, elev0()); if (r.s && r.s.ok) I2.manual = r.m; else I2.manual = Calc.fromLocal(sol.vec.attach, { x: u.x * k, y: u.y * k });
           solKey = null; vecHit.gl = null; vecEndFn(); }); } }];
@@ -1435,7 +1435,7 @@ function setCap(m) { const I = isv();
      tourne le cap d'autant ; 4 passes pour la dérive en chute qui change un peu) */
   if (I.manual && I.keepH && I.along && I.ptu && sol && sol.ok) { /* v0.41.0 : trace d'origine gardée — c'est elle qui prend le cap demandé, le vecteur tourne autour du PTU avec elle */
     const want = trueOf(n360(m)), r = (want - sol.cap) * Math.PI / 180, q0 = Calc.toLocal(I.ptu, I.manual);
-    I.manual = Calc.fromLocal(I.ptu, { x: q0.x * Math.cos(r) + q0.y * Math.sin(r), y: -q0.x * Math.sin(r) + q0.y * Math.cos(r) }); I.along = { cap: want, f: I.along.f };
+    I.manual = Calc.fromLocal(I.ptu, { x: q0.x * Math.cos(r) + q0.y * Math.sin(r), y: -q0.x * Math.sin(r) + q0.y * Math.cos(r) }); I.along = { cap: want };
     solKey = null; manualFit(); changed(); return;
   }
   if (I.manual && I.ptu && sol && sol.ok) {
@@ -1531,7 +1531,7 @@ function renderBrief() {
   if (s.own.t120 != null) row('Passage du FL120, depuis le vert', fmtMin(s.own.t120), true);
   { const w = s.weak, i = w.idx >= 0 ? w.idx : 0, nm = I.team[i] && I.team[i].name;
     row('Para le moins performant', nm ? `${esc(nm)} (${esc(w.canopy.name)}, n° ${i + 1})` : `n° ${i + 1} (${esc(w.canopy.name)})`); }
-  if (s.keepH && s.frac != null && s.frac < 0.995) row('Voile plus performante que la trace', 'utiliser la descente rapide'); /* v0.40.1 (Henri) : pas de pourcentage  */
+  if (s.keepH && s.frac != null && s.frac < 0.995) row('Voile plus performante que la trace', 'utiliser la descente rapide'); /* v0.40.1 (Henri) : pas de pourcentage ; v0.42.0 : affichée dès que le para s'ouvre au-dessus de la trace en hauteur gardée (sol.frac = part de la descente qu'il lui reste sur la trace) */
   row('Marge sur le vent', `${prm.margin} %`);
   end();
   if (I.points.length) {
