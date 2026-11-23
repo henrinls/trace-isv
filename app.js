@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.46.1';
+const VERSION = '0.47.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -451,7 +451,7 @@ function compute() {
     sol.flMin4 = best; sol.flMin4Manual = bestM; } catch (e) { console.error(e); } }
   if (sol.ok) {
     // La grille de vents doit couvrir toute la zone utile : sinon on la retélécharge plus grande (une fois par besoin)
-    const need = Math.max(Calc.dist(I.ptu, sol.ouv), Calc.dist(I.ptu, sol.circleOuv.c) + sol.circleOuv.R) / 1000;
+    const need = Math.max(Calc.dist(I.ptu, sol.ouv), ...Calc.zonePts(sol.circleOuv, 30).map(q => Calc.dist(I.ptu, q))) / 1000;
     if (wxRec && need > wxRec.halfKm) { const g = Math.ceil(need * 1.15 / 5) * 5; if ((current.gridKm || 0) < g) current.gridKm = g; const k2 = current.id + '|' + current.when.slice(0, 10) + '|' + current.gridKm; if (gridAsked !== k2) { gridAsked = k2; setTimeout(() => ensureWx(false).then(() => { compute(); if (sol && sol.ok) fitFigure(); }), 50); } }
     scheduleAlti();
   }
@@ -514,7 +514,7 @@ let vecHit = null;
 function manualFit() { const I = isv(); compute(); for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
 async function askOpenMode() {
   $('dlgDel').classList.remove('danger');
-  const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; le vecteur reste dans le cercle de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, le cercle est recalculé) ?', undefined, 'Changer', 'Garder');
+  const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; les points roses restent dans la zone de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, la zone est recalculée) ?', undefined, 'Changer', 'Garder');
   $('dlgDel').classList.add('danger');
   return r === 'DELETE' ? 'change' : r === true ? 'keep' : null;
 }
@@ -816,7 +816,10 @@ function draw(light) {
 
   if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvP'); ouvHandles(null, 'ouvE'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP'); if (!light) updateInfo(); capInfo(); return; }
   // Cercle de relaxation (points de largage)
-  if (SH.relax && sol.circleOuv.R > 0) L.circle(LL(sol.circleOuv.c), { radius: sol.circleOuv.R, /* v0.46.0 (Henri) : cercle des points d'OUVERTURE, fixe — avant : celui des points de largage, qui glissait avec le cap avion */ color: C_RELAX, weight: 2.4, fill: false, interactive: false }).addTo(fig);
+  if (SH.relax && sol.circleOuv.R > 0) { const zp = L.polygon(Calc.zonePts(sol.circleOuv, Math.max(0.25, Math.min(4, 14 * mPerPx(sol.circleOuv.c) / Math.max(1, Calc.zoneSpan(sol.circleOuv).max) * 180 / Math.PI)) /* un sommet tous les 14 px environ : lisse à toutes les échelles */).map(LL), { /* v0.47.0 (Henri) : la VRAIE zone de relaxation (bouts de trace de tous les caps), plus le cercle inscrit */ /* v0.46.0 (Henri) : cercle des points d'OUVERTURE, fixe — avant : celui des points de largage, qui glissait avec le cap avion */ color: C_RELAX, weight: 2.4, fill: false, interactive: false, smoothFactor: 0.15 /* sinon Leaflet simplifie le contour à 1 px près : il paraît anguleux */ });
+    /* Leaflet arrondit chaque sommet au pixel : sur un contour presque rond, ça le fait onduler. Sommets projetés sans arrondi. */
+    zp._projectLatlngs = function (lls, result, bounds) { const ring = lls[0] instanceof L.LatLng ? lls : lls[0], o = this._map.getPixelOrigin(); result.push(ring.map(q => { const pt = this._map.project(q).subtract(o); bounds.extend(pt); return pt; })); };
+    zp.addTo(fig); }
   // Trace : tous les segments, de l'ouverture terminée au PTU
   const MI = traceMini(); syncSumWarn();
   if (SH.trace) {
@@ -983,7 +986,7 @@ function figurePoints() {
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
     (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
-    if (current.show.relax) [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].forEach(a => pts.push(Calc.fromLocal(sol.circleOuv.c, { x: sol.circleOuv.R * Math.sin(a * Math.PI / 180), y: sol.circleOuv.R * Math.cos(a * Math.PI / 180) })));
+    if (current.show.relax) Calc.zonePts(sol.circleOuv, 30).forEach(q => pts.push(q));
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
 }
@@ -1064,7 +1067,7 @@ function quick(fn) { fn(); persist(); fillInputs(); redraw(); }
    (allumé = affiché). On referme en touchant la carte ou en rappuyant sur le bouton. Ce qui est masqué l'est aussi dans le PDF.
    [clé de current.show, libellé, pictogramme, affiché par défaut] */
 const SHOW_ITEMS = [
-  ['relax', 'Cercle de relaxation', '<circle cx="12" cy="12" r="8" fill="none" stroke="#00e5ff" stroke-width="2.6"/>', true],
+  ['relax', 'Zone de relaxation', '<path d="M12 3.5c5 0 8.5 3 8.5 8s-3 9-8 9-9-4-9-9 3.5-8 8.5-8z" fill="none" stroke="#00e5ff" stroke-width="2.6"/>', true],
   ['trace', 'Trace', '<path d="M3 18L21 6" stroke="#000" stroke-width="6"/><path d="M3 18L21 6" stroke="#ff3fb4" stroke-width="3.4"/><circle cx="12" cy="12" r="3" fill="#ff3fb4" stroke="#111"/>', true],
   ['vec', 'Vecteur de largage', '<path d="M5 19L19 5" stroke="#fff" stroke-width="6"/><path d="M5 19L19 5" stroke="#000" stroke-width="3"/><circle cx="5" cy="19" r="4" fill="#1ec83c" stroke="#111"/><circle cx="19" cy="5" r="4" fill="#ff2020" stroke="#111"/>', true],
   ['appr', 'Approche et dégagement', '<path d="M3 20L15 8" stroke="#fff" stroke-width="2.4" stroke-dasharray="4 3"/><path d="M12 6h7v7" fill="none" stroke="#fff" stroke-width="2.4"/>', true],
@@ -1570,7 +1573,8 @@ function vzRefNow() { const I = isv(), ids = I.team.map(p => p.canopy); const us
 function renderVol() {
   const I = isv(), ok = sol && sol.ok;
   setVal('v_fl', ok ? sol.fl : I.fl); setVal('v_ac', fmt1(+I.acMs)); setVal('v_acKt', Math.round(+I.acMs * KT)); setVal('v_tFall', fmt1(ok ? sol.tFall : +I.tFall)); { const ct = ok ? cdoRefT() : null, ec = $('v_cdoRef'); ec.classList.toggle('hidden', ct == null); if (ct != null) ec.innerHTML = `Temps de chute (consigne CDO) : <b>${fmt1(ct)} s</b> (réel ${fmt1(sol.tFall)} s, à cause des arrondis du FL et de la CDO)`; }
-  { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = (I.manual ? `FL minimal de largage pour au moins ${fmt1(+prm.tRef || 4)} s de chute, para au même point de la trace (calculé) :` : `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) :`) + ` <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */ setVal('v_hOpen', ok ? Math.round(sol.hCmd) : ''); /* v0.39.1 (Henri) : hauteur d'action CDO (où il tire), plus l'ouverture terminée */
+  { const e = $('v_flMin4'), f = ok && sol.flMin4 != null; e.classList.toggle('hidden', !f); if (f) { e.innerHTML = (I.manual ? `FL minimal de largage pour au moins ${fmt1(+prm.tRef || 4)} s de chute, para au même point de la trace (calculé) :` : `FL minimal de largage pour la même ouverture terminée (${fmtInt(Math.round(sol.hOpen))} m) avec ${fmt1(+prm.tRef || 4)} s de chute (calculé) :`) + ` <b>FL${String(sol.flMin4).padStart(3, '0')}</b> <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyFlMin4; } } /* v0.35.0 */
+  { const e = $('v_openLow'), q = ok ? openLowInfo() : null; e.classList.toggle('hidden', !q); if (q) { e.innerHTML = `Hauteur d'ouverture gardée : le para s'ouvre ${fmtInt(q.gain)} m plus haut que nécessaire. Ouverture la plus basse pour être sur la trace, au même endroit (calculé) : <b>CDO ${fmtInt(q.hCmd)} m</b> (ouverture terminée ${fmtInt(q.hOpen)} m, ${fmt1(q.tFall)} s de chute) <button class="applyFl">Appliquer</button>`; e.querySelector('.applyFl').onclick = applyOpenLow; } } /* v0.47.0 */ setVal('v_hOpen', ok ? Math.round(sol.hCmd) : ''); /* v0.39.1 (Henri) : hauteur d'action CDO (où il tire), plus l'ouverture terminée */
   setVal('v_cap', ok ? String(magOf(sol.cap)).padStart(3, '0') : ''); setVal('v_acH', ok ? String(magOf(sol.acHeading)).padStart(3, '0') : '');
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
@@ -1594,7 +1598,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Voile la moins performante', `${esc(s.weak.canopy.name)}${s.weak.several ? ' · para ' + esc(pName(s.weak.idx)) + ' (' + fmtInt(s.weak.mte) + ' kg)' : ''}`]);
   if (s.turn) rows.push(['Prise de cap', `à ${s.turn}`, true]);
   if (s.hand) rows.push(['PTU', `main ${s.hand}`, true]);
-  rows.push(['Cercle de relaxation', `rayon ${fmtKm(s.circle.R)} (marge comprise)`]);
+  { const sp = Calc.zoneSpan(s.circleOuv); rows.push(['Zone de relaxation', Math.abs(sp.max - sp.min) < 50 ? `rayon ${fmtKm(sp.min)} (marge comprise)` : `rayon de ${fmtKm(sp.min)} à ${fmtKm(sp.max)} selon la direction (marge comprise)`]); } /* v0.47.0 : zone réelle */
   rows.push(['Marge sur le vent', `${prm.margin} %${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
   return rows;
 }
@@ -1702,6 +1706,7 @@ function renderBrief() {
   sec('Chute et ouverture');
   row('Hauteur d\'action CDO', `${fmtInt(Math.ceil(s.hCmd / 100 - 1e-6) * 100)} m`); /* v0.39.2 (Henri) : arrondie (centaine supérieure) dans le Briefing et le PDF ; la valeur réelle est dans Prépa ISV */ /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
   row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
+  { const q = openLowInfo(); if (q) row('Ouverture possible sur la trace', `CDO ${fmtInt(q.hCmd)} m (ouverture terminée ${fmtInt(q.hOpen)} m, soit ${fmtInt(q.gain)} m plus bas) <button class="applyFl applyOpen">Appliquer</button>`); } /* v0.47.0 (Henri) */
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
   row('Dérive sous RSE', `${fmtInt(s.rseLen)} m`);
@@ -1724,7 +1729,7 @@ function renderBrief() {
     (sol && sol.ok && sol.trace.length > 1 ? I.points.slice().sort((p, q) => trOrd(p) - trOrd(q)) : I.points).forEach(pt => out.push(`<tr><td>${esc(pointLabel(pt) || (pt.kind === 'alt' ? 'Zone de posé alternative' : 'Point'))}</td><td>${fmtPos(pt)} <button class="seept" data-id="${pt.id}">🗺 Voir sur la carte</button></td></tr>`)); /* v0.39.3 (Henri) : coordonnées remises (Briefing et PDF) */
     end();
   }
-  box.innerHTML = out.join(''); box.querySelectorAll('.applyFl').forEach(b => b.onclick = applyFlMin4);
+  box.innerHTML = out.join(''); box.querySelectorAll('.applyFl').forEach(b => b.onclick = b.classList.contains('applyOpen') ? applyOpenLow : applyFlMin4);
   box.querySelectorAll('.seept').forEach(b => b.onclick = () => { const pt = isv().points.find(x => x.id === b.dataset.id); if (pt) seePoint(pt); });
 }
 /* « Voir sur la carte » (v0.13.1, Henri) : le point n'est pas forcément centré, il doit juste être à l'écran avec :
@@ -2598,7 +2603,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   const SH = current.show; /* v0.45.0 : ce qui est masqué par le bouton Affichage l'est aussi dans le PDF */
   if (SH.zrt) current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), '#ff2020', 2.2, [10, 6])); });
   if (SH.sec) { const Z = secPolys(); if (Z.length) { g.save(); g.beginPath(); Z.forEach(r => { r.forEach((ll, i) => { const q = toC(ll); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.closePath(); }); g.fillStyle = 'rgba(255,140,0,.24)'; g.fill('nonzero'); g.restore(); } }
-  if (SH.relax && sol.circleOuv.R > 0) { const c = toC(sol.circleOuv.c); g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.beginPath(); g.arc(c.x, c.y, sol.circleOuv.R * pxPerM(sol.circleOuv.c), 0, 2 * Math.PI); g.stroke(); g.restore(); }
+  if (SH.relax && sol.circleOuv.R > 0) { g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.lineJoin = 'round'; g.beginPath(); Calc.zonePts(sol.circleOuv, 1).forEach((q, i) => { const c = toC(q); if (i) g.lineTo(c.x, c.y); else g.moveTo(c.x, c.y); }); g.closePath(); g.stroke(); g.restore(); } /* v0.47.0 : contour réel de la zone de relaxation */
   /* v0.39.2 (Henri) : la carte du PDF = celle de l'appli (mêmes couleurs, mêmes étiquettes, pas d'écriture le long du vecteur ni de la trace) */
   const PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
   if (SH.trace) { line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6); }
@@ -2721,7 +2726,7 @@ function briefSections() {
   renderBrief(); const out = [];
   $('briefBody').querySelectorAll('h3').forEach(h => {
     const tb = h.nextElementSibling; if (!tb || tb.tagName !== 'TABLE') return;
-    const rows = [...tb.querySelectorAll('tr')].map(tr => { const td = tr.querySelectorAll('td'); const v = td[1] ? td[1].cloneNode(true) : null; if (v) v.querySelectorAll('button').forEach(b => b.remove());
+    const rows = [...tb.querySelectorAll('tr')].filter(tr => !tr.querySelector('.applyOpen')) /* v0.47.0 : la suggestion d'ouverture plus basse reste à l'écran, pas dans le PDF (une seule CDO sur le papier) */.map(tr => { const td = tr.querySelectorAll('td'); const v = td[1] ? td[1].cloneNode(true) : null; if (v) v.querySelectorAll('button').forEach(b => b.remove());
       return [td[0] ? td[0].innerText.trim() : '', v ? v.innerText.trim() : '', tr.classList.contains('hi')]; });
     out.push({ title: h.innerText.trim(), rows, para: !!h.closest('.paraBox') });
   });
@@ -2975,6 +2980,26 @@ function flKeepTrace(fl, manualPre) {
   ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig, force: 1 }; }); rebaseSum(s0, g0);
   persist(); syncSteps(); return true;
 }
+/* v0.47.0 (Henri, 23/11) : vecteur rentré (ou déplacé) en GARDANT la hauteur d'ouverture → le para s'ouvre au-dessus de la trace. On dit
+   quelle serait l'ouverture la plus basse, celle de la trace à cet endroit (ce que donnerait « Changer »), avec un bouton Appliquer,
+   sur le modèle du FL pour 4 s. Même point d'ouverture sur la trace, même route ; calculé à la demande (plusieurs résolutions). */
+let openLowC = { k: null, v: null };
+function openLowInfo() {
+  const I = isv(); if (!sol || !sol.ok || !I.manual || !I.keepH || !sol.attachOuv) return null;
+  const key = JSON.stringify([solKey, I.manual, I.fl, sol.cap, sol.hOpen]); if (openLowC.k === key) return openLowC.v;
+  let v = null;
+  try { const inp = Object.assign(calcInput(I), { keepH: false, along: { cap: sol.cap } }), r = keepOuvSolve(inp, +I.fl, sol.attachOuv, elev0()), s2 = r.s;
+    if (s2 && s2.ok && !s2.err && s2.hOpen < sol.hOpen - 50) v = { m: r.m, cap: sol.cap, hOpen: s2.hOpen, hCmd: Math.ceil(s2.hCmd / 100 - 1e-6) * 100, tFall: s2.tFall, gain: sol.hOpen - s2.hOpen };
+  } catch (err) { console.error(err); }
+  openLowC = { k: key, v }; return v;
+}
+function applyOpenLow() {
+  const q = openLowInfo(); if (!q) return; const I = isv(), g0 = traceGrid(), s0 = traceSig();
+  I.keepH = false; I.along = { cap: q.cap }; I.manual = q.m; I.capManual = null; I.cdoRef = null; solKey = null; manualFit();
+  I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0);
+  stepFocus = 'vec'; persist(); closeSheet(); changed(); syncSteps(); redraw();
+  toast(sol && sol.ok ? `Ouverture abaissée sur la trace : CDO ${fmtInt(Math.ceil(sol.hCmd / 100 - 1e-6) * 100)} m. Revérifie le vecteur de largage puis les points OSO` : 'Ouverture abaissée');
+}
 function applyFlMin4() {
   if (!sol || !sol.ok || sol.flMin4 == null) return; const I = isv(), fl = sol.flMin4, g0 = traceGrid(), s0 = traceSig();
   if (I.manual && I.keepH) { /* hauteur gardée et temps de chute ≠ référence : même ouverture au même endroit, avec le temps de référence */
@@ -3004,7 +3029,7 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'zmt', z: 1, t: 'Point ZMT', d: 'Pose la zone de posé (ZMT).', auto: () => !!(current.id && current.zmt), go: () => startPlacing('Z') },
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },
   { id: 'team', t: 'Équipe', d: 'Vérifie la composition et la configuration de l\'équipe.', go: () => goSec('isv', 'Équipe') },
-  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans le cercle de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
+  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', t: 'Cap para et cap avion', tr: 1, auto: capsRound, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
   { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },

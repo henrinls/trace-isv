@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.46.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.47.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.46.1">
+<link rel="stylesheet" href="style.css?v=0.47.0">
 </head>
 <body>
 <div id="map"></div>
@@ -183,6 +183,7 @@
       <div><label>Hauteur réelle CDO (m, sol ZMT)</label><input id="v_hOpen" inputmode="numeric"></div>
     </div>
     <p class="calc hidden" id="v_flMin4"></p>
+    <p class="calc hidden" id="v_openLow"></p>
     <p class="calc hidden" id="v_cdoRef"></p>
     <label>CAP PARA (° magnétiques)</label>
     <div class="stepper"><button id="v_capM">−</button><input id="v_cap" inputmode="numeric"><button id="v_capP">+</button><button id="v_capAuto">Auto</button></div>
@@ -250,7 +251,7 @@
     <div class="grid2">
       <div><label>Marge de sécurité sur le vent (%)</label><input id="p_margin" inputmode="numeric"></div><div></div>
     </div>
-    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation tient compte de cette marge : tout para qui s'ouvre dedans peut rejoindre le PTU. Il ne dépend que du FL et de la hauteur d'ouverture ; ce sont les points d'ouverture (roses) qui doivent y rester, pas le vert et le rouge, qui sont des points de largage.</p>
+    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. La zone de relaxation tient compte de cette marge : tout para qui s'ouvre dedans peut rejoindre le PTU. Son contour est fait des bouts de trace de tous les caps ; elle ne dépend que du FL, de la hauteur d'ouverture et du vent ; ce sont les points d'ouverture (roses) qui doivent y rester, pas le vert et le rouge, qui sont des points de largage.</p>
 
     <h3>Sommets et zones délicates</h3>
     <div class="grid2">
@@ -347,17 +348,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.46.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.46.1"></script>
-<script src="vendor/mgrs.min.js?v=0.46.1"></script>
-<script src="geo.js?v=0.46.1"></script>
-<script src="clubs.js?v=0.46.1"></script>
-<script src="wmm.js?v=0.46.1"></script>
-<script src="calc.js?v=0.46.1"></script>
-<script src="windpick.js?v=0.46.1"></script>
-<script src="pdfview.js?v=0.46.1"></script>
-<script src="lpmove.js?v=0.46.1"></script>
-<script src="app.js?v=0.46.1"></script>
-<script src="photo.js?v=0.46.1"></script>
+<script src="vendor/leaflet.js?v=0.47.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.47.0"></script>
+<script src="vendor/mgrs.min.js?v=0.47.0"></script>
+<script src="geo.js?v=0.47.0"></script>
+<script src="clubs.js?v=0.47.0"></script>
+<script src="wmm.js?v=0.47.0"></script>
+<script src="calc.js?v=0.47.0"></script>
+<script src="windpick.js?v=0.47.0"></script>
+<script src="pdfview.js?v=0.47.0"></script>
+<script src="lpmove.js?v=0.47.0"></script>
+<script src="app.js?v=0.47.0"></script>
+<script src="photo.js?v=0.47.0"></script>
 </body>
 </html>

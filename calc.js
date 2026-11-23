@@ -209,7 +209,17 @@
     for (let c = 0; c < 360; c += 15) { const q = top(c, 0); la += q.lat; lo += q.lng; n++; }
     const C0 = { lat: la / n, lng: lo / n }, Q = []; let Rin = Infinity, Rm = 0;
     for (let c = 0; c < 360; c += 5) { const p = top(c, margin), q = toLocal(C0, p), h = unit(c), r = -(q.x * h.x + q.y * h.y); Q.push(p); Rin = Math.min(Rin, r); Rm += r / 72; }
-    const centered = { c: C0, R: Math.max(0, Rin) };
+    /* v0.47.0 (Henri, 23/11) : la VRAIE zone de relaxation, plus seulement le plus grand cercle qui tient dedans. Son bord = les
+       ouvertures de toutes les traces (une tous les 5°, plus celles autour du cap de la trace pour être exact là où le vecteur se
+       pose). On la décrit par son rayon en fonction du relèvement vu du centre C0 (z.a croissant, z.r), ce qui suppose qu'elle
+       est « étoilée » autour de C0 : vrai tant que le vent ne la replie pas sur elle-même ; sinon z = null et on garde le cercle. */
+    const polar = p => { const q = toLocal(C0, p); return { a: Math.atan2(q.x, q.y), r: Math.hypot(q.x, q.y) }; };
+    const mkZone = extra => { const P = Q.concat(extra || []).map(polar).sort((u, v) => u.a - v.a), a = [], r = [];
+      for (const k of P) { if (a.length && k.a - a[a.length - 1] < 1e-5) continue; a.push(k.a); r.push(k.r); }
+      let ok = Rin > 1 && a.length >= 24; /* étoilée : en tournant le cap de 5° en 5°, le relèvement du bord tourne toujours dans le même sens */
+      if (ok) { let tot = 0, sg = 0; for (let i = 0; i < Q.length; i++) { let d = polar(Q[(i + 1) % Q.length]).a - polar(Q[i]).a; d = Math.atan2(Math.sin(d), Math.cos(d)); if (!sg) sg = Math.sign(d); if (Math.sign(d) !== sg || Math.abs(d) > 0.6) { ok = false; break; } tot += d; } if (ok && Math.abs(Math.abs(tot) - 2 * Math.PI) > 0.05) ok = false; }
+      return ok ? { c: C0, a, r } : null; };
+    const centered = { c: C0, R: Math.max(0, Rin), z: mkZone() };
     if (cap == null || !(Rin > 1)) return centered;
     // Repère centré sur l'ouverture T de la trace : c'est là que le cercle doit être exact
     const T = top(cap, margin), A = toLocal(T, top(cap + 2, margin)), B = toLocal(T, top(cap - 2, margin)), c0 = toLocal(T, C0);
@@ -218,8 +228,22 @@
     let rho = Infinity;
     for (const p of Q) { const d = toLocal(T, p), d2 = d.x * d.x + d.y * d.y, dot = d.x * nx + d.y * ny; if (d2 > 0.04 * Rm * Rm && dot > 1e-6) rho = Math.min(rho, d2 / (2 * dot)); }
     if (!isFinite(rho) || rho <= 0) return centered;
-    return { c: fromLocal(T, { x: rho * nx, y: rho * ny }), R: rho };
+    const near = []; for (const d of [-4, -3, -2, -1, 0, 1, 2, 3, 4]) near.push(top(cap + d, margin));
+    return { c: fromLocal(T, { x: rho * nx, y: rho * ny }), R: rho, z: mkZone(near) };
   }
+  /* Zone de relaxation z = { c, a[], r[] } : rayon du bord dans un relèvement (interpolé entre deux ouvertures voisines), dépassement
+     d'un point (> 0 = dehors), et son contour pour le dessin. Sans z (cas dégénéré) : le cercle { c, R }. */
+  function zoneR(z, ang) { const a = z.a, r = z.r, n = a.length, P = 2 * Math.PI; let i = n - 1; /* intervalle [a[i], a[i+1]] (périodique) qui contient ang */
+    if (ang >= a[0] && ang < a[n - 1]) { let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (a[m] <= ang) lo = m; else hi = m; } i = lo; }
+    const A = k => a[((k % n) + n) % n] + Math.floor(k / n) * P, Rr = k => r[((k % n) + n) % n], x = i === n - 1 && ang < a[0] ? ang + P : ang;
+    const a0 = A(i), a1 = A(i + 1), h = Math.max(1e-9, a1 - a0), t = Math.max(0, Math.min(1, (x - a0) / h));
+    const m0 = (Rr(i + 1) - Rr(i - 1)) / Math.max(1e-9, a1 - A(i - 1)), m1 = (Rr(i + 2) - Rr(i)) / Math.max(1e-9, A(i + 2) - a0), t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * Rr(i) + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * Rr(i + 1) + (t3 - t2) * h * m1; }
+  function zoneOut(circ, p) { if (!circ.z) return dist(circ.c, p) - circ.R; const q = toLocal(circ.z.c, p); return Math.hypot(q.x, q.y) - zoneR(circ.z, Math.atan2(q.x, q.y)); }
+  function zonePts(circ, stepDeg) { const out = [], st = stepDeg || 1;
+    for (let d = 0; d < 360; d += st) { const g = d * Math.PI / 180, ang = Math.atan2(Math.sin(g), Math.cos(g)), R = circ.z ? zoneR(circ.z, ang) : circ.R, c = circ.z ? circ.z.c : circ.c; out.push(fromLocal(c, { x: R * Math.sin(g), y: R * Math.cos(g) })); }
+    return out; }
+  function zoneSpan(circ) { if (!circ.z) return { min: circ.R, max: circ.R }; return { min: Math.min.apply(null, circ.z.r), max: Math.max.apply(null, circ.z.r) }; }
   // Point d'une polyligne (liste de { lat, lng, h }) le plus proche de q : distance, hauteur interpolée, abscisse
   function nearestOn(pts, q) {
     let best = null, acc = 0;
@@ -346,7 +370,7 @@
       /* out.frac = part de la descente qu'il reste au para sur la trace (1 = il s'ouvre à la hauteur de la trace) : sert seulement à
          afficher la ligne du Briefing « Voile plus performante que la trace » */
       out.manualGap = nr.d; out.frac = Math.max(0, Math.min(1, (nr.h - hPtu) / Math.max(1, st.hOpen - hPtu))); out.along = isAl; attach = nr.pt || O; out.ouvO = attach;
-      if (nr.d > 30 && nr.pt) { out.manualFix = fromLocal(isv.manual, toLocal(O, nr.pt)); if (!al) out.warn = 'Vecteur hors du cercle de relaxation : à cette hauteur d\'ouverture, le PTU ne peut pas être rejoint depuis là.'; }
+      if (nr.d > 30 && nr.pt) { out.manualFix = fromLocal(isv.manual, toLocal(O, nr.pt)); if (!al) out.warn = 'Vecteur hors de la zone de relaxation : à cette hauteur d\'ouverture, le PTU ne peut pas être rejoint depuis là.'; }
     } else if (isv.manual && isv.capManual == null) {
       let O = null, sol = null, hCmd = null;
       for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
@@ -402,24 +426,24 @@
     const idx = (isv.dropIdx != null && isv.dropIdx >= 0 && isv.dropIdx < n) ? isv.dropIdx : defaultDropIdx(n);
     const sBefore = vg * ex.te[idx], sAfter = vg * (ex.total - ex.te[idx]), L = sBefore + sAfter;
     const total = (() => { let s = 0; for (let i = 1; i < ptsDown.length; i++) s += dist(ptsDown[i - 1], ptsDown[i]); return s; })();
-    const cO = circ.c, inside = p => dist(cO, p) <= circ.R + 0.5;
+    const cO = circ.z ? circ.z.c : circ.c, inside = p => zoneOut(circ, p) <= 0.5; /* v0.47.0 : zone réelle */
     const ends = o => [fromLocal(o, { x: -a.x * sBefore, y: -a.y * sBefore }), fromLocal(o, { x: a.x * sAfter, y: a.y * sAfter })];
     let s0 = attach ? nearestOn(ptsDown, attach).s : 0, sFit = null;
     if (keepH) { /* v0.42.0 — hauteur gardée : le para est à l'abscisse s0 de la trace (entière) ; le vecteur reste là où il est posé. S'il
                     dépasse du cercle : rentré le long de la trace → il glisse encore le long de la trace (vers le PTU comme vers le
                     bord : par vent fort la trace ressort du cercle avant le PTU) ; déplacé librement → on dit de combien le ramener
                     vers le centre (manualFix). Sauf s'il est plus long que le cercle. */
-      sFit = s0; const oK = pointAt(ptsDown, s0), e = ends(oK), ex = Math.max(dist(cO, e[0]), dist(cO, e[1])) - circ.R;
+      sFit = s0; const oK = pointAt(ptsDown, s0), e = ends(oK), ex = Math.max(zoneOut(circ, e[0]), zoneOut(circ, e[1]));
       if (ex > 0.5 && !out.manualFix && L <= 2 * circ.R) {
-        if (isAl) { let sF = null; const okAt = s => { const e2 = ends(pointAt(ptsDown, s)); return dist(cO, e2[0]) <= circ.R - 2 && dist(cO, e2[1]) <= circ.R - 2; }, st2 = Math.max(5, total / 4000);
+        if (isAl) { let sF = null; const okAt = s => { const e2 = ends(pointAt(ptsDown, s)); return zoneOut(circ, e2[0]) <= -2 && zoneOut(circ, e2[1]) <= -2; }, st2 = Math.max(5, total / 4000);
           for (let k = 1; k * st2 <= total && sF == null; k++) { const s1 = s0 + k * st2, s2 = s0 - k * st2; if (s1 <= total && okAt(s1)) sF = s1; else if (s2 >= 0 && okAt(s2)) sF = s2; }
           if (sF != null) out.manualFix = fromLocal(isv.manual, toLocal(oK, pointAt(ptsDown, sF))); else sFit = null; }
         else { const v = toLocal(oK, cO), lv = Math.hypot(v.x, v.y) || 1, k = Math.min(lv, ex + 5) / lv;
-          out.manualFix = fromLocal(isv.manual, { x: v.x * k, y: v.y * k }); out.warn = (out.warn ? out.warn + ' ' : '') + 'Vecteur hors du cercle de relaxation : à cette hauteur d\'ouverture, il doit rester dedans.'; }
+          out.manualFix = fromLocal(isv.manual, { x: v.x * k, y: v.y * k }); out.warn = (out.warn ? out.warn + ' ' : '') + 'Ouvertures hors de la zone de relaxation : à cette hauteur d\'ouverture, les points roses doivent rester dedans.'; }
       } else if (L > 2 * circ.R) sFit = null;
     } else
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
-    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que le cercle de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de diamètre) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans le cercle de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.`); sFit = s0; }
+    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de large) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.`); sFit = s0; }
     const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
     out.keepH = keepH; out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
     out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),
@@ -478,6 +502,6 @@
   }
 
   const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, canRef, canOpenRef, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
-    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
+    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, zoneOut, zonePts, zoneSpan, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
