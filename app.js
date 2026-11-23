@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.45.1';
+const VERSION = '0.46.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -151,7 +151,7 @@ function upgrade(z) {
   z.isvs = z.isvs.map(upIsv);
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
-  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, ouv: true, appr: true, ptu: true, oso: true, sec: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
   /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
   z.isvs.forEach(i => { if (typeof i.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(i.when)) i.when = z.when; if (i.nameAuto) i.name = isvAutoName(i); });
@@ -545,18 +545,27 @@ function moveDone() { manualFit(); persist(); fillInputs(); redraw(); const I = 
    lâcher (glissement direct), comme pour le vecteur. Vert / rouge : pivoter, l'ouverture et la trace ne bougent pas. */
 function noVecHandles() { keep('drop', null); keep('rot', null); keep('rotR', null); if (vecHit && handles.hasLayer(vecHit.line)) handles.removeLayer(vecHit.line); }
 const osoIcon = col => L.divIcon({ className: 'osop', iconSize: [28, 28], iconAnchor: [14, 14], html: `<span style="background:${col}"></span>` });
+/* v0.46.0 (Henri, 23/11) : points d'OUVERTURE, un par para (roses, sur le modèle des points OSO) = point de sortie + projection avion +
+   dérive en chute et à l'ouverture (la même pour tous : même temps de chute). Celui du para sur la trace s'appelle OUV : c'est
+   sol.attachOuv. Le début de la trace (sol.trace[0]) n'a plus de nom. ouvVec() = vert et rouge décalés de la même dérive : c'est ce
+   segment-là que le calcul garde dans le cercle de relaxation. */
+const C_OUV_END = 'rgba(255,205,235,.72)'; /* rose clair transparent : vert et rouge reportés à l'ouverture */
+function ouvShift() { return sol && sol.ok && sol.attachOuv && sol.vec ? Calc.toLocal(sol.vec.attach, sol.attachOuv) : null; }
+function ouvPts() { const d = ouvShift(); return d ? sol.vec.exits.map(e => Calc.fromLocal(e, d)) : null; }
+function ouvVec() { const d = ouvShift(); return d ? [Calc.fromLocal(sol.vec.green, d), Calc.fromLocal(sol.vec.red, d)] : null; }
 function ouvCur() { const I = isv(); return sol && sol.ok ? (I.manual && sol.ouvO ? sol.ouvO : sol.attachOuv) : null; } /* point d'ouverture du para sur la trace */
 /* Poignées gardées d'un dessin à l'autre (clés préfixe + rang) ; une poignée en cours de glissement n'est pas retirée, même si son
    point n'existe plus le temps du recalcul (point haut en attente). */
 function ouvHandles(pts, prefix, icon, z, kind, onTap) {
   const n = pts ? pts.length : 0;
   for (let i = 0; i < n; i++) { const key = prefix + i, isNew = !mk[key]; keep(key, pts[i], icon, z);
-    if (isNew) { ouvGesture(mk[key], kind); mk[key].on('click', () => { if (Date.now() < suppressClickUntil) return; if (mk[key] && mk[key]._onTap) mk[key]._onTap(); }); }
+    mk[key]._kind = typeof kind === 'function' ? kind(i) : kind;
+    if (isNew) { ouvGesture(mk[key]); mk[key].on('click', () => { if (Date.now() < suppressClickUntil) return; if (mk[key] && mk[key]._onTap) mk[key]._onTap(); }); }
     mk[key]._onTap = onTap || null; }
   Object.keys(mk).filter(k => k.startsWith(prefix) && /^\d+$/.test(k.slice(prefix.length)) && +k.slice(prefix.length) >= n).forEach(k => { if (isDragging(mk[k])) return; handles.removeLayer(mk[k]); delete mk[k]; });
 }
-function ouvGesture(m, kind) {
-  let st = null, mode = null, R0 = null;
+function ouvGesture(m) {
+  let st = null, mode = null, R0 = null; const isOuv = () => m._kind === 'ouv';
   const start = () => { st = null; mode = null; const q = m.getLatLng(); R0 = { lat: q.lat, lng: q.lng }; };
   const init = () => { compute(); if (!sol || !sol.ok) return false; const I = isv(), o = ouvCur(); if (!R0) start();
     st = { R: R0, m0: I.manual ? { lat: I.manual.lat, lng: I.manual.lng } : { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }, o0: { lat: o.lat, lng: o.lng }, back: { m: I.manual, k: !!I.keepH, cap: I.capManual, al: I.along || null }, last: null }; return true; };
@@ -568,22 +577,12 @@ function ouvGesture(m, kind) {
     if (!md) { manualFit(); draw(true); const r = await askOpenMode();
       if (r === null) { I.manual = s.back.m; I.keepH = s.back.k; I.capManual = s.back.cap; I.along = s.back.al; solKey = null; moveDone(); return; } I.keepH = r === 'keep'; }
     let target = Calc.fromLocal(s.o0, Calc.toLocal(s.R, s.last)); solKey = null; keepO(target);
-    /* point OUV en mode Changer : la CDO est arrondie à la centaine supérieure, donc le début de la trace ne peut tomber que sur des
-       paliers (un tous les 100 m de hauteur, soit 400 à 500 m le long de la trace). Avec l'ouverture posée où on a appuyé, le début de
-       trace est au palier du dessus (en amont) ; on essaie aussi le palier du dessous et on garde le plus proche du doigt. */
-    if (kind === 'ouv' && !I.keepH) { compute();
-      if (sol && sol.ok && !sol.manualFix) { const A = sol.trace[0], eA = Calc.dist(A, s.last), T = sol.trace, mA = I.manual; let done = false;
-        if (eA > 20) for (const dh of [2, 20, 45]) { const hB = A.h - 100 - dh; let B = null;
-          for (let i = 1; i < T.length; i++) if (T[i].h <= hB) { const f = (T[i - 1].h - hB) / Math.max(1e-6, T[i - 1].h - T[i].h); B = { lat: T[i - 1].lat + f * (T[i].lat - T[i - 1].lat), lng: T[i - 1].lng + f * (T[i].lng - T[i - 1].lng) }; break; }
-          if (!B) break; I.manual = mA; keepO(B); compute(); if (!sol || !sol.ok || sol.manualFix) break;
-          if (Calc.dist(sol.trace[0], A) > 50) { done = Calc.dist(sol.trace[0], s.last) < eA; break; } }
-        if (!done) { I.manual = mA; solKey = null; } } }
     moveDone(); };
   m._lpMenu = () => [
     { label: '✥ Déplacer', fn: async () => { const md = await askOpenMode(); if (!md) return;
-      LPMove.pick(kind === 'ouv' ? 'Touche la carte : le point d\'ouverture va là' : 'Touche la carte : le point d\'ouverture se décale d\'autant', ll => { start(); mode = md; move(ll); end(); }); } },
+      LPMove.pick(isOuv() ? 'Touche la carte : le point OUV va là' : 'Touche la carte : le point d\'ouverture se décale d\'autant', ll => { start(); mode = md; move(ll); end(); }); } },
     { label: '⇢ Rentrer le long de la trace', fn: async () => { const md = await askOpenMode(); if (!md) return; const q = m.getLatLng(), R = { lat: q.lat, lng: q.lng };
-      LPMove.pick(kind === 'ouv' ? 'Touche la carte : le point d\'ouverture glisse sur la trace jusqu\'en face' : 'Touche la carte : le point d\'ouverture glisse d\'autant sur la trace', ll => alongMove(kind, R, ll, md)); } }];
+      LPMove.pick(isOuv() ? 'Touche la carte : le point OUV glisse sur la trace jusqu\'en face' : 'Touche la carte : le point d\'ouverture glisse d\'autant sur la trace', ll => alongMove(m._kind, R, ll, md)); } }];
   longPressDrag(m, move, end, start);
 }
 /* Route complète sur laquelle « Rentrer le long de la trace » fait glisser le point d'ouverture : la trace au cap figé (I.along) ou
@@ -712,7 +711,7 @@ async function miniBack(i) { /* v0.35.5 (Henri) : on peut aussi rebasculer vers 
   const canBack = i > 0, canFwd = S.some(q => (q.back || 0) > 0);
   if (!canBack && !canFwd) { toast('C\'est déjà le point d\'ouverture : impossible de remonter plus loin'); return; }
   $('dlgDel').classList.remove('danger'); /* « Avancer » n'est pas une suppression : bouton neutre */
-  const r = await ask(`Point d'alerte ${fmtInt(T[i].h)}-MINI${M[i]}.${canBack ? ` Reculer : la hauteur mini passe sur le point d'avant (${i === 1 ? 'OUV ' : ''}${fmtInt(T[i - 1].h)}).` : ' (Déjà au point d\'ouverture.)'}${canFwd ? ` Avancer : elle revient sur le point suivant (${fmtInt(T[i + 1].h)}).` : ''}`, undefined, canFwd && canBack ? '◀ Reculer d\'un point' : null, canFwd ? 'Avancer d\'un point ▶' : '◀ Reculer d\'un point'); /* v0.35.6 (Henri) : Reculer à gauche, Avancer à droite */
+  const r = await ask(`Point d'alerte ${fmtInt(T[i].h)}-MINI${M[i]}.${canBack ? ` Reculer : la hauteur mini passe sur le point d'avant (${fmtInt(T[i - 1].h)}).` : ' (Déjà au début de la trace.)'}${canFwd ? ` Avancer : elle revient sur le point suivant (${fmtInt(T[i + 1].h)}).` : ''}`, undefined, canFwd && canBack ? '◀ Reculer d\'un point' : null, canFwd ? 'Avancer d\'un point ▶' : '◀ Reculer d\'un point'); /* v0.35.6 (Henri) : Reculer à gauche, Avancer à droite */
   $('dlgDel').classList.add('danger');
   const back = () => S.forEach(q => { q.back = (q.back || 0) + 1; }), fwd = () => S.forEach(q => { if ((q.back || 0) > 0) q.back--; });
   if (r === 'DELETE') back(); else if (r === true) { if (canFwd) fwd(); else back(); }
@@ -815,9 +814,9 @@ function draw(light) {
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
-  if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvH'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP'); if (!light) updateInfo(); capInfo(); return; }
+  if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvP'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP'); if (!light) updateInfo(); capInfo(); return; }
   // Cercle de relaxation (points de largage)
-  if (SH.relax && sol.circle.R > 0) L.circle(LL(sol.circle.c), { radius: sol.circle.R, color: C_RELAX, weight: 2.4, fill: false, interactive: false }).addTo(fig);
+  if (SH.relax && sol.circleOuv.R > 0) L.circle(LL(sol.circleOuv.c), { radius: sol.circleOuv.R, /* v0.46.0 (Henri) : cercle des points d'OUVERTURE, fixe — avant : celui des points de largage, qui glissait avec le cap avion */ color: C_RELAX, weight: 2.4, fill: false, interactive: false }).addTo(fig);
   // Trace : tous les segments, de l'ouverture terminée au PTU
   const MI = traceMini(); syncSumWarn();
   if (SH.trace) {
@@ -827,11 +826,12 @@ function draw(light) {
   if (SH.sum) zdSpans().forEach(z => L.polyline(traceSlice(sol.trace, z.s0, z.s1).map(LL), { color: z.stale || PB.ids.has(z.zid) ? C_WARN : C_ZD, weight: 7, opacity: .75, dashArray: '10 8', interactive: false }).addTo(fig)); /* v0.27.0 : zones délicates */
   const TP = sol.trace.map(p => map.latLngToContainerPoint(LL(p))), k0 = TP.length - 1;
   const flat = Math.abs(TP[k0].x - TP[0].x) > Math.abs(TP[k0].y - TP[0].y); let lastLab = null;
+  const ouvNear = SH.ouv && sol.attachOuv && map.latLngToContainerPoint(LL(sol.attachOuv)).distanceTo(TP[0]) < 46; /* v0.46.0 : l'étiquette OUV porte déjà cette hauteur */
   sol.trace.forEach((p, i) => {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
     const show = far && (farPtu || i === 0); if (show) lastLab = TP[i]; /* hauteurs toujours affichées (bouton Infos retiré en v0.5.3) */
-    const vm = L.marker(LL(p), { interactive: MI[i] != null, icon: dotIcon(MI[i] != null ? (MI.stale[i] || PB.ks.has(i) ? C_WARN : C_ZD) : C_TRACE, /* v0.29.0 : points d'alerte en violet */ i === 0 ? 13 : MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ (show || MI[i] != null) ? (i === 0 ? `OUV ${fmtInt(p.h)}` : fmtInt(p.h)) + miniTag(MI, i) : '', (i === 0 ? 'big' : '') + (flat ? ' up' : '')) }).addTo(fig);
+    const vm = L.marker(LL(p), { interactive: MI[i] != null, icon: dotIcon(MI[i] != null ? (MI.stale[i] || PB.ks.has(i) ? C_WARN : C_ZD) : C_TRACE, /* v0.29.0 : points d'alerte en violet */ MI[i] != null ? 12 : 8, /* v0.22.0 : point de passage -MINI en blanc (appli seulement, pas dans les exports) */ ((show && !(i === 0 && ouvNear)) || MI[i] != null) ? fmtInt(p.h) + miniTag(MI, i) : '', flat ? ' up' : '') }).addTo(fig);
     if (MI[i] != null) vm.on('click', () => { if (Date.now() < suppressClickUntil) return; miniBack(i); });
   });
   }
@@ -862,7 +862,13 @@ function draw(light) {
   } else noVecHandles();
   // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   /* v0.45.0 (Henri) : le point OUV est une poignée (invisible, posée sur le point rose) : le point d'ouverture va là où on appuie */
-  ouvHandles(SH.trace ? [sol.trace[0]] : null, 'ouvH', L.divIcon({ className: 'osop', iconSize: [30, 30], iconAnchor: [15, 15], html: '' }), 640, 'ouv', () => { if (MI[0] != null) miniBack(0); });
+  /* v0.46.0 : points d'ouverture roses (poignées), étiquette OUV sur celui du para sur la trace ; deux points rose clair transparents
+     (Henri) = le vert et le rouge reportés à l'ouverture : c'est tout ce vecteur reporté que le calcul garde dans le cercle fixe */
+  { const OP = SH.ouv ? ouvPts() : null, OV = OP ? ouvVec() : null;
+    if (OV) OV.forEach(p => L.marker(LL(p), { interactive: false, icon: L.divIcon({ className: 'osop ends', iconSize: [28, 28], iconAnchor: [14, 14], html: '<span></span>' }) }).addTo(fig));
+    ouvHandles(OP, 'ouvP', osoIcon(C_TRACE), 620, i => i === sol.dropIdx ? 'ouv' : 'oso');
+    if (OP) { const k0 = sol.trace.length - 1, a = map.latLngToLayerPoint(LL(sol.trace[0])), b = map.latLngToLayerPoint(LL(sol.trace[k0])), flat = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
+      L.marker(LL(sol.attachOuv), { interactive: false, icon: L.divIcon({ className: 'dot' + (flat ? ' up' : ''), html: `<b style="color:${C_TRACE}">OUV ${fmtInt(sol.hOpen)}</b>`, iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(fig); } }
   /* Points OSO, un par para (v0.45.0, vocabulaire d'Henri) : point d'ouverture OSO (gris : voile ouverte par l'ouvreur de sécurité, à la
      hauteur réglée pour ce para au-dessus du point haut) et point de posé OSO (jaune : arrivée à la hauteur du point haut après la
      dérive sous voile). Ce sont des poignées : les déplacer décale d'autant le point d'ouverture, puis ils sont recalculés. */
@@ -977,7 +983,7 @@ function figurePoints() {
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
     (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
-    if (current.show.relax) [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].forEach(a => pts.push(Calc.fromLocal(sol.circle.c, { x: sol.circle.R * Math.sin(a * Math.PI / 180), y: sol.circle.R * Math.cos(a * Math.PI / 180) })));
+    if (current.show.relax) [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].forEach(a => pts.push(Calc.fromLocal(sol.circleOuv.c, { x: sol.circleOuv.R * Math.sin(a * Math.PI / 180), y: sol.circleOuv.R * Math.cos(a * Math.PI / 180) })));
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
 }
@@ -1063,6 +1069,7 @@ const SHOW_ITEMS = [
   ['vec', 'Vecteur de largage', '<path d="M5 19L19 5" stroke="#fff" stroke-width="6"/><path d="M5 19L19 5" stroke="#000" stroke-width="3"/><circle cx="5" cy="19" r="4" fill="#1ec83c" stroke="#111"/><circle cx="19" cy="5" r="4" fill="#ff2020" stroke="#111"/>', true],
   ['appr', 'Approche et dégagement', '<path d="M3 20L15 8" stroke="#fff" stroke-width="2.4" stroke-dasharray="4 3"/><path d="M12 6h7v7" fill="none" stroke="#fff" stroke-width="2.4"/>', true],
   ['ptu', 'PTU et ZMT', '<circle cx="8" cy="12" r="5" fill="#ffd400" stroke="#111" stroke-width="2"/><circle cx="17" cy="12" r="4" fill="none" stroke="#ff8c00" stroke-width="2.4"/><path d="M17 5v14M10.5 12h13" stroke="#ff8c00" stroke-width="1.6"/>', true],
+  ['ouv', 'Points d\'ouverture', '<circle cx="6" cy="16" r="3.6" fill="#ffbee6" fill-opacity=".7" stroke="#000" stroke-width="1.2"/><circle cx="12" cy="12" r="3.6" fill="#ff3fb4" stroke="#000" stroke-width="1.5"/><circle cx="18" cy="8" r="3.6" fill="#ffbee6" fill-opacity=".7" stroke="#000" stroke-width="1.2"/>', true],
   ['oso', 'Points OSO et point haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
   ['sec', 'Zone de sécurité', '<path d="M3 9l8-5 10 6v8l-9 3-9-5z" fill="#ff8c00" fill-opacity=".45" stroke="#ff8c00" stroke-width="1.4"/>', false],
   ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
@@ -1808,7 +1815,7 @@ async function openCut() {
   const c = cutPath();
   if (!c) return toast('Pas encore de trace : place la ZMT et le PTU, ou fais une mesure 📏');
   $('cutBox').classList.remove('hidden'); $('qCut').classList.add('on');
-  $('cutTitle').textContent = c.mode === 'meas' ? 'Coupe le long de la mesure' : 'Coupe le long de la trace (OUV → PTU)';
+  $('cutTitle').textContent = c.mode === 'meas' ? 'Coupe le long de la mesure' : 'Coupe le long de la trace (début → PTU)';
   $('cutInfo').textContent = 'Relevé du terrain…'; cutData = null; drawCut();
   const pts = await cutSample(c, 0, c.tot, 300);
   if ($('cutBox').classList.contains('hidden')) return;
@@ -1871,7 +1878,7 @@ function drawCut() {
       if (d < c.v0 - 1 || d > c.v1 + 1) return; const x = X(d), y = Y(h);
       g.fillStyle = warn ? C_WARN : C_ZD; g.strokeStyle = '#111'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 4.5, 0, 7); /* v0.28.0 : sommets en violet */ g.fill(); g.stroke();
       g.font = 'bold 11px -apple-system,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.8)'; const ty = below ? y + 17 : y - 9; g.strokeText(t, x, ty); g.fillText(t, x, ty); g.font = '10px -apple-system,system-ui,sans-serif'; });
-    g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('OUV', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
+    g.fillStyle = '#ff3fb4'; if (c.v0 < 1) { g.textAlign = 'left'; g.fillText('DÉBUT', X(0) + 3, Y(c.pts[0].h) - 4); } if (c.v1 > c.tot - 1) { g.textAlign = 'right'; g.fillText('PTU', X(c.tot) - 3, Y(c.pts[c.pts.length - 1].h) - 4); } }
   /* curseur */
   cutPin(c.lock && c.cur != null && c.pts[c.cur] ? X(c.pts[c.cur].d) : null);
   if (c.cur != null && c.pts[c.cur]) { const q = c.pts[c.cur], x = X(q.d); g.strokeStyle = '#fff'; g.lineWidth = 1; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, H - pad.b); g.stroke(); g.setLineDash([]);
@@ -1893,13 +1900,13 @@ function cutText(i) {
   const c = cutData; if (!c) return;
   if (i == null || !c.pts[i]) { /* résumé sur toute la coupe : plus faible hauteur au-dessus du terrain (trace) ou point le plus haut (mesure) */
     if (c.mode === 'trace') { let m = null; c.full.forEach(q => { const v = q.h + c.e0 - q.z; if (!m || v < m.v) m = { v, d: q.d }; });
-      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} de l'OUV. Doigt sur la coupe pour lire ; doigt levé, la punaise en haut du trait montre l'endroit sur la carte ; pincer pour zoomer.`; }
+      $('cutInfo').innerHTML = `Hauteur mini au-dessus du terrain : <b>${fmtInt(m.v)} m</b> à ${fmtKm(m.d)} du début de la trace. Doigt sur la coupe pour lire ; doigt levé, la punaise en haut du trait montre l'endroit sur la carte ; pincer pour zoomer.`; }
     else { let m = null; c.full.forEach(q => { if (!m || q.z > m.z) m = q; }); $('cutInfo').innerHTML = `Point le plus haut : <b>${fmtInt(m.z)} m</b> d'altitude à ${fmtDist(m.d)} du 1er point. Doigt sur la coupe, puis la punaise en haut du trait pour voir l'endroit sur la carte ; pincer pour zoomer.`; }
     return;
   }
   const q = c.pts[i];
   $('cutInfo').innerHTML = c.mode === 'trace'
-    ? `À ${fmtKm(q.d)} de l'OUV : <b>hauteur terrain ${fmtInt(q.h + c.e0 - q.z)} m</b> · hauteur alti ${fmtInt(q.h)} m · altitude terrain ${fmtInt(q.z)} m` /* v0.19.3 (Henri) : hauteur alti = lue à l'altimètre calé sur le sol de la ZMT */
+    ? `À ${fmtKm(q.d)} du début de la trace : <b>hauteur terrain ${fmtInt(q.h + c.e0 - q.z)} m</b> · hauteur alti ${fmtInt(q.h)} m · altitude terrain ${fmtInt(q.z)} m` /* v0.19.3 (Henri) : hauteur alti = lue à l'altimètre calé sur le sol de la ZMT */
     : `À ${fmtDist(q.d)} du 1er point : terrain <b>${fmtInt(q.z)} m</b> d'altitude (${fmtInt(q.z - c.e0)} m par rapport à la ZMT)`;
 }
 /* v0.23.0 (Henri) : déplacer un sommet S le long de la coupe (le prendre, glisser, relâcher = nouvelle place) */
@@ -2405,12 +2412,12 @@ function gpxText() {
   const wpt = (p, name, sym, ele) => `  <wpt ${ll(p)}>${ele != null ? `<ele>${Math.round(ele)}</ele>` : ''}<name>${x(name)}</name><sym>${sym}</sym></wpt>\n`;
   const trk = (name, pts, color) => `  <trk><name>${x(name)}</name><extensions><gpxx:TrackExtension><gpxx:DisplayColor>${color}</gpxx:DisplayColor></gpxx:TrackExtension></extensions><trkseg>\n` +
     pts.map(p => `    <trkpt ${ll(p)}>${p.h != null ? `<ele>${Math.round(s.elev0 + p.h)}</ele>` : ''}</trkpt>\n`).join('') + `  </trkseg></trk>\n`;
-  const MI = traceMini(), tn = (p, i) => (i === 0 ? 'OUV' : i === s.trace.length - 1 ? 'PTU' : String(Math.round(p.h))) + miniTag(MI, i);
+  const MI = traceMini(), tn = (p, i) => (i === s.trace.length - 1 ? 'PTU' : String(Math.round(p.h))) + miniTag(MI, i); /* v0.46.0 : le début de trace porte sa hauteur, OUV = ouverture du para sur la trace */
   let o = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="trace-isv ${VERSION}" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">\n` +
     `  <metadata><name>${x(current.name + ' - ' + I.name)}</name><time>${new Date().toISOString()}</time></metadata>\n`;
   // Points : ZMT, OUV, PTU, début et fin de largage, sorties, points de l'ISV
   if (current.zmt) o += wpt(current.zmt, 'ZMT', 'Flag, Red');
-  o += wpt(s.trace[0], 'OUV', 'Flag, Blue', s.elev0 + s.trace[0].h) + wpt(I.ptu, 'PTU', 'Flag, Green', s.elev0 + I.hPtu);
+  o += wpt(s.attachOuv || s.trace[0], 'OUV', 'Flag, Blue', s.elev0 + s.hOpen) + wpt(I.ptu, 'PTU', 'Flag, Green', s.elev0 + I.hPtu);
   o += wpt(s.vec.green, 'DEBUT LARG', 'Navaid, Green', s.altRel) + wpt(s.vec.red, 'FIN LARG', 'Navaid, Red', s.altRel);
   s.vec.exits.forEach(e => { const p = I.team[e.i]; o += wpt(e, `P${e.i + 1}${p.name ? ' ' + p.name : ''}`, 'Navaid, Black', s.altRel); });
   isv().points.forEach(pt => { o += wpt(pt, pointLabel(pt) || (pt.kind === 'alt' ? 'ZMT ALT' : 'POINT'), pt.kind === 'alt' ? 'Flag, Red' : 'Pin, Blue', pt.elev); });
@@ -2461,10 +2468,10 @@ function roadmapText() {
     'Tronçon suivant : cap à tenir, distance et temps jusqu\'au point suivant.'];
   /* Le para s'ouvre réellement à sol.attachOuv, à la hauteur sol.hOpen : en automatique c'est (presque) le début de la trace ; vecteur
      déplacé, c'est plus loin sur la trace et au-dessus d'elle (hauteur gardée, ou CDO arrondie à la centaine). La feuille part de là. */
-  let j0 = 0, f0 = 1; const cutS = +s.slide > 50 && s.attachOuv ? +s.slide : 0;
+  let j0 = 0, f0 = 1; const cutS = +s.slide > 1 && s.attachOuv ? +s.slide : 0;
   if (cutS) { let c = 0; for (let i = 1; i <= n; i++) { const L = Calc.dist(T[i - 1], T[i]); if (c + L > cutS + 1) { j0 = i; f0 = (c + L - cutS) / L; break; } c += L; } }
   const R = j0 ? [{ name: 'OUV', h: s.hOpen, p: s.attachOuv }] : [];
-  T.forEach((p, i) => { if (i >= j0) R.push({ name: i === 0 ? 'OUV' : i === n ? 'PTU' : String(Math.round(p.h)) + miniTag(MI, i), h: p.h, p }); });
+  T.forEach((p, i) => { if (i >= j0) R.push({ name: i === 0 && !j0 ? 'OUV' : i === n ? 'PTU' : String(Math.round(p.h)) + miniTag(MI, i), h: p.h, p }); });
   const above = j0 ? s.hOpen - (s.attachH != null ? s.attachH : s.hOpen) : 0;
   if (above > 20) out.push(`Ouverture ${nb(above)} m au-dessus de la trace (trace à ${nb(s.attachH)} m à cet endroit) : rejoindre les hauteurs des points à la descente rapide.`);
   out.push('');
@@ -2592,15 +2599,15 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   const SH = current.show; /* v0.45.0 : ce qui est masqué par le bouton Affichage l'est aussi dans le PDF */
   if (SH.zrt) current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), '#ff2020', 2.2, [10, 6])); });
   if (SH.sec) { const Z = secPolys(); if (Z.length) { g.save(); g.beginPath(); Z.forEach(r => { r.forEach((ll, i) => { const q = toC(ll); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.closePath(); }); g.fillStyle = 'rgba(255,140,0,.24)'; g.fill('nonzero'); g.restore(); } }
-  if (SH.relax && sol.circle.R > 0) { const c = toC(sol.circle.c); g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.beginPath(); g.arc(c.x, c.y, sol.circle.R * pxPerM(sol.circle.c), 0, 2 * Math.PI); g.stroke(); g.restore(); }
+  if (SH.relax && sol.circleOuv.R > 0) { const c = toC(sol.circleOuv.c); g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.beginPath(); g.arc(c.x, c.y, sol.circleOuv.R * pxPerM(sol.circleOuv.c), 0, 2 * Math.PI); g.stroke(); g.restore(); }
   /* v0.39.2 (Henri) : la carte du PDF = celle de l'appli (mêmes couleurs, mêmes étiquettes, pas d'écriture le long du vecteur ni de la trace) */
   const PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
   if (SH.trace) { line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6); }
   if (SH.trace && SH.sum) zdSpans().forEach(z => line(traceSlice(sol.trace, z.s0, z.s1), z.stale || PB.ids.has(z.zid) ? 'rgba(255,140,0,.75)' : 'rgba(179,136,255,.75)', 7, [10, 8]));
   if (SH.trace) { const MI = traceMini(), k0 = sol.trace.length - 1, TPc = sol.trace.map(toC), flat = Math.abs(TPc[k0].x - TPc[0].x) > Math.abs(TPc[k0].y - TPc[0].y); let last = null;
-    sol.trace.forEach((p, i) => { if (i === k0) return; const mi = MI[i] != null, col = mi ? (MI.stale[i] || PB.ks.has(i) ? C_WARN : C_ZD) : C_TRACE, c = dot(p, col, i === 0 ? 6.5 : mi ? 6 : 4);
+    sol.trace.forEach((p, i) => { if (i === k0) return; const mi = MI[i] != null, col = mi ? (MI.stale[i] || PB.ks.has(i) ? C_WARN : C_ZD) : C_TRACE, c = dot(p, col, mi ? 6 : 4);
       const far = !last || Math.hypot(c.x - last.x, c.y - last.y) >= (flat ? 26 : 20) * u || i === 0, farPtu = Math.hypot(c.x - TPc[k0].x, c.y - TPc[k0].y) >= 30 * u, show = far && (farPtu || i === 0); if (show) last = c;
-      if (i === 0) shadowText(`OUV ${fmtInt(p.h)}` + miniTag(MI, i), c.x - 12 * u, c.y - 16 * u, col, 11, 'right'); /* à gauche : le vecteur et ses points sont dessus */
+      if (i === 0) { if (mi || !(SH.ouv && sol.attachOuv && Math.hypot(toC(sol.attachOuv).x - c.x, toC(sol.attachOuv).y - c.y) < 46 * u)) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x - 12 * u, c.y - 16 * u, col, 10, 'right'); } /* début de trace : plus de nom (v0.46.0) */
       else if (show || mi) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x + 10 * u, c.y, col, 10); }); }
   if (SH.appr) { const gA = toC(sol.vec.green), gB = toC(Calc.fromLocal(sol.vec.green, { x: 0, y: 100 })), ppm = Math.hypot(gB.x - gA.x, gB.y - gA.y) / 100 || 1;
     (apprSegs(12 * u / ppm) || []).forEach(sg => { line(sg.line, 'rgba(0,0,0,.5)', 4.6, [9, 8]); line(sg.line, '#fff', 2.2, [9, 8]); const hd = arrowHead(sg.tip, sg.dir, 13 * u / ppm); line(hd, 'rgba(0,0,0,.5)', 5); line(hd, '#fff', 2.6); }); }
@@ -2617,6 +2624,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   if (SH.ptu && current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   if (SH.ptu) { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (!(pt.kind === 'alt' ? SH.alt : (pt.auto === 'S' || pt.kind === 'zd') ? SH.sum : SH.free)) return; if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const col = sStale(pt) || PB.ids.has(pt.id) || PB.ids.has(pt.zid) ? C_WARN : pt.auto === 'S' ? C_ZD : pt.color || '#fff', c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = col; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); const lb = pointLabel(pt); if (lb) shadowText(lb, c.x + 12 * u, c.y, col, 11); } });
+  if (SH.ouv) { const OP = ouvPts(), OV = OP ? ouvVec() : null; if (OV) { OV.forEach(p => dot(p, C_OUV_END, 4.5)); OP.forEach(p => dot(p, C_TRACE, 4.5)); const c = toC(sol.attachOuv); shadowText(`OUV ${fmtInt(sol.hOpen)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); } } /* v0.46.0 : points d'ouverture roses, OUV = para sur la trace */
   if (SH.oso) { (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5)); (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5)); }
   const av = altiVals();
   if (SH.oso && av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
@@ -2681,7 +2689,7 @@ function pdfDataPages(doc) {
   row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol de la ZMT (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
   row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT (${fmtInt(sol.elev0)} m)`);
-  row('Ouverture terminée (OUV)', fmtPos(sol.ouv));
+  row('Ouverture terminée (OUV)', fmtPos(sol.attachOuv || sol.ouv));
   row('Début de largage (vert)', fmtPos(sol.vec.green)); row('Fin de largage (rouge)', fmtPos(sol.vec.red));
   if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
   y += 3; title('Altimétrie');
@@ -2694,7 +2702,7 @@ function pdfDataPages(doc) {
   y += 3; title(`Équipe (${I.team.length}) - vert + ${fmt1(+I.tGreen)} s, rouge ${fmt1(+I.tRed)} s après le dernier`);
   I.team.forEach((p, i) => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0]; row(`${i + 1}. ${p.name || 'Para ' + (i + 1)}${i === sol.dropIdx ? '  (sur le point de largage)' : ''}`, `${c.name} (Vx ${fmt1(+c.vx)}, Vz ${fmt1(+c.vz)} mesurées à ${fmtInt(+c.hM)} m pour ${fmtInt(+c.mteM)} kg) - MTE ${fmtInt(+p.mte > 0 ? +p.mte : MTE_DEF)} kg - sortie à ${fmt1(sol.ex.te[i])} s`); });
   y += 3; title('Points de la trace (hauteur au-dessus du sol de la ZMT)');
-  { const MI = traceMini(); sol.trace.forEach((p, i) => row((i === 0 ? `OUV  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`) + (MI[i] != null ? `  (mini ${fmtInt(MI[i])} m alti)` : ''), fmtPos(p))); }
+  { const MI = traceMini(); sol.trace.forEach((p, i) => row((i === 0 ? `Début de trace  ${fmtInt(p.h)} m` : i === sol.trace.length - 1 ? `PTU  ${fmtInt(p.h)} m` : `${fmtInt(p.h)} m`) + (MI[i] != null ? `  (mini ${fmtInt(MI[i])} m alti)` : ''), fmtPos(p))); }
   if (!F) return;
   doc.addPage('a4', 'portrait');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.text(clean(`Vents à la verticale du PTU - ${fmtWhen(current.when).replace(' ', ' à ')}`), 15, 18);
@@ -2997,7 +3005,7 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'zmt', z: 1, t: 'Point ZMT', d: 'Pose la zone de posé (ZMT).', auto: () => !!(current.id && current.zmt), go: () => startPlacing('Z') },
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },
   { id: 'team', t: 'Équipe', d: 'Vérifie la composition et la configuration de l\'équipe.', go: () => goSec('isv', 'Équipe') },
-  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Appui long sur le vecteur, le point OUV ou un point OSO : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
+  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans le cercle de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', t: 'Cap para et cap avion', tr: 1, auto: capsRound, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
   { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },

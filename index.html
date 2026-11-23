@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.45.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.46.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.45.1">
+<link rel="stylesheet" href="style.css?v=0.46.0">
 </head>
 <body>
 <div id="map"></div>
@@ -216,7 +216,7 @@
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
     <div class="row"><button id="btnTxt" class="wide">📝 Feuille de route (.txt)</button></div>
-    <p class="hint">PDF : une page A4 paysage, carte cap para vers le haut et Briefing. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points. Feuille de route : pour naviguer sans GPS, un tableau par couple voile + MTE de l'équipe — à chaque point de la trace, la hauteur, la distance et le temps depuis l'OUV, puis le cap, la distance et le temps jusqu'au point suivant.</p>
+    <p class="hint">PDF : une page A4 paysage, carte cap para vers le haut et Briefing. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points. Feuille de route : pour naviguer sans GPS, un tableau par couple voile + MTE de l'équipe — à chaque point de la trace, la hauteur, la distance et le temps depuis le point OUV, puis le cap, la distance et le temps jusqu'au point suivant.</p>
 
     <div id="briefBody"></div>
   </div>
@@ -250,7 +250,7 @@
     <div class="grid2">
       <div><label>Marge de sécurité sur le vent (%)</label><input id="p_margin" inputmode="numeric"></div><div></div>
     </div>
-    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation tient compte de cette marge : c'est la zone des points de largage d'où le PTU reste atteignable ; le vert et le rouge doivent y rester.</p>
+    <p class="hint">La marge porte sur le vent : une erreur de prévision égale à ce pourcentage de sa force, comptée contre le para quel que soit son cap. Le cercle de relaxation tient compte de cette marge : tout para qui s'ouvre dedans peut rejoindre le PTU. Il ne dépend que du FL et de la hauteur d'ouverture ; ce sont les points d'ouverture (roses) qui doivent y rester, pas le vert et le rouge, qui sont des points de largage.</p>
 
     <h3>Sommets et zones délicates</h3>
     <div class="grid2">
@@ -347,17 +347,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.45.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.45.1"></script>
-<script src="vendor/mgrs.min.js?v=0.45.1"></script>
-<script src="geo.js?v=0.45.1"></script>
-<script src="clubs.js?v=0.45.1"></script>
-<script src="wmm.js?v=0.45.1"></script>
-<script src="calc.js?v=0.45.1"></script>
-<script src="windpick.js?v=0.45.1"></script>
-<script src="pdfview.js?v=0.45.1"></script>
-<script src="lpmove.js?v=0.45.1"></script>
-<script src="app.js?v=0.45.1"></script>
-<script src="photo.js?v=0.45.1"></script>
+<script src="vendor/leaflet.js?v=0.46.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.46.0"></script>
+<script src="vendor/mgrs.min.js?v=0.46.0"></script>
+<script src="geo.js?v=0.46.0"></script>
+<script src="clubs.js?v=0.46.0"></script>
+<script src="wmm.js?v=0.46.0"></script>
+<script src="calc.js?v=0.46.0"></script>
+<script src="windpick.js?v=0.46.0"></script>
+<script src="pdfview.js?v=0.46.0"></script>
+<script src="lpmove.js?v=0.46.0"></script>
+<script src="app.js?v=0.46.0"></script>
+<script src="photo.js?v=0.46.0"></script>
 </body>
 </html>
