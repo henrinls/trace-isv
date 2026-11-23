@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.46.0';
+const VERSION = '0.46.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -151,7 +151,7 @@ function upgrade(z) {
   z.isvs = z.isvs.map(upIsv);
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
-  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, ouv: true, appr: true, ptu: true, oso: true, sec: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
   /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
   z.isvs.forEach(i => { if (typeof i.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(i.when)) i.when = z.when; if (i.nameAuto) i.name = isvAutoName(i); });
@@ -814,7 +814,7 @@ function draw(light) {
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
-  if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvP'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP'); if (!light) updateInfo(); capInfo(); return; }
+  if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvP'); ouvHandles(null, 'ouvE'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP'); if (!light) updateInfo(); capInfo(); return; }
   // Cercle de relaxation (points de largage)
   if (SH.relax && sol.circleOuv.R > 0) L.circle(LL(sol.circleOuv.c), { radius: sol.circleOuv.R, /* v0.46.0 (Henri) : cercle des points d'OUVERTURE, fixe — avant : celui des points de largage, qui glissait avec le cap avion */ color: C_RELAX, weight: 2.4, fill: false, interactive: false }).addTo(fig);
   // Trace : tous les segments, de l'ouverture terminée au PTU
@@ -826,7 +826,7 @@ function draw(light) {
   if (SH.sum) zdSpans().forEach(z => L.polyline(traceSlice(sol.trace, z.s0, z.s1).map(LL), { color: z.stale || PB.ids.has(z.zid) ? C_WARN : C_ZD, weight: 7, opacity: .75, dashArray: '10 8', interactive: false }).addTo(fig)); /* v0.27.0 : zones délicates */
   const TP = sol.trace.map(p => map.latLngToContainerPoint(LL(p))), k0 = TP.length - 1;
   const flat = Math.abs(TP[k0].x - TP[0].x) > Math.abs(TP[k0].y - TP[0].y); let lastLab = null;
-  const ouvNear = SH.ouv && sol.attachOuv && map.latLngToContainerPoint(LL(sol.attachOuv)).distanceTo(TP[0]) < 46; /* v0.46.0 : l'étiquette OUV porte déjà cette hauteur */
+  const ouvNear = SH.vec && sol.attachOuv && map.latLngToContainerPoint(LL(sol.attachOuv)).distanceTo(TP[0]) < 46; /* v0.46.0 : l'étiquette OUV porte déjà cette hauteur */
   sol.trace.forEach((p, i) => {
     if (i === k0) return; // le PTU a son propre point
     const far = !lastLab || TP[i].distanceTo(lastLab) >= (flat ? 26 : 20) || i === 0, farPtu = TP[i].distanceTo(TP[k0]) >= 30;
@@ -864,8 +864,8 @@ function draw(light) {
   /* v0.45.0 (Henri) : le point OUV est une poignée (invisible, posée sur le point rose) : le point d'ouverture va là où on appuie */
   /* v0.46.0 : points d'ouverture roses (poignées), étiquette OUV sur celui du para sur la trace ; deux points rose clair transparents
      (Henri) = le vert et le rouge reportés à l'ouverture : c'est tout ce vecteur reporté que le calcul garde dans le cercle fixe */
-  { const OP = SH.ouv ? ouvPts() : null, OV = OP ? ouvVec() : null;
-    if (OV) OV.forEach(p => L.marker(LL(p), { interactive: false, icon: L.divIcon({ className: 'osop ends', iconSize: [28, 28], iconAnchor: [14, 14], html: '<span></span>' }) }).addTo(fig));
+  { const OP = SH.vec ? ouvPts() : null, OV = OP ? ouvVec() : null; /* v0.46.1 (Henri) : pas d'interrupteur à part, ils vont avec le vecteur */
+    ouvHandles(OV, 'ouvE', osoIcon(C_OUV_END), 615, 'oso'); /* v0.46.1 (Henri) : les deux points rose clair sont des poignées comme les autres */
     ouvHandles(OP, 'ouvP', osoIcon(C_TRACE), 620, i => i === sol.dropIdx ? 'ouv' : 'oso');
     if (OP) { const k0 = sol.trace.length - 1, a = map.latLngToLayerPoint(LL(sol.trace[0])), b = map.latLngToLayerPoint(LL(sol.trace[k0])), flat = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
       L.marker(LL(sol.attachOuv), { interactive: false, icon: L.divIcon({ className: 'dot' + (flat ? ' up' : ''), html: `<b style="color:${C_TRACE}">OUV ${fmtInt(sol.hOpen)}</b>`, iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(fig); } }
@@ -1069,7 +1069,6 @@ const SHOW_ITEMS = [
   ['vec', 'Vecteur de largage', '<path d="M5 19L19 5" stroke="#fff" stroke-width="6"/><path d="M5 19L19 5" stroke="#000" stroke-width="3"/><circle cx="5" cy="19" r="4" fill="#1ec83c" stroke="#111"/><circle cx="19" cy="5" r="4" fill="#ff2020" stroke="#111"/>', true],
   ['appr', 'Approche et dégagement', '<path d="M3 20L15 8" stroke="#fff" stroke-width="2.4" stroke-dasharray="4 3"/><path d="M12 6h7v7" fill="none" stroke="#fff" stroke-width="2.4"/>', true],
   ['ptu', 'PTU et ZMT', '<circle cx="8" cy="12" r="5" fill="#ffd400" stroke="#111" stroke-width="2"/><circle cx="17" cy="12" r="4" fill="none" stroke="#ff8c00" stroke-width="2.4"/><path d="M17 5v14M10.5 12h13" stroke="#ff8c00" stroke-width="1.6"/>', true],
-  ['ouv', 'Points d\'ouverture', '<circle cx="6" cy="16" r="3.6" fill="#ffbee6" fill-opacity=".7" stroke="#000" stroke-width="1.2"/><circle cx="12" cy="12" r="3.6" fill="#ff3fb4" stroke="#000" stroke-width="1.5"/><circle cx="18" cy="8" r="3.6" fill="#ffbee6" fill-opacity=".7" stroke="#000" stroke-width="1.2"/>', true],
   ['oso', 'Points OSO et point haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
   ['sec', 'Zone de sécurité', '<path d="M3 9l8-5 10 6v8l-9 3-9-5z" fill="#ff8c00" fill-opacity=".45" stroke="#ff8c00" stroke-width="1.4"/>', false],
   ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
@@ -2607,7 +2606,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   if (SH.trace) { const MI = traceMini(), k0 = sol.trace.length - 1, TPc = sol.trace.map(toC), flat = Math.abs(TPc[k0].x - TPc[0].x) > Math.abs(TPc[k0].y - TPc[0].y); let last = null;
     sol.trace.forEach((p, i) => { if (i === k0) return; const mi = MI[i] != null, col = mi ? (MI.stale[i] || PB.ks.has(i) ? C_WARN : C_ZD) : C_TRACE, c = dot(p, col, mi ? 6 : 4);
       const far = !last || Math.hypot(c.x - last.x, c.y - last.y) >= (flat ? 26 : 20) * u || i === 0, farPtu = Math.hypot(c.x - TPc[k0].x, c.y - TPc[k0].y) >= 30 * u, show = far && (farPtu || i === 0); if (show) last = c;
-      if (i === 0) { if (mi || !(SH.ouv && sol.attachOuv && Math.hypot(toC(sol.attachOuv).x - c.x, toC(sol.attachOuv).y - c.y) < 46 * u)) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x - 12 * u, c.y - 16 * u, col, 10, 'right'); } /* début de trace : plus de nom (v0.46.0) */
+      if (i === 0) { if (mi || !(SH.vec && sol.attachOuv && Math.hypot(toC(sol.attachOuv).x - c.x, toC(sol.attachOuv).y - c.y) < 46 * u)) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x - 12 * u, c.y - 16 * u, col, 10, 'right'); } /* début de trace : plus de nom (v0.46.0) */
       else if (show || mi) shadowText(fmtInt(p.h) + miniTag(MI, i), c.x + 10 * u, c.y, col, 10); }); }
   if (SH.appr) { const gA = toC(sol.vec.green), gB = toC(Calc.fromLocal(sol.vec.green, { x: 0, y: 100 })), ppm = Math.hypot(gB.x - gA.x, gB.y - gA.y) / 100 || 1;
     (apprSegs(12 * u / ppm) || []).forEach(sg => { line(sg.line, 'rgba(0,0,0,.5)', 4.6, [9, 8]); line(sg.line, '#fff', 2.2, [9, 8]); const hd = arrowHead(sg.tip, sg.dir, 13 * u / ppm); line(hd, 'rgba(0,0,0,.5)', 5); line(hd, '#fff', 2.6); }); }
@@ -2624,7 +2623,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   if (SH.ptu && current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
   if (SH.ptu) { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (!(pt.kind === 'alt' ? SH.alt : (pt.auto === 'S' || pt.kind === 'zd') ? SH.sum : SH.free)) return; if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const col = sStale(pt) || PB.ids.has(pt.id) || PB.ids.has(pt.zid) ? C_WARN : pt.auto === 'S' ? C_ZD : pt.color || '#fff', c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = col; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); const lb = pointLabel(pt); if (lb) shadowText(lb, c.x + 12 * u, c.y, col, 11); } });
-  if (SH.ouv) { const OP = ouvPts(), OV = OP ? ouvVec() : null; if (OV) { OV.forEach(p => dot(p, C_OUV_END, 4.5)); OP.forEach(p => dot(p, C_TRACE, 4.5)); const c = toC(sol.attachOuv); shadowText(`OUV ${fmtInt(sol.hOpen)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); } } /* v0.46.0 : points d'ouverture roses, OUV = para sur la trace */
+  if (SH.vec) { const OP = ouvPts(), OV = OP ? ouvVec() : null; if (OV) { OV.forEach(p => dot(p, C_OUV_END, 4.5)); OP.forEach(p => dot(p, C_TRACE, 4.5)); const c = toC(sol.attachOuv); shadowText(`OUV ${fmtInt(sol.hOpen)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); } } /* v0.46.0 : points d'ouverture roses, OUV = para sur la trace */
   if (SH.oso) { (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5)); (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5)); }
   const av = altiVals();
   if (SH.oso && av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
