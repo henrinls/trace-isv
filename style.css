@@ -126,8 +126,15 @@ button.danger{border-color:#a33;color:#ff8a8a}
 #quick #qWinds{border-color:#2f80ff;font-size:17px}#quick #qWinds.on{background:#2f80ff;color:#fff}
 #quick #qShow{border-color:#00e5ff;color:#fff;font-size:12px}#quick #qShow.on{background:#00e5ff;color:#111}#quick #qShow.part:not(.on){border-style:dashed}
 /* v0.45.0 : menu Affichage (un interrupteur par élément de la carte) ; poignées des points OSO et du point OUV */
-#showPop{position:fixed;z-index:960;display:flex;flex-direction:column;gap:5px;max-height:calc(100% - 16px);overflow-y:auto;padding:6px;border-radius:12px;background:rgba(20,20,20,.92);border:1px solid #666}
+#showPop{position:fixed;z-index:999;display:flex;flex-direction:column;gap:5px;max-height:calc(100% - 16px);overflow-y:auto;padding:6px;border-radius:12px;background:rgba(20,20,20,.92);border:1px solid #666}
 #showPop.hidden{display:none}
+#showPop .sph{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 0 0 6px;color:#fff;font-size:13px}
+#showPop button.spx{min-height:34px;min-width:44px;justify-content:center;padding:0;background:#3a3a3a;border-color:#888;color:#fff;font-size:16px;font-weight:700}
+#txtView{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column}
+#txtView .pvbar{display:flex;gap:8px;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 10px 8px;background:#1b1b1b;border-bottom:1px solid #333}
+#txtView .pvbar b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ddd;font-size:13px}
+#txtView .pvbar button{height:38px;min-width:44px;padding:0 10px;border-radius:10px;background:#2a2a2a;border:1px solid #555;color:#fff;font-weight:700}
+#txtView pre{flex:1;margin:0;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 10px calc(20px + env(safe-area-inset-bottom));color:#eee;font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.35;white-space:pre}
 #showPop button{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px 0 6px;border-radius:9px;background:#2a2a2a;border:2px solid #555;color:#999;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;touch-action:manipulation}
 #showPop button svg{flex:none;opacity:.4}#showPop button.on{color:#fff;border-color:#00e5ff;background:#1b3b42}#showPop button.on svg{opacity:1}#showPop button:not(.on) span{text-decoration:line-through}
 .osop{cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}.osop span{display:block;width:11px;height:11px;margin:8.5px;border-radius:50%;border:1.5px solid #000;box-sizing:border-box}.osop.lifting span{transform:scale(1.4)}
@@ -231,6 +238,7 @@ button,input,select,label,a{touch-action:manipulation}
 #teamList .pn{min-width:24px;height:24px;border-radius:50%;background:#000;color:#fff;border:1.5px solid #fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
 #teamList .pname{flex:1;min-width:0}#teamList .pcan{width:36%;min-width:0}
 #teamList .pmte,#teamList .pdtin{width:62px;text-align:center}
+#teamList .poso{width:84px;flex:none;text-align:center}
 #teamList .pdel,#teamList .pcopy{padding:6px 9px}
 #teamList .first{font-size:12px;margin-left:6px}
 #teamList li.pick{display:flex;gap:10px;align-items:center;padding:11px 6px;cursor:pointer}

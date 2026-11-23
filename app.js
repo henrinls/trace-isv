@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.45.0';
+const VERSION = '0.45.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -25,7 +25,7 @@ const isDark = c => c === '#000000';
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
 const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, keepPct: 30, tRef: 4,
-  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 3, exitNm: 1 } }; /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3 }, apprV: 1 }; /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -123,11 +123,12 @@ function osoDef() { let v = NaN; try { v = +prm.osoFt; } catch (e) {} return isF
 function newPara(canopy) { return { id: uid('p'), name: '', canopy: canopy || (prm && prm.canopies[0] ? prm.canopies[0].id : 'ph'), mte: dv('mte') || MTE_DEF, dt: dv('dt'), osoFt: osoDef() }; } /* osoFt (v0.45.0) : hauteur de déclenchement de l'ouvreur de sécurité de CE para (ft au-dessus du point haut) */
 function newIsv(name) {
   return { id: uid('i'), name: name || 'ISV 1', ptu: null, hPtu: dv('hPtu'), ptuElev: null, team: Array.from({ length: Math.max(1, Math.min(60, Math.round(dv('nParas')) || 4)) }, () => newPara()),
-    tGreen: dv('tGreen'), tRed: dv('tRed'), fl: dv('fl') || 295, acMs: dv('acMs') || 65, apprNm: dv('apprNm'), exitNm: dv('exitNm'), /* v0.45.0 : approche avant le vert et dégagement après le rouge (NM) */ tFall: (typeof prm !== 'undefined' && +prm.tRef > 0) ? +prm.tRef : 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
+    tGreen: dv('tGreen'), tRed: dv('tRed'), fl: dv('fl') || 295, acMs: dv('acMs') || 65, apprNm: dv('apprNm'), exitNm: dv('exitNm'), apprV: 1, /* v0.45.0 : approche avant le vert et dégagement après le rouge (NM) */ tFall: (typeof prm !== 'undefined' && +prm.tRef > 0) ? +prm.tRef : 4, capManual: null, vecHeading: null, reversed: false, dropId: null, manual: null, relaxRef: 'green',
     secLong: dv('secLong'), secLat: dv('secLat'), alti: null, points: [], when: null };
 }
 function upIsv(I) {
   const d = newIsv(I && I.name); if (!I) return d;
+  if (I.apprV === undefined && +I.apprNm === 3 && +I.exitNm === 1) { I.apprNm = undefined; I.exitNm = undefined; } /* v0.45.1 : anciens 3 / 1 NM → nouvelles valeurs par défaut */
   Object.keys(d).forEach(k => { if (I[k] === undefined) I[k] = d[k]; });
   if (Array.isArray(I.points)) I.points = I.points.filter(q => q.auto !== 'P'); /* v0.21.0 : le point P de v0.20.0 est remplacé par le nom du point de la trace */
   if (!Array.isArray(I.team) || !I.team.length) I.team = [newPara()];
@@ -158,6 +159,8 @@ function upgrade(z) {
   return z;
 }
 let prm = store.get('isv.profile', null) || {};
+/* v0.45.1 (Henri) : approche 5 NM et dégagement 3 NM par défaut ; les 3 / 1 de la v0.45.0 jamais modifiés sont repris (paramètres et ISV) */
+if (prm.apprV === undefined && prm.def && +prm.def.apprNm === 3 && +prm.def.exitNm === 1) { prm.def.apprNm = 5; prm.def.exitNm = 3; }
 Object.keys(DEFAULT_PARAMS).forEach(k => { if (prm[k] === undefined) prm[k] = clone(DEFAULT_PARAMS[k]); });
 prm.def = Object.assign({}, DEFAULT_PARAMS.def, typeof prm.def === 'object' && prm.def ? prm.def : {});
 if (!Array.isArray(prm.canopies) || !prm.canopies.length) prm.canopies = clone(DEFAULT_PARAMS.canopies);
@@ -1071,8 +1074,10 @@ function syncShowPop() {
   const pop = $('showPop'), b = $('qShow'); if (!pop || !b) return;
   pop.classList.toggle('hidden', !showOpen); b.classList.toggle('on', showOpen);
   b.classList.toggle('part', SHOW_ITEMS.some(([k, , , d]) => d && !current.show[k])); /* quelque chose d'habituellement affiché est masqué */
+  syncStepBar(); /* v0.45.1 (photo d'Henri) : le bandeau jaune d'étape passait par-dessus le menu → masqué tant que le menu est ouvert */
   if (!showOpen) return;
   pop.textContent = '';
+  { const h = document.createElement('div'); h.className = 'sph'; h.innerHTML = '<b>Affichage</b><button class="spx" title="Fermer">✕</button>'; h.querySelector('button').addEventListener('click', e => { e.stopPropagation(); closeShowPop(); }); pop.appendChild(h); } /* v0.45.1 (Henri) : croix pour refermer, en plus du toucher sur la carte */
   SHOW_ITEMS.forEach(([k, label, svg]) => { const x = document.createElement('button'); x.className = current.show[k] ? 'on' : ''; x.title = (current.show[k] ? 'Masquer : ' : 'Afficher : ') + label;
     x.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24">${svg}</svg><span></span>`; x.querySelector('span').textContent = label;
     x.addEventListener('click', e => { e.stopPropagation(); current.show[k] = !current.show[k]; persist(); syncShowPop(); redraw(); }); pop.appendChild(x); });
@@ -1519,7 +1524,7 @@ function renderIsvTab() {
       li.innerHTML = `<div class="pr1"><span class="zhandle" title="Glisser pour changer l'ordre">≡</span><span class="pn">${i + 1}</span><input class="pname" placeholder="Nom" value="${esc(p.name || '')}"><select class="pcan">${canOpts(p.canopy)}</select><button class="pdel" title="Retirer ce para">🗑</button></div>` +
         `<div class="pr2"><label>MTE (kg)</label><input class="pmte" inputmode="numeric" value="${esc(String(+p.mte > 0 ? +p.mte : MTE_DEF))}">` +
         (i === 0 ? `<span class="mut first">Sort en premier</span>` : `<label>Intervalle (s)</label><input class="pdtin" inputmode="decimal" value="${fmt1(+p.dt)}"><button class="pcopy" title="Recopier cet intervalle sur d'autres paras">⧉</button>`) + `</div>` +
-        `<div class="pr2"><label>Ouvreur de sécurité (ft au-dessus du point haut)</label><input class="poso" inputmode="numeric" value="${esc(String(paraOso(p)))}"></div>`; /* v0.45.0 (Henri) : hauteur de déclenchement par para */
+        `<div class="pr2"><label>Ouvreur de sécurité (ft)</label><input class="poso" inputmode="numeric" value="${esc(String(paraOso(p)))}"></div>`; /* v0.45.0 (Henri) : hauteur de déclenchement par para */
       li.querySelector('.pname').addEventListener('change', e => { p.name = e.target.value.trim(); persist(); draw(); });
       li.querySelector('.pcan').addEventListener('change', e => { p.canopy = e.target.value; changed(); });
       li.querySelector('.pmte').addEventListener('change', e => { const t = e.target.value.trim().replace(',', '.'); if (t !== '' && !(+t >= 30 && +t <= 400)) { toast('MTE refusée (30 à 400 kg)'); e.target.value = p.mte; return; } p.mte = t === '' ? MTE_DEF : +t; e.target.value = p.mte; changed(); });
@@ -2416,7 +2421,7 @@ function gpxText() {
   return o + '</gpx>\n';
 }
 let pdfFile = null;
-function fileReady(file, note) { pdfFile = file; $('pdfName').textContent = file.name + (note || ''); $('pdfReady').classList.remove('hidden');  $('pdfPreview').classList.toggle('hidden', !/\.pdf$/i.test(file.name)); }
+function fileReady(file, note) { pdfFile = file; $('pdfName').textContent = file.name + (note || ''); $('pdfReady').classList.remove('hidden');  $('pdfPreview').classList.toggle('hidden', !/\.(pdf|txt)$/i.test(file.name)); }
 $('btnGpx').addEventListener('click', () => {
   compute(); if (!sol || !sol.ok) return toast(sol && sol.err ? sol.err : 'Pas encore de trace');
   fileReady(new File([gpxText()], `${dateStamp()}_Trace_ISV_${safeName(current.name)}_${safeName(isv().name)}.gpx`, { type: 'application/gpx+xml' }));
@@ -2764,7 +2769,18 @@ $('btnPdf').addEventListener('click', async () => {
 });
 $('pdfClose').addEventListener('click', () => $('pdfReady').classList.add('hidden'));
 /* Aperçu du PDF dans l'appli (pdfview.js, 21 nov. 2026) ; bouton masqué pour un autre fichier (GPX, sauvegarde…) */
-$('pdfPreview').addEventListener('click', () => { if (pdfFile) PdfView.show(pdfFile); });
+$('pdfPreview').addEventListener('click', () => { if (!pdfFile) return; if (/\.txt$/i.test(pdfFile.name)) txtView(pdfFile); else PdfView.show(pdfFile); });
+/* v0.45.1 (Henri) : aperçu de la feuille de route (.txt) dans l'appli, comme pour le PDF. Texte à chasse fixe (les colonnes restent
+   alignées), défilement dans les deux sens, － / ＋ pour la taille. */
+async function txtView(file) {
+  const old = $('txtView'); if (old) old.remove();
+  const box = document.createElement('div'); box.id = 'txtView'; let fs = 11;
+  box.innerHTML = '<div class="pvbar"><button data-a="close">✕ Fermer</button><b></b><button data-a="out">－</button><button data-a="in">＋</button></div><pre></pre>';
+  box.querySelector('b').textContent = file.name; const pre = box.querySelector('pre'); pre.textContent = (await file.text()).replace(/^\uFEFF/, '');
+  const size = () => { pre.style.fontSize = fs + 'px'; }; size();
+  box.addEventListener('click', e => { const b = e.target.closest('button'), a = b && b.dataset.a; if (a === 'close') box.remove(); if (a === 'in') { fs = Math.min(22, fs + 2); size(); } if (a === 'out') { fs = Math.max(5, fs - 2); size(); } });
+  document.body.append(box);
+}
 $('pdfShare').addEventListener('click', async () => {
   if (!pdfFile) return;
   try {
@@ -3048,7 +3064,7 @@ function hideStepInfo() { const el = $('stepInfo'); if (el) el.classList.add('hi
 /* v0.35.7 (Henri) : coche « bandeaux jaunes » à côté du titre Préparation pas à pas — cochée par défaut ; décochée = aucun bandeau de guidage, la liste continue de suivre ce qui est fait */
 function guideOn() { return store.get('isv.guideBar', true) !== false; }
 function syncStepBar() { /* masqué quand la feuille du bas ou la coupe est ouverte ; l'alerte « trace a bougé » se pose au-dessus */
-  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing || suspended); } catch (e) { return false; } })(), hide = busy || (!guideOn() && !stepFocus) || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
+  const bar = $('stepBar'), w = $('sumWarn'), busy = (() => { try { return !!(ptOpen || placing || suspended); } catch (e) { return false; } })(), hide = busy || (() => { try { return !!showOpen; } catch (e) { return false; } })() || (!guideOn() && !stepFocus) || !$('sheet').classList.contains('hidden') || !$('cutBox').classList.contains('hidden');
   bar.classList.toggle('off', hide); avoidQuick(bar); if (hide || bar.classList.contains('hidden')) hideStepInfo();
   w.style.bottom = !bar.classList.contains('hidden') && !hide ? `calc(${bar.offsetHeight + 52}px + env(safe-area-inset-bottom))` : '';
   avoidQuick(w);
