@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.44.2">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.45.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.44.2">
+<link rel="stylesheet" href="style.css?v=0.45.0">
 </head>
 <body>
 <div id="map"></div>
@@ -47,13 +47,14 @@
   <button id="qBrief" title="Briefing : export, consignes, largage, navigation">Briefing</button>
   <button id="qRev" title="Inverser le sens de vol de l'avion">⇅ LARG</button>
   <button id="qVecAuto" class="hidden" title="Revenir au vecteur et au cap calculés, avec le temps de chute prévu">Vect. auto</button>
-  <button id="qRelax" title="Afficher / masquer le cercle de relaxation">Relax</button>
+  <button id="qShow" title="Choisir ce qui est affiché sur la carte">Affichage</button>
   <button id="qPoint" title="Ajouter une zone de posé alternative ou un point libre">＋ Point</button>
   <button id="qCut" title="Coupe du terrain le long de la trace (ou de la mesure affichée)">Coupe</button>
   <button id="qMeasure" title="Mesurer cap et distance entre deux points">📏</button>
 </nav>
 
 <!-- v0.17.0 : ＋ Point comme les repères de l'appli PA : choix du type à côté du bouton, pas de fenêtre -->
+<div id="showPop" class="hidden"></div><!-- v0.45.0 : interrupteurs du bouton Affichage -->
 <div id="ptPop" class="hidden">
   <button id="ptAlt" title="Zone de posé alternative"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="7" fill="none" stroke="#000" stroke-width="5"/><circle cx="12" cy="12" r="7" fill="none" stroke="#ff2020" stroke-width="3"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6" stroke="#ff2020" stroke-width="2.4"/></svg></button>
   <div class="prow"><button id="ptFree" title="Point libre"><svg viewBox="0 0 24 24" width="22" height="22"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#fff" stroke="#111" stroke-width="2"/></svg></button></div>
@@ -162,7 +163,10 @@
     <div class="grid2">
       <div><label>Vert → 1er para (s)</label><input id="i_tGreen" inputmode="decimal"></div>
       <div><label>Dernier para → rouge (s)</label><input id="i_tRed" inputmode="decimal"></div>
+      <div><label>Approche avant le vert (NM)</label><input id="i_apprNm" inputmode="decimal"></div>
+      <div><label>Dégagement après le rouge (NM)</label><input id="i_exitNm" inputmode="decimal"></div>
     </div>
+    <p class="hint">Approche et dégagement : pointillés fléchés dans l'axe du vecteur, pour que l'avion ait le temps de s'aligner avant le vert et de dégager après le rouge. 0 = pas de pointillé.</p>
 
     <div id="a_vol"></div>
     <h3>Données de vol</h3>
@@ -211,7 +215,8 @@
     <div id="briefSteps"></div>
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
-    <p class="hint">PDF : une page A4 paysage, carte cap para vers le haut et Briefing. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points.</p>
+    <div class="row"><button id="btnTxt" class="wide">📝 Feuille de route (.txt)</button></div>
+    <p class="hint">PDF : une page A4 paysage, carte cap para vers le haut et Briefing. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points. Feuille de route : pour naviguer sans GPS, un tableau par couple voile + MTE de l'équipe — à chaque point de la trace, la hauteur, la distance et le temps depuis l'OUV, puis le cap, la distance et le temps jusqu'au point suivant.</p>
 
     <div id="briefBody"></div>
   </div>
@@ -236,11 +241,10 @@
     <h3>Chute et ouverture</h3>
     <div class="grid2">
       <div><label>Vitesse de chute stabilisée à 1 000 m (m/s)</label><input id="p_vff" inputmode="numeric"></div>
-      <div><label>Déclenchement de l'ouvreur de sécurité OSO (ft au-dessus du point haut)</label><input id="p_osoFt" inputmode="numeric"></div>
       <div><label>Temps de chute de référence (s)</label><input id="p_tRef" inputmode="decimal"></div>
       <div><label>Hauteur gardée : ouverture au plus … % au-dessus de la trace</label><input id="p_keepPct" inputmode="decimal"></div>
     </div>
-    <p class="hint">La hauteur perdue à l'ouverture se saisit pour chaque parachute (paragraphe Parachutes). L'ouvreur de sécurité place les points gris (ouverture automatique) et donc les points jaunes. Hauteur d'ouverture gardée : si le para s'ouvrirait plus haut que la trace de plus de ce pourcentage de la hauteur qu'il lui reste à descendre, l'ouverture est abaissée (il chute plus longtemps) ; la trace et le cap ne bougent pas.</p>
+    <p class="hint">La hauteur perdue à l'ouverture se saisit pour chaque parachute (paragraphe Parachutes). Hauteur d'ouverture gardée : si le para s'ouvrirait plus haut que la trace de plus de ce pourcentage de la hauteur qu'il lui reste à descendre, l'ouverture est abaissée (il chute plus longtemps) ; la trace et le cap ne bougent pas.</p>
 
     <h3>Vent</h3>
     <div class="grid2">
@@ -256,10 +260,30 @@
 
     <h3>Zones de posé alternatives</h3>
     <div class="grid2">
-      <div><label>OSO : à moins de … du point jaune le plus proche (km)</label><input id="p_osoKm" inputmode="decimal"></div>
+      <div><label>OSO : à moins de … du point de posé OSO le plus proche (km)</label><input id="p_osoKm" inputmode="decimal"></div>
       <div><label>COURT : à moins de … de la ZMT (km)</label><input id="p_courtKm" inputmode="decimal"></div>
     </div>
-    <p class="hint">Une zone de posé alternative se nomme toute seule selon sa position : OSO (près d'un point jaune), LONG (au-delà du PTU, dans l'axe de la trace), COURT (avant le PTU, près de la ZMT), sinon INT. Mêmes nom et écart de hauteur : numérotées dans l'ordre de la trace (INT1, INT2…). Tu peux toujours écrire un autre nom.</p>
+    <p class="hint">Une zone de posé alternative se nomme toute seule selon sa position : OSO (près d'un point de posé OSO), LONG (au-delà du PTU, dans l'axe de la trace), COURT (avant le PTU, près de la ZMT), sinon INT. Mêmes nom et écart de hauteur : numérotées dans l'ordre de la trace (INT1, INT2…). Tu peux toujours écrire un autre nom.</p>
+
+    <!-- v0.45.0 (Henri) : toutes les valeurs que l'appli propose d'office à la création d'une ISV ou d'un para -->
+    <h3>Valeurs par défaut</h3>
+    <div class="grid2">
+      <div><label>Hauteur d'arrivée au PTU (m)</label><input id="d_hPtu" inputmode="numeric"></div>
+      <div><label>Nombre de paras de l'équipe</label><input id="d_nParas" inputmode="numeric"></div>
+      <div><label>MTE d'un para (kg)</label><input id="d_mte" inputmode="numeric"></div>
+      <div><label>Intervalle entre deux paras (s)</label><input id="d_dt" inputmode="decimal"></div>
+      <div><label>Vert → 1er para (s)</label><input id="d_tGreen" inputmode="decimal"></div>
+      <div><label>Dernier para → rouge (s)</label><input id="d_tRed" inputmode="decimal"></div>
+      <div><label>Largage (FL)</label><input id="d_fl" inputmode="numeric"></div>
+      <div><label>Vitesse de largage (m/s badin)</label><input id="d_acMs" inputmode="decimal"></div>
+      <div><label>Sécurité avant / après le vecteur (m)</label><input id="d_secLong" inputmode="numeric"></div>
+      <div><label>Sécurité latérale (m)</label><input id="d_secLat" inputmode="numeric"></div>
+      <div><label>Ouvreur de sécurité : déclenchement (ft au-dessus du point haut)</label><input id="p_osoFt" inputmode="numeric"></div>
+      <div></div>
+      <div><label>Approche avant le vert (NM)</label><input id="d_apprNm" inputmode="decimal"></div>
+      <div><label>Dégagement après le rouge (NM)</label><input id="d_exitNm" inputmode="decimal"></div>
+    </div>
+    <p class="hint">Ces valeurs servent à créer une nouvelle ISV ou un nouveau para ; les changer ne modifie pas les ISV qui existent déjà. Le temps de chute d'une nouvelle ISV est le temps de chute de référence (paragraphe Chute et ouverture). L'ouvreur de sécurité se règle ensuite para par para (Prépa ISV › Équipe) : il place le point d'ouverture OSO de chaque para, donc son point de posé OSO.</p>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -323,17 +347,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.44.2"></script>
-<script src="vendor/leaflet-rotate.js?v=0.44.2"></script>
-<script src="vendor/mgrs.min.js?v=0.44.2"></script>
-<script src="geo.js?v=0.44.2"></script>
-<script src="clubs.js?v=0.44.2"></script>
-<script src="wmm.js?v=0.44.2"></script>
-<script src="calc.js?v=0.44.2"></script>
-<script src="windpick.js?v=0.44.2"></script>
-<script src="pdfview.js?v=0.44.2"></script>
-<script src="lpmove.js?v=0.44.2"></script>
-<script src="app.js?v=0.44.2"></script>
-<script src="photo.js?v=0.44.2"></script>
+<script src="vendor/leaflet.js?v=0.45.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.45.0"></script>
+<script src="vendor/mgrs.min.js?v=0.45.0"></script>
+<script src="geo.js?v=0.45.0"></script>
+<script src="clubs.js?v=0.45.0"></script>
+<script src="wmm.js?v=0.45.0"></script>
+<script src="calc.js?v=0.45.0"></script>
+<script src="windpick.js?v=0.45.0"></script>
+<script src="pdfview.js?v=0.45.0"></script>
+<script src="lpmove.js?v=0.45.0"></script>
+<script src="app.js?v=0.45.0"></script>
+<script src="photo.js?v=0.45.0"></script>
 </body>
 </html>
