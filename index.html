@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.51.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.51.2">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.51.1">
+<link rel="stylesheet" href="style.css?v=0.51.2">
 </head>
 <body>
 <div id="map"></div>
@@ -148,6 +148,12 @@
     <ul id="isvList"></ul>
     <div class="row grid2"><button id="btnNewIsv">＋ Nouvelle ISV</button><button id="btnDupIsv">⧉ Dupliquer l'ISV ouverte</button></div>
     <div class="row"><button id="btnAddTeam" class="wide">＋ Équipe suivante sur le même passage</button></div>
+    <h3>Avion : approche et dégagement</h3>
+    <div class="grid2">
+      <div><label>Approche avant le premier vert (NM)</label><input id="i_apprNm" inputmode="decimal"></div>
+      <div><label>Dégagement après le dernier rouge (NM)</label><input id="i_exitNm" inputmode="decimal"></div>
+    </div>
+    <p class="hint">Valeurs de l'avion, communes à toutes les équipes du passage. Pointillés fléchés dans l'axe du vecteur, pour que l'avion ait le temps de s'aligner avant le vert de la première équipe et de dégager après le rouge de la dernière ; entre deux équipes, pointillé sans flèche du rouge de l'une au vert de la suivante. 0 = pas de pointillé.</p>
     <div id="linkBox" class="hidden">
       <h3>Passage commun</h3>
       <p class="calc" id="linkInfo"></p>
@@ -174,10 +180,7 @@
     <div class="grid2">
       <div><label>Vert → 1er para (s)</label><input id="i_tGreen" inputmode="decimal"></div>
       <div><label>Dernier para → rouge (s)</label><input id="i_tRed" inputmode="decimal"></div>
-      <div><label>Approche avant le vert (NM)</label><input id="i_apprNm" inputmode="decimal"></div>
-      <div><label>Dégagement après le rouge (NM)</label><input id="i_exitNm" inputmode="decimal"></div>
     </div>
-    <p class="hint">Approche et dégagement : pointillés fléchés dans l'axe du vecteur, pour que l'avion ait le temps de s'aligner avant le vert et de dégager après le rouge. 0 = pas de pointillé.</p>
 
     <div id="a_vol"></div>
     <h3>Données de vol</h3>
@@ -224,6 +227,7 @@
 
   <!-- ===== Briefing (v0.12.0) : tout ce qui est calculé, en lecture seule ===== -->
   <div id="tab-brief" class="tab hidden">
+    <label>Équipe (ISV de la zone)</label><select id="briefTeam"></select>
     <div id="briefSteps"></div>
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
@@ -367,18 +371,18 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.51.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.51.1"></script>
-<script src="vendor/mgrs.min.js?v=0.51.1"></script>
-<script src="geo.js?v=0.51.1"></script>
-<script src="clubs.js?v=0.51.1"></script>
-<script src="wmm.js?v=0.51.1"></script>
-<script src="calc.js?v=0.51.1"></script>
-<script src="pass.js?v=0.51.1"></script>
-<script src="windpick.js?v=0.51.1"></script>
-<script src="pdfview.js?v=0.51.1"></script>
-<script src="lpmove.js?v=0.51.1"></script>
-<script src="app.js?v=0.51.1"></script>
-<script src="photo.js?v=0.51.1"></script>
+<script src="vendor/leaflet.js?v=0.51.2"></script>
+<script src="vendor/leaflet-rotate.js?v=0.51.2"></script>
+<script src="vendor/mgrs.min.js?v=0.51.2"></script>
+<script src="geo.js?v=0.51.2"></script>
+<script src="clubs.js?v=0.51.2"></script>
+<script src="wmm.js?v=0.51.2"></script>
+<script src="calc.js?v=0.51.2"></script>
+<script src="pass.js?v=0.51.2"></script>
+<script src="windpick.js?v=0.51.2"></script>
+<script src="pdfview.js?v=0.51.2"></script>
+<script src="lpmove.js?v=0.51.2"></script>
+<script src="app.js?v=0.51.2"></script>
+<script src="photo.js?v=0.51.2"></script>
 </body>
 </html>
