@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.47.0';
+const VERSION = '0.47.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1689,7 +1689,7 @@ function renderBrief() {
   end(); out.push('</div>');
   sec('Largage');
   row('FL de largage', `FL${s.fl}`, true);
-  if (s.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(s.flMin4).padStart(3, '0')} (même ouverture terminée, ${fmtInt(Math.round(s.hOpen))} m) <button class="applyFl">Appliquer</button>`); /* v0.37.0 / v0.38.0 (Henri) */
+  if (s.flMin4 != null) row(`(FL possible pour ${fmt1(+prm.tRef || 4)} s de chute)`, `(FL${String(s.flMin4).padStart(3, '0')} · même ouverture terminée, ${fmtInt(Math.round(s.hOpen))} m) <button class="applyFl">Appliquer</button>`); /* v0.47.1 (Henri) : FL possible et CDO possible = même règle, entre parenthèses, à l'écran comme dans le PDF */ /* v0.37.0 / v0.38.0 (Henri) */
   row('Hauteur au-dessus de la ZMT', `${fmtInt(s.hRel)} m`);
   row('Hauteur au-dessus du point haut', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé');
   row('Cap avion au largage', hdg(s.acHeading), true);
@@ -1705,8 +1705,8 @@ function renderBrief() {
   end();
   sec('Chute et ouverture');
   row('Hauteur d\'action CDO', `${fmtInt(Math.ceil(s.hCmd / 100 - 1e-6) * 100)} m`); /* v0.39.2 (Henri) : arrondie (centaine supérieure) dans le Briefing et le PDF ; la valeur réelle est dans Prépa ISV */ /* v0.18.0 : hauteur où le para tire ; arrondie à la centaine seulement si c'est la CDO (ouverture abaissée), exacte à 4 s */ /* v0.14.0 : temps de chute retiré (déjà dans la CDO) */
+  { const q = openLowInfo(); if (q) row('(CDO possible sur la trace)', `(${fmtInt(q.hCmd)} m · ouverture terminée ${fmtInt(q.hOpen)} m, soit ${fmtInt(q.gain)} m plus bas) <button class="applyFl applyOpen">Appliquer</button>`); } /* v0.47.0 (Henri) */
   row('Ouverture terminée, au-dessus de la ZMT', `${fmtInt(s.hOpen)} m`);
-  { const q = openLowInfo(); if (q) row('Ouverture possible sur la trace', `CDO ${fmtInt(q.hCmd)} m (ouverture terminée ${fmtInt(q.hOpen)} m, soit ${fmtInt(q.gain)} m plus bas) <button class="applyFl applyOpen">Appliquer</button>`); } /* v0.47.0 (Henri) */
   row('Ouverture terminée, au-dessus du point haut', av && av.max ? `${fmtInt(s.elev0 + s.hOpen - av.max.elev)} m` : 'non calculé');
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
   row('Dérive sous RSE', `${fmtInt(s.rseLen)} m`);
@@ -2688,7 +2688,8 @@ function pdfDataPages(doc) {
   const row = (k, v, bold) => { if (y > 285) { doc.addPage('a4', 'portrait'); y = 18; } doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.text(clean(k), 15, y); doc.text(clean(v), 110, y); y += 5.6; };
   title(`${current.name} - ${I.name} - saut du ${fmtWhen(current.when).replace(' ', ' à ')}`);
   row('Largage', `FL${sol.fl} = ${fmtInt(sol.hRel)} m au-dessus du sol de la ZMT`, true);
-  if (sol.flMin4 != null) row(`FL pour ${fmt1(+prm.tRef || 4)} s de chute`, `FL${String(sol.flMin4).padStart(3, '0')} (même ouverture terminée, ${fmtInt(Math.round(sol.hOpen))} m)`);
+  if (sol.flMin4 != null) row(`(FL possible pour ${fmt1(+prm.tRef || 4)} s de chute)`, `(FL${String(sol.flMin4).padStart(3, '0')} · même ouverture terminée, ${fmtInt(Math.round(sol.hOpen))} m)`);
+  { const q = openLowInfo(); if (q) row('(CDO possible sur la trace)', `(${fmtInt(q.hCmd)} m · ouverture terminée ${fmtInt(q.hOpen)} m, soit ${fmtInt(q.gain)} m plus bas)`); }
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} kt) = ${Math.round(sol.tas * KT)} kt vraie`);
   row(sol.openLowered ? 'Consigne : ouverture à' : 'Temps de chute', sol.openLowered ? `${fmtInt(Math.round(sol.hOpen))} m au-dessus du sol de la ZMT (${fmt1(sol.tFall)} s de chute, ${fmtInt(sol.openDrop)} m d'ouverture compris)` : `${fmt1(sol.tFall)} s, puis ${fmtInt(sol.openDrop)} m de perte de hauteur à l'ouverture (${fmt1(sol.tOpen)} s)`, sol.openLowered);
   volRows().forEach(([k, v, hi]) => row(k, v, hi));
@@ -2726,7 +2727,7 @@ function briefSections() {
   renderBrief(); const out = [];
   $('briefBody').querySelectorAll('h3').forEach(h => {
     const tb = h.nextElementSibling; if (!tb || tb.tagName !== 'TABLE') return;
-    const rows = [...tb.querySelectorAll('tr')].filter(tr => !tr.querySelector('.applyOpen')) /* v0.47.0 : la suggestion d'ouverture plus basse reste à l'écran, pas dans le PDF (une seule CDO sur le papier) */.map(tr => { const td = tr.querySelectorAll('td'); const v = td[1] ? td[1].cloneNode(true) : null; if (v) v.querySelectorAll('button').forEach(b => b.remove());
+    const rows = [...tb.querySelectorAll('tr')].map(tr => { const td = tr.querySelectorAll('td'); const v = td[1] ? td[1].cloneNode(true) : null; if (v) v.querySelectorAll('button').forEach(b => b.remove());
       return [td[0] ? td[0].innerText.trim() : '', v ? v.innerText.trim() : '', tr.classList.contains('hi')]; });
     out.push({ title: h.innerText.trim(), rows, para: !!h.closest('.paraBox') });
   });
