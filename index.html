@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.51.2">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.51.3">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.51.2">
+<link rel="stylesheet" href="style.css?v=0.51.3">
 </head>
 <body>
 <div id="map"></div>
@@ -273,8 +273,10 @@
 
     <h3>Sommets et zones délicates</h3>
     <div class="grid2">
-      <div><label>Marge au-dessus d'un sommet ou d'une fin de zone délicate (m)</label><input id="p_sumMargin" inputmode="numeric"></div><div></div>
+      <div><label>Marge au-dessus d'un sommet ou d'une fin de zone délicate (m)</label><input id="p_sumMargin" inputmode="numeric"></div>
+      <div><label>Trace considérée comme déplacée au-delà de (m)</label><input id="p_routeTol" inputmode="numeric"></div>
     </div>
+    <p class="hint">« La trace a bougé, revérifie… » (bandeaux jaunes, sommets, zones délicates) n'apparaît que si la route au sol s'est vraiment écartée de plus de cette distance. Une trace raccourcie par le haut (ouverture abaissée), des hauteurs qui changent (ZMT déplacée) ou un point de la trace en plus ou en moins sur la même route ne comptent pas.</p>
     <p class="hint">Un sommet S posé depuis la coupe se place sur le point le plus haut du terrain dans un cercle autour de l'endroit choisi sur la trace (rayon = longueur du vecteur de largage). Le point de la trace avant le sommet ou le début de la zone délicate prend « -MINI » : la hauteur alti minimale pour passer avec cette marge.</p>
 
     <h3>Zones de posé alternatives</h3>
@@ -371,18 +373,18 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.51.2"></script>
-<script src="vendor/leaflet-rotate.js?v=0.51.2"></script>
-<script src="vendor/mgrs.min.js?v=0.51.2"></script>
-<script src="geo.js?v=0.51.2"></script>
-<script src="clubs.js?v=0.51.2"></script>
-<script src="wmm.js?v=0.51.2"></script>
-<script src="calc.js?v=0.51.2"></script>
-<script src="pass.js?v=0.51.2"></script>
-<script src="windpick.js?v=0.51.2"></script>
-<script src="pdfview.js?v=0.51.2"></script>
-<script src="lpmove.js?v=0.51.2"></script>
-<script src="app.js?v=0.51.2"></script>
-<script src="photo.js?v=0.51.2"></script>
+<script src="vendor/leaflet.js?v=0.51.3"></script>
+<script src="vendor/leaflet-rotate.js?v=0.51.3"></script>
+<script src="vendor/mgrs.min.js?v=0.51.3"></script>
+<script src="geo.js?v=0.51.3"></script>
+<script src="clubs.js?v=0.51.3"></script>
+<script src="wmm.js?v=0.51.3"></script>
+<script src="calc.js?v=0.51.3"></script>
+<script src="pass.js?v=0.51.3"></script>
+<script src="windpick.js?v=0.51.3"></script>
+<script src="pdfview.js?v=0.51.3"></script>
+<script src="lpmove.js?v=0.51.3"></script>
+<script src="app.js?v=0.51.3"></script>
+<script src="photo.js?v=0.51.3"></script>
 </body>
 </html>

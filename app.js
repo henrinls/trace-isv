@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.51.2';
+const VERSION = '0.51.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -25,7 +25,7 @@ const isDark = c => c === '#000000';
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
 const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, tRef: 4,
-  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3, linkDelay: 60 }, apprV: 1, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3, linkDelay: 60 }, apprV: 1, routeTol: 50, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -940,7 +940,7 @@ function passVecs(own, others) { /* vecteurs du passage dans l'ordre de sortie :
   const by = {}; (others || []).forEach(o => { if (o.sol && o.sol.vec) by[o.I.id] = o.sol; }); if (own && own.vec) by[me.id] = own;
   return P.teams.map(X => by[X.id]).filter(Boolean).map(s => ({ green: s.vec.green, red: s.vec.red, h: s.vec.heading })); }
 function apprSegsOf(V, A, E, gap) { if (!V.length) return []; const h = V[0].h, a = Calc.unit(h), mv = (p, d) => Calc.fromLocal(p, { x: a.x * d, y: a.y * d }), out = [], g = V[0].green, r = V[V.length - 1].red;
-  if (A > 2 * gap) out.push({ line: [mv(g, -A), mv(g, -gap)], tip: mv(g, -gap), dir: h });
+  if (A > 2 * gap) out.push({ line: [mv(g, -A), mv(g, -gap)], tip: mv(g, -A), dir: h }); /* v0.51.3 (Henri) : flèche au DÉBUT de l'approche, comme un empennage */
   const g2 = gap / 2; /* entre deux équipes : écart réduit, pour que le pointillé reste visible en vue d'ensemble */
   for (let k = 1; k < V.length; k++) { const p = V[k - 1].red, q = V[k].green, d = Calc.dist(p, q); if (d > 2 * g2) { const u = Calc.toLocal(p, q); out.push({ line: [Calc.fromLocal(p, { x: u.x * g2 / d, y: u.y * g2 / d }), Calc.fromLocal(p, { x: u.x * (1 - g2 / d), y: u.y * (1 - g2 / d) })], tip: null, dir: h }); } }
   if (E > 2 * gap) out.push({ line: [mv(r, gap), mv(r, E)], tip: mv(r, E), dir: h });
@@ -1081,17 +1081,30 @@ function traceMini() {
 }
 /* v0.22.0 (Henri) : si la trace a bougé depuis la pose d'un sommet S, bandeau d'alerte sur la carte pour revérifier les sommets
    (ils ne sont peut-être plus sur le point le plus haut sous la trace). S.sig = empreinte de la trace à la pose (ou à l'acquittement). */
-function traceSig() { if (!sol || !sol.ok) return ''; let h = 0; const s = sol.trace.map(q => q.lat.toFixed(5) + ',' + q.lng.toFixed(5)).join(';'); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); }
+function traceSig() { if (!sol || !sol.ok) return ''; let h = 0; const s = sol.trace.map(q => q.lat.toFixed(5) + ',' + q.lng.toFixed(5)).join(';'); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; const sig = String(h); routeKeep(sig, s); return sig; }
+/* v0.51.3 (Henri, 24/11) : « la trace a bougé » seulement quand la ROUTE AU SOL a vraiment bougé. Avant, la moindre différence de la
+   signature (un point du haut retiré quand l'ouverture est abaissée, une hauteur qui change quand la ZMT bouge : écart mesuré 1 à 9 m)
+   remettait toutes les étapes faites en « à revérifier ». Chaque signature garde sa route (I.rts) ; deux signatures sont « la même
+   trace » si chaque point de la nouvelle est à moins de prm.routeTol (50 m, Param) de l'ancienne route. Raccourcie par le haut = même
+   trace ; rallongée par le haut (nouveau terrain) = trace déplacée. NE PAS revenir à une comparaison stricte des signatures. */
+function routeKeep(sig, s) { const I = isv(); if (!I) return; const R = I.rts = I.rts || {}; if (R[sig] === s) return; R[sig] = s;
+  const keys = Object.keys(R); if (keys.length <= 12) return; const used = new Set([sig, I.sumSig]); Object.values(I.steps || {}).forEach(r => r && used.add(r.sig)); (I.points || []).forEach(q => used.add(q.sig));
+  keys.forEach(k => { if (!used.has(k)) delete R[k]; }); }
+const sigMem = new Map();
+function sigSame(a, b) { if (a === b) return true; if (!a || !b) return false; const R = isv().rts || {}, ra = R[a], rb = R[b]; if (!ra || !rb) return false;
+  const tol = Math.max(1, +prm.routeTol || 50), k = a + '|' + b + '|' + tol; if (sigMem.has(k)) return sigMem.get(k);
+  const P = s => s.split(';').map(x => { const [lat, lng] = x.split(',').map(Number); return { lat, lng, h: 0 }; }), A = P(ra), B = P(rb);
+  const v = B.every(p => Calc.nearestOn(A, p).d <= tol); if (sigMem.size > 500) sigMem.clear(); sigMem.set(k, v); return v; }
 const C_WARN = '#ff8c00'; /* v0.23.0 : sommet S pas revérifié depuis que la trace a bougé (et son point de passage) → orange */
-function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig) return false; const s = traceSig(); return !!s && q.sig !== s; }
+function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig) return false; const s = traceSig(); return !!s && !sigSame(q.sig, s); }
 function syncSumWarn() {
   const sig = traceSig(), I = isv(), S = I.points.filter(q => q.auto === 'S' || q.kind === 'zd');
   if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
   /* v0.42.2 : la signature englobe le point du haut ; si la ROUTE est la même que la dernière fois où tout était à jour (Vect. auto,
      changement de FL, vecteur rentré…), les sommets S et zones délicates qui étaient à jour le restent */
   if (sig && I.sumSig && I.sumSig !== sig && I.sumRoute && sameRoute(I.sumRoute)) { S.forEach(q => { if (q.sig === I.sumSig) q.sig = sig; }); I.sumSig = sig; I.sumRoute = traceGrid(); }
-  if (sig && S.every(q => q.sig === sig)) { I.sumSig = sig; I.sumRoute = traceGrid(); }
-  const st = S.filter(q => q.sig !== sig), hasS = st.some(q => q.auto === 'S'), hasZ = st.some(q => q.kind === 'zd'); /* v0.42.1 (Henri) : nommer aussi les zones délicates */
+  if (sig && S.every(q => sigSame(q.sig, sig))) { I.sumSig = sig; I.sumRoute = traceGrid(); }
+  const st = S.filter(q => !sigSame(q.sig, sig)), hasS = st.some(q => q.auto === 'S'), hasZ = st.some(q => q.kind === 'zd'); /* v0.42.1 (Henri) : nommer aussi les zones délicates */
   $('sumWarn').querySelector('span').textContent = '⚠️ La trace a bougé : revérifie ' + (hasS && hasZ ? 'les sommets S et les zones délicates' : hasZ ? 'les zones délicates' : 'les sommets S') + ' avec une coupe.';
   $('sumWarn').classList.toggle('hidden', !sig || !st.length);
 }
@@ -1442,7 +1455,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_offKm', prm.offKm);
+  setVal('p_margin', prm.margin); setVal('p_routeTol', prm.routeTol); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_offKm', prm.offKm);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -2570,7 +2583,7 @@ const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(
 /* v0.45.0 (Henri) : Param › Valeurs par défaut — [clé, mini, maxi] ; champs d_<clé> ; l'ouvreur de sécurité garde sa clé prm.osoFt */
 const DEF_FIELDS = [['hPtu', 0, 5000], ['nParas', 1, 60], ['mte', 30, 400], ['dt', 0, 120], ['tGreen', 0, 120], ['tRed', 0, 120], ['fl', 30, 450], ['acMs', 20, 200], ['secLong', 0, 20000], ['secLat', 0, 10000], ['apprNm', 0, 50], ['exitNm', 0, 50], ['linkDelay', 0, 600]];
 DEF_FIELDS.forEach(([k, mn, mx]) => onNum('d_' + k, v => { prm.def[k] = k === 'nParas' ? Math.round(v) : v; saveProfile(); }, mn, mx));
-onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
+onPrm('p_routeTol', 'routeTol', 1, 5000); onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
@@ -3480,8 +3493,8 @@ function sameRoute(g0) { const g1 = traceGrid(), m = new Map(g0.map(q => [q.h, q
    étaient recalées. Même défaut en hauteur gardée quand le FL change. Règle (comme flKeepTrace) : si tous les points de la trace restés
    sous l'ouverture n'ont pas bougé (sameRoute), les étapes qui étaient à jour suivent la nouvelle signature. */
 function stepsRebase(I, sig0, g0) { if (!sameRoute(g0)) return; const sig = traceSig(); I.steps = I.steps || {};
-  STEPS.forEach(st => { const r = I.steps[st.id]; if (st.tr && r && r.s === 'done' && (!r.sig || r.sig === sig0) && !r.force) r.sig = sig; }); }
-function rebaseSum(sig0, g0) { if (!sameRoute(g0)) return; const sig = traceSig(); isv().points.forEach(q => { if ((q.auto === 'S' || q.kind === 'zd') && (!q.sig || q.sig === sig0)) q.sig = sig; }); syncSumWarn(); }
+  STEPS.forEach(st => { const r = I.steps[st.id]; if (st.tr && r && r.s === 'done' && (!r.sig || sigSame(r.sig, sig0)) && !r.force) r.sig = sig; }); }
+function rebaseSum(sig0, g0) { if (!sameRoute(g0)) return; const sig = traceSig(); isv().points.forEach(q => { if ((q.auto === 'S' || q.kind === 'zd') && (!q.sig || sigSame(q.sig, sig0))) q.sig = sig; }); syncSumWarn(); }
 function flKeepTrace(fl, manualPre) {
   const I = isv(); compute(); const g0 = traceGrid(), s0 = traceSig(); if (!sol || !sol.ok) { I.fl = fl; changed(); return false; }
   if (!I.manual) { /* v0.42.2 (Henri) : changer le FL avec le vecteur automatique ne remet PAS tout en automatique — le vecteur tel qu'il
@@ -3510,7 +3523,7 @@ function flKeepTrace(fl, manualPre) {
   if (m) I.manual = m; I.fl = fl; changed();
   if (sol && sol.ok && Math.round(magOf(sol.cap)) % 360 !== capM) setCap(capM);
   I.steps = I.steps || {}; const sig = traceSig();
-  STEPS.forEach(st => { const r = I.steps[st.id]; if (st.tr && r && r.s === 'done' && (!r.sig || r.sig === sig0 || r.force)) { r.sig = sig; delete r.force; } }); /* seules les étapes à jour avant le changement suivent */
+  STEPS.forEach(st => { const r = I.steps[st.id]; if (st.tr && r && r.s === 'done' && (!r.sig || sigSame(r.sig, sig0) || r.force)) { r.sig = sig; delete r.force; } }); /* seules les étapes à jour avant le changement suivent */
   ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig, force: 1 }; }); rebaseSum(s0, g0);
   persist(); syncSteps(); return true;
 }
@@ -3602,7 +3615,7 @@ function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange :
   if (st.pts && st.auto && !st.auto()) return 'todo';
   if (st.auto && st.auto()) return r && r.force ? 'recheck' : 'done';
   if (st.chk) { if (st.tr && (!sol || !sol.ok)) return 'todo'; return stepProblems(st.chk).length ? 'todo' : 'done'; }
-  if (r && r.s === 'done') return st.tr && r.sig && r.sig !== traceSig() ? 'recheck' : 'done';
+  if (r && r.s === 'done') return st.tr && r.sig && !sigSame(r.sig, traceSig()) ? 'recheck' : 'done';
   return 'todo';
 }
 function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st ? stepHost(st) : isv(); H.steps = H.steps || {}; if (s) H.steps[id] = { s, sig: traceSig() }; else delete H.steps[id];
