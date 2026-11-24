@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.48.1';
+const VERSION = '0.49.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -25,7 +25,7 @@ const isDark = c => c === '#000000';
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
 const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, keepPct: 30, tRef: 4,
-  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3 }, apprV: 1 }; /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3 }, apprV: 1, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -151,7 +151,7 @@ function upgrade(z) {
   z.isvs = z.isvs.map(upIsv);
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
-  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
   /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
   z.isvs.forEach(i => { if (typeof i.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(i.when)) i.when = z.when; if (i.nameAuto) i.name = isvAutoName(i); });
@@ -553,6 +553,28 @@ const C_OUV_END = 'rgba(255,205,235,.72)'; /* rose clair transparent : vert et r
 function ouvShift() { return sol && sol.ok && sol.attachOuv && sol.vec ? Calc.toLocal(sol.vec.attach, sol.attachOuv) : null; }
 function ouvPts() { const d = ouvShift(); return d ? sol.vec.exits.map(e => Calc.fromLocal(e, d)) : null; }
 function ouvVec() { const d = ouvShift(); return d ? [Calc.fromLocal(sol.vec.green, d), Calc.fromLocal(sol.vec.red, d)] : null; }
+/* ===== v0.49.0 (lot 2, Henri) : zone de recherche d'une VOILE LIBÉRÉE =====
+   Une voile libérée à l'ouverture descend sans pilote en dérivant avec le vent. Faute de mesure, sa vitesse de chute est prise dans
+   une fourchette réglable (Param., 4 à 10 m/s par défaut, données à 1 000 m et corrigées de la densité comme les autres vitesses).
+   Elle part du point d'ouverture du para choisi (son point rose), à la hauteur d'ouverture, et descend jusqu'au sol de la ZMT.
+   La zone à fouiller est la bande des points de posé entre la chute la plus rapide (le plus près) et la plus lente (le plus loin) ;
+   la marge sur le vent (Param.) l'allonge aux deux bouts : vent plus faible que prévu côté rapide, plus fort côté lent. */
+const C_LOST = '#4d8dff';
+function lostDrift(P, hTop, v0, kW) { let p = { lat: P.lat, lng: P.lng }; const e0 = sol.elev0;
+  for (let h = hTop; h > 1e-6;) { const h2 = Math.max(0, h - 100), W = Calc.windMean(F, p.lat, p.lng, e0 + h2, e0 + h), dt = (h - h2) / (v0 * Calc.kRho(F, p.lat, p.lng, e0 + (h + h2) / 2));
+    p = Calc.fromLocal(p, { x: W.u * kW * dt, y: W.v * kW * dt }); h = h2; }
+  return p; }
+function lostIdx() { const I = isv(), i = I.team.findIndex(p => p.id === I.lostId); return i >= 0 ? i : (sol && sol.ok ? sol.dropIdx : 0); }
+let lostMem = { k: null, v: null };
+function lostZone() {
+  if (!sol || !sol.ok) return null; const OP = ouvPts(); if (!OP) return null; const i = Math.min(lostIdx(), OP.length - 1), P = OP[i];
+  const a = Math.max(0.5, Math.min(+prm.lostVmin || 4, +prm.lostVmax || 10)), b = Math.max(a, Math.max(+prm.lostVmin || 4, +prm.lostVmax || 10)), m = sol.margin || 0;
+  const k = JSON.stringify([solKey, i, P.lat.toFixed(5), P.lng.toFixed(5), Math.round(sol.hOpen), a, b, m, wxRec && wxRec.fetched, zeroWind]); if (lostMem.k === k) return lostMem.v;
+  const N = 8, line = []; for (let j = 0; j <= N; j++) line.push(lostDrift(P, sol.hOpen, b * Math.pow(a / b, j / N), 1)); /* du plus rapide au plus lent */
+  const near = lostDrift(P, sol.hOpen, b, Math.max(0, 1 - m)), far = lostDrift(P, sol.hOpen, a, 1 + m), band = [near].concat(line, [far]), d = Calc.toLocal(P, far);
+  const v = { i, from: P, band, near, far, vmin: a, vmax: b, dNear: Calc.dist(P, near), dFar: Calc.dist(P, far), brg: Calc.bearingOf(d) };
+  lostMem = { k, v }; return v;
+}
 function ouvCur() { const I = isv(); return sol && sol.ok ? (I.manual && sol.ouvO ? sol.ouvO : sol.attachOuv) : null; } /* point d'ouverture du para sur la trace */
 /* Poignées gardées d'un dessin à l'autre (clés préfixe + rang) ; une poignée en cours de glissement n'est pas retirée, même si son
    point n'existe plus le temps du recalcul (point haut en attente). */
@@ -561,7 +583,7 @@ function ouvHandles(pts, prefix, icon, z, kind, onTap) {
   for (let i = 0; i < n; i++) { const key = prefix + i, isNew = !mk[key]; keep(key, pts[i], icon, z);
     mk[key]._kind = typeof kind === 'function' ? kind(i) : kind;
     if (isNew) { ouvGesture(mk[key]); mk[key].on('click', () => { if (Date.now() < suppressClickUntil) return; if (mk[key] && mk[key]._onTap) mk[key]._onTap(); }); }
-    mk[key]._onTap = onTap || null; }
+    mk[key]._onTap = onTap ? () => onTap(i) : null; }
   Object.keys(mk).filter(k => k.startsWith(prefix) && /^\d+$/.test(k.slice(prefix.length)) && +k.slice(prefix.length) >= n).forEach(k => { if (isDragging(mk[k])) return; handles.removeLayer(mk[k]); delete mk[k]; });
 }
 function ouvGesture(m) {
@@ -820,6 +842,11 @@ function draw(light) {
     /* Leaflet arrondit chaque sommet au pixel : sur un contour presque rond, ça le fait onduler. Sommets projetés sans arrondi. */
     zp._projectLatlngs = function (lls, result, bounds) { const ring = lls[0] instanceof L.LatLng ? lls : lls[0], o = this._map.getPixelOrigin(); result.push(ring.map(q => { const pt = this._map.project(q).subtract(o); bounds.extend(pt); return pt; })); };
     zp.addTo(fig); }
+  /* v0.49.0 (lot 2) : zone de recherche d'une voile libérée (masquée par défaut), pour le para choisi. La voile dérive avec le vent,
+     donc souvent le long de la trace : bande large, dessinée SOUS la trace, qui dépasse des deux côtés. */
+  if (SH.lost) { const Z = lostZone(); if (Z) { const o = { interactive: false, lineCap: 'round', lineJoin: 'round' };
+    L.polyline([Z.from, Z.near].map(LL), { color: C_LOST, weight: 2, dashArray: '4 6', interactive: false }).addTo(fig);
+    L.polyline(Z.band.map(LL), Object.assign({ color: '#000', weight: 24, opacity: .35 }, o)).addTo(fig); L.polyline(Z.band.map(LL), Object.assign({ color: C_LOST, weight: 19, opacity: .7 }, o)).addTo(fig); } }
   // Trace : tous les segments, de l'ouverture terminée au PTU
   const MI = traceMini(); syncSumWarn();
   if (SH.trace) {
@@ -869,7 +896,8 @@ function draw(light) {
      (Henri) = le vert et le rouge reportés à l'ouverture : c'est tout ce vecteur reporté que le calcul garde dans le cercle fixe */
   { const OP = SH.vec ? ouvPts() : null, OV = OP ? ouvVec() : null; /* v0.46.1 (Henri) : pas d'interrupteur à part, ils vont avec le vecteur */
     ouvHandles(OV, 'ouvE', osoIcon(C_OUV_END), 615, 'oso'); /* v0.46.1 (Henri) : les deux points rose clair sont des poignées comme les autres */
-    ouvHandles(OP, 'ouvP', osoIcon(C_TRACE), 620, i => i === sol.dropIdx ? 'ouv' : 'oso');
+    ouvHandles(OP, 'ouvP', osoIcon(C_TRACE), 620, i => i === sol.dropIdx ? 'ouv' : 'oso', i => { /* zone de recherche affichée : toucher un point rose choisit ce para */
+      if (!current.show.lost) return; const I2 = isv(), ex = sol.vec.exits[i], pa = I2.team[ex ? ex.i : i]; if (!pa) return; I2.lostId = pa.id; persist(); redraw(); toast(`Zone de recherche : voile du para ${(ex ? ex.i : i) + 1}${pa.name ? ' ' + pa.name : ''}`); });
     if (OP) { const k0 = sol.trace.length - 1, a = map.latLngToLayerPoint(LL(sol.trace[0])), b = map.latLngToLayerPoint(LL(sol.trace[k0])), flat = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
       L.marker(LL(sol.attachOuv), { interactive: false, icon: L.divIcon({ className: 'dot' + (flat ? ' up' : ''), html: `<b style="color:${C_TRACE}">OUV ${fmtInt(sol.hOpen)}</b>`, iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(fig); } }
   /* Points OSO, un par para (v0.45.0, vocabulaire d'Henri) : point d'ouverture OSO (gris : voile ouverte par l'ouvreur de sécurité, à la
@@ -886,6 +914,9 @@ function draw(light) {
       [[LP[di], 'ouverture OSO', C_GREY], [GP[di], 'posé OSO (point haut)', C_LOW]].forEach(([q, txt, col]) => { const c0 = cp(q); let off = 0;
         all.forEach(o => { if (o === q) return; const v = cp(o), vx = v.x - c0.x, vy = v.y - c0.y, t = vx * dx + vy * dy; if (t > 0 && t < 90 && Math.abs(vx * dy - vy * dx) < 11) off = Math.max(off, t + 3); }); /* un autre point OSO est dans le passage du texte : le texte commence après lui */
         L.marker(LL(q), { interactive: false, icon: L.divIcon({ className: 'dot' + (flat ? ' up' : ''), html: `<b style="color:${col}${off ? `;padding-left:${Math.round(off)}px` : ''}">${txt}</b>`, iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(fig); }); } }
+  /* v0.49.0 : zone de recherche d'une voile libérée : bouts de la bande et leurs noms (la bande elle-même est dessinée sous la trace) */
+  if (SH.lost) { const Z = lostZone(); if (Z) { const k0 = sol.trace.length - 1, a = map.latLngToContainerPoint(LL(sol.trace[0])), b = map.latLngToContainerPoint(LL(sol.trace[k0])), flat = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
+    [[Z.near, `${fmt1(Z.vmax)} m/s`], [Z.far, `voile libérée P${Z.i + 1} · ${fmt1(Z.vmin)} m/s`]].forEach(([q, t]) => L.marker(LL(q), { interactive: false, icon: dotIcon('#ffffff', 9, t, flat ? 'lostd' : 'lostl') }).addTo(fig)); } }
   // Point le plus haut de la zone de sécurité
   if (SH.oso && I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();
@@ -996,6 +1027,7 @@ function figurePoints() {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
     (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
     if (current.show.relax) Calc.zonePts(sol.circleOuv, 30).forEach(q => pts.push(q));
+    if (current.show.lost) { const Z = lostZone(); if (Z) Z.band.forEach(q => pts.push(q)); } /* v0.49.0 : la zone de recherche entre dans le cadrage */
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
 }
@@ -1053,7 +1085,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_keepPct', prm.keepPct == null ? 30 : prm.keepPct); setVal('p_offKm', prm.offKm);
+  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_keepPct', prm.keepPct == null ? 30 : prm.keepPct); setVal('p_offKm', prm.offKm);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -1083,6 +1115,7 @@ const SHOW_ITEMS = [
   ['ptu', 'PTU et ZMT', '<circle cx="8" cy="12" r="5" fill="#ffd400" stroke="#111" stroke-width="2"/><circle cx="17" cy="12" r="4" fill="none" stroke="#ff8c00" stroke-width="2.4"/><path d="M17 5v14M10.5 12h13" stroke="#ff8c00" stroke-width="1.6"/>', true],
   ['oso', 'Points OSO et point haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
   ['sec', 'Zone de sécurité', '<path d="M3 9l8-5 10 6v8l-9 3-9-5z" fill="#ff8c00" fill-opacity=".45" stroke="#ff8c00" stroke-width="1.4"/>', false],
+  ['lost', 'Recherche d\'une voile libérée', '<path d="M4 19L20 6" stroke="#000" stroke-width="7" stroke-linecap="round" opacity=".5"/><path d="M4 19L20 6" stroke="#4d8dff" stroke-width="4.5" stroke-linecap="round"/><circle cx="4" cy="19" r="2.6" fill="#fff" stroke="#000"/><circle cx="20" cy="6" r="2.6" fill="#fff" stroke="#000"/>', false],
   ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
   ['sum', 'Sommets et zones délicates', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#b388ff" stroke="#111" stroke-width="2"/>', true],
   ['free', 'Points libres', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#fff" stroke="#111" stroke-width="2"/>', true],
@@ -1720,6 +1753,9 @@ function renderBrief() {
   row('Perte de hauteur à l\'ouverture', `${fmtInt(s.openDrop)} m`);
   row('Dérive sous RSE', `${fmtInt(s.rseLen)} m`);
   row('Ouvreur de sécurité', osoSame ? `déclenchement ${fmtInt(paraOso(I.team[0]))} ft au-dessus du point haut` : 'déclenchement selon le para (voir Équipe), au-dessus du point haut');
+  if (current.show.lost) { const Z = lostZone(); if (Z) { const pa = I.team[(s.vec.exits[Z.i] || { i: Z.i }).i] || {}; /* v0.49.0 : seulement si la zone est affichée */
+    row(`Voile libérée (para ${Z.i + 1}${pa.name ? ' ' + esc(pa.name) : ''})`, `à chercher de ${fmtKm(Z.dNear)} à ${fmtKm(Z.dFar)} de son point d'ouverture, vers le ${hdg(Z.brg)} (chute de ${fmt1(Z.vmax)} à ${fmt1(Z.vmin)} m/s)`);
+    row(`… au plus près (${fmt1(Z.vmax)} m/s)`, fmtPos(Z.near)); row(`… au plus loin (${fmt1(Z.vmin)} m/s)`, fmtPos(Z.far)); } }
   row('Zone de sécurité', `${fmtInt(I.secLong)} m avant / après le vecteur, ${fmtInt(I.secLat)} m de côté, prolongée le long de la dérive sous RSE jusqu'à 1013,25 hPa`);
   end();
   sec('Navigation sous voile');
@@ -2137,7 +2173,7 @@ const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(
 /* v0.45.0 (Henri) : Param › Valeurs par défaut — [clé, mini, maxi] ; champs d_<clé> ; l'ouvreur de sécurité garde sa clé prm.osoFt */
 const DEF_FIELDS = [['hPtu', 0, 5000], ['nParas', 1, 60], ['mte', 30, 400], ['dt', 0, 120], ['tGreen', 0, 120], ['tRed', 0, 120], ['fl', 30, 450], ['acMs', 20, 200], ['secLong', 0, 20000], ['secLat', 0, 10000], ['apprNm', 0, 50], ['exitNm', 0, 50]];
 DEF_FIELDS.forEach(([k, mn, mx]) => onNum('d_' + k, v => { prm.def[k] = k === 'nParas' ? Math.round(v) : v; saveProfile(); }, mn, mx));
-onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_keepPct', 'keepPct', 0, 300); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
+onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_keepPct', 'keepPct', 0, 300); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
@@ -2615,6 +2651,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   if (SH.relax && sol.circleOuv.R > 0) { g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.lineJoin = 'round'; g.beginPath(); Calc.zonePts(sol.circleOuv, 1).forEach((q, i) => { const c = toC(q); if (i) g.lineTo(c.x, c.y); else g.moveTo(c.x, c.y); }); g.closePath(); g.stroke(); g.restore(); } /* v0.47.0 : contour réel de la zone de relaxation */
   /* v0.39.2 (Henri) : la carte du PDF = celle de l'appli (mêmes couleurs, mêmes étiquettes, pas d'écriture le long du vecteur ni de la trace) */
   const PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
+  if (SH.lost) { const Z = lostZone(); if (Z) { line([Z.from, Z.near], C_LOST, 1.6, [4, 6]); line(Z.band, 'rgba(0,0,0,.35)', 19); line(Z.band, 'rgba(77,141,255,.75)', 15); } } /* v0.49.0 : bande de recherche d'une voile libérée, sous la trace */
   if (SH.trace) { line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6); }
   if (SH.trace && SH.sum) zdSpans().forEach(z => line(traceSlice(sol.trace, z.s0, z.s1), z.stale || PB.ids.has(z.zid) ? 'rgba(255,140,0,.75)' : 'rgba(179,136,255,.75)', 7, [10, 8]));
   if (SH.trace) { const MI = traceMini(), k0 = sol.trace.length - 1, TPc = sol.trace.map(toC), flat = Math.abs(TPc[k0].x - TPc[0].x) > Math.abs(TPc[k0].y - TPc[0].y); let last = null;
@@ -2638,6 +2675,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   if (SH.ptu) { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (!(pt.kind === 'alt' ? SH.alt : (pt.auto === 'S' || pt.kind === 'zd') ? SH.sum : SH.free)) return; if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const col = sStale(pt) || PB.ids.has(pt.id) || PB.ids.has(pt.zid) ? C_WARN : pt.auto === 'S' ? C_ZD : pt.color || '#fff', c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = col; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); const lb = pointLabel(pt); if (lb) shadowText(lb, c.x + 12 * u, c.y, col, 11); } });
   if (SH.vec) { const OP = ouvPts(), OV = OP ? ouvVec() : null; if (OV) { OV.forEach(p => dot(p, C_OUV_END, 4.5)); OP.forEach(p => dot(p, C_TRACE, 4.5)); const c = toC(sol.attachOuv); shadowText(`OUV ${fmtInt(sol.hOpen)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); } } /* v0.46.0 : points d'ouverture roses, OUV = para sur la trace */
+  if (SH.lost) { const Z = lostZone(); if (Z) [[Z.near, `${fmt1(Z.vmax)} m/s`], [Z.far, `voile libérée P${Z.i + 1} · ${fmt1(Z.vmin)} m/s`]].forEach(([q, t]) => { const c = dot(q, '#fff', 4); shadowText(t, c.x - 9 * u, c.y, '#fff', 10, 'right'); }); } /* v0.49.0 : noms à gauche, les hauteurs de la trace sont à droite */
   if (SH.oso) { (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5)); (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5)); }
   const av = altiVals();
   if (SH.oso && av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
