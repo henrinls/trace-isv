@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.49.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.49.1">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.49.0">
+<link rel="stylesheet" href="style.css?v=0.49.1">
 </head>
 <body>
 <div id="map"></div>
@@ -242,12 +242,12 @@
     <h3>Chute et ouverture</h3>
     <div class="grid2">
       <div><label>Vitesse de chute stabilisée à 1 000 m (m/s)</label><input id="p_vff" inputmode="numeric"></div>
-      <div><label>Temps de chute de référence (s)</label><input id="p_tRef" inputmode="decimal"></div>
+      <div><label>Temps de chute en AO (s)</label><input id="p_tRef" inputmode="decimal"></div>
       <div><label>Hauteur gardée : ouverture au plus … % au-dessus de la trace</label><input id="p_keepPct" inputmode="decimal"></div>
       <div><label>Voile libérée : chute la plus lente (m/s)</label><input id="p_lostVmin" inputmode="decimal"></div>
       <div><label>Voile libérée : chute la plus rapide (m/s)</label><input id="p_lostVmax" inputmode="decimal"></div>
     </div>
-    <p class="hint">Voile libérée : sa vitesse de chute n'est pas mesurée, d'où une fourchette. La zone de recherche (bouton Affichage, masquée par défaut) part du point d'ouverture du para choisi et s'étend du posé le plus proche (chute rapide) au plus lointain (chute lente) ; la marge sur le vent l'allonge aux deux bouts. Zone affichée : toucher un point rose choisit le para. Le sol est pris à l'altitude de la ZMT.</p>
+    <p class="hint">Voile libérée : sa vitesse de chute n'est pas mesurée, d'où une fourchette. La zone de recherche (bouton Affichage, masquée par défaut) part du point d'ouverture du para choisi et s'étend du posé le plus proche (chute rapide) au plus lointain (chute lente) ; la marge sur le vent l'allonge aux deux bouts. Zone affichée : toucher un point rose, ou le point de sortie d'un para sur le vecteur, choisit le para. Le sol est pris à l'altitude de la ZMT.</p>
     <p class="hint">La hauteur perdue à l'ouverture se saisit pour chaque parachute (paragraphe Parachutes). Hauteur d'ouverture gardée : si le para s'ouvrirait plus haut que la trace de plus de ce pourcentage de la hauteur qu'il lui reste à descendre, l'ouverture est abaissée (il chute plus longtemps) ; la trace et le cap ne bougent pas.</p>
 
     <h3>Vent</h3>
@@ -287,7 +287,7 @@
       <div><label>Approche avant le vert (NM)</label><input id="d_apprNm" inputmode="decimal"></div>
       <div><label>Dégagement après le rouge (NM)</label><input id="d_exitNm" inputmode="decimal"></div>
     </div>
-    <p class="hint">Ces valeurs servent à créer une nouvelle ISV ou un nouveau para ; les changer ne modifie pas les ISV qui existent déjà. Le temps de chute d'une nouvelle ISV est le temps de chute de référence (paragraphe Chute et ouverture). L'ouvreur de sécurité se règle ensuite para par para (Prépa ISV › Équipe) : il place le point d'ouverture OSO de chaque para, donc son point de posé OSO.</p>
+    <p class="hint">Ces valeurs servent à créer une nouvelle ISV ou un nouveau para ; les changer ne modifie pas les ISV qui existent déjà. Le temps de chute d'une nouvelle ISV est le temps de chute en AO (paragraphe Chute et ouverture). L'ouvreur de sécurité se règle ensuite para par para (Prépa ISV › Équipe) : il place le point d'ouverture OSO de chaque para, donc son point de posé OSO.</p>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -351,17 +351,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.49.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.49.0"></script>
-<script src="vendor/mgrs.min.js?v=0.49.0"></script>
-<script src="geo.js?v=0.49.0"></script>
-<script src="clubs.js?v=0.49.0"></script>
-<script src="wmm.js?v=0.49.0"></script>
-<script src="calc.js?v=0.49.0"></script>
-<script src="windpick.js?v=0.49.0"></script>
-<script src="pdfview.js?v=0.49.0"></script>
-<script src="lpmove.js?v=0.49.0"></script>
-<script src="app.js?v=0.49.0"></script>
-<script src="photo.js?v=0.49.0"></script>
+<script src="vendor/leaflet.js?v=0.49.1"></script>
+<script src="vendor/leaflet-rotate.js?v=0.49.1"></script>
+<script src="vendor/mgrs.min.js?v=0.49.1"></script>
+<script src="geo.js?v=0.49.1"></script>
+<script src="clubs.js?v=0.49.1"></script>
+<script src="wmm.js?v=0.49.1"></script>
+<script src="calc.js?v=0.49.1"></script>
+<script src="windpick.js?v=0.49.1"></script>
+<script src="pdfview.js?v=0.49.1"></script>
+<script src="lpmove.js?v=0.49.1"></script>
+<script src="app.js?v=0.49.1"></script>
+<script src="photo.js?v=0.49.1"></script>
 </body>
 </html>

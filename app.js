@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.49.0';
+const VERSION = '0.49.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -560,6 +560,10 @@ function ouvVec() { const d = ouvShift(); return d ? [Calc.fromLocal(sol.vec.gre
    La zone à fouiller est la bande des points de posé entre la chute la plus rapide (le plus près) et la plus lente (le plus loin) ;
    la marge sur le vent (Param.) l'allonge aux deux bouts : vent plus faible que prévu côté rapide, plus fort côté lent. */
 const C_LOST = '#4d8dff';
+/* Choix du para dont on cherche la voile (zone affichée seulement) : toucher son point rose, ou son point de sortie sur le vecteur
+   (v0.49.1, Henri). i = rang dans sol.vec.exits. */
+function lostPick(i) { if (!current.show.lost || !sol || !sol.ok) return false; const I2 = isv(), ex = sol.vec.exits[i], pa = I2.team[ex ? ex.i : i]; if (!pa) return false;
+  I2.lostId = pa.id; persist(); redraw(); toast(`Zone de recherche : voile du para ${(ex ? ex.i : i) + 1}${pa.name ? ' ' + pa.name : ''}`); return true; }
 function lostDrift(P, hTop, v0, kW) { let p = { lat: P.lat, lng: P.lng }; const e0 = sol.elev0;
   for (let h = hTop; h > 1e-6;) { const h2 = Math.max(0, h - 100), W = Calc.windMean(F, p.lat, p.lng, e0 + h2, e0 + h), dt = (h - h2) / (v0 * Calc.kRho(F, p.lat, p.lng, e0 + (h + h2) / 2));
     p = Calc.fromLocal(p, { x: W.u * kW * dt, y: W.v * kW * dt }); h = h2; }
@@ -666,6 +670,10 @@ function vecHitLine(V, I) {
   const pts = [LL(V.green), LL(V.red)];
   if (!vecHit) {
     const line = L.polyline(pts, { color: '#fff', weight: 30, opacity: 0, interactive: true, bubblingMouseEvents: true }).addTo(handles);
+    /* v0.49.1 (Henri) : zone de recherche d'une voile libérée affichée → toucher le point de sortie d'un para sur le vecteur le choisit */
+    line.on('click', ev => { if (!current.show.lost || !sol || !sol.ok || Date.now() < suppressClickUntil) return; const c = map.latLngToContainerPoint(ev.latlng); let best = -1, bd = 22;
+      sol.vec.exits.forEach((x, k) => { const d = map.latLngToContainerPoint(LL(x)).distanceTo(c); if (d < bd) { bd = d; best = k; } });
+      if (best >= 0 && lostPick(best)) L.DomEvent.stop(ev); });
     vecHit = { line, h: { _lpDragging: false, getElement: () => line._path, setLatLng: () => {} }, el: null, off: null };
   } else if (!vecHit.h._lpDragging) vecHit.line.setLatLngs(pts);
   if (!handles.hasLayer(vecHit.line)) vecHit.line.addTo(handles);
@@ -896,8 +904,7 @@ function draw(light) {
      (Henri) = le vert et le rouge reportés à l'ouverture : c'est tout ce vecteur reporté que le calcul garde dans le cercle fixe */
   { const OP = SH.vec ? ouvPts() : null, OV = OP ? ouvVec() : null; /* v0.46.1 (Henri) : pas d'interrupteur à part, ils vont avec le vecteur */
     ouvHandles(OV, 'ouvE', osoIcon(C_OUV_END), 615, 'oso'); /* v0.46.1 (Henri) : les deux points rose clair sont des poignées comme les autres */
-    ouvHandles(OP, 'ouvP', osoIcon(C_TRACE), 620, i => i === sol.dropIdx ? 'ouv' : 'oso', i => { /* zone de recherche affichée : toucher un point rose choisit ce para */
-      if (!current.show.lost) return; const I2 = isv(), ex = sol.vec.exits[i], pa = I2.team[ex ? ex.i : i]; if (!pa) return; I2.lostId = pa.id; persist(); redraw(); toast(`Zone de recherche : voile du para ${(ex ? ex.i : i) + 1}${pa.name ? ' ' + pa.name : ''}`); });
+    ouvHandles(OP, 'ouvP', osoIcon(C_TRACE), 620, i => i === sol.dropIdx ? 'ouv' : 'oso', lostPick); /* zone de recherche affichée : toucher un point rose choisit ce para */
     if (OP) { const k0 = sol.trace.length - 1, a = map.latLngToLayerPoint(LL(sol.trace[0])), b = map.latLngToLayerPoint(LL(sol.trace[k0])), flat = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
       L.marker(LL(sol.attachOuv), { interactive: false, icon: L.divIcon({ className: 'dot' + (flat ? ' up' : ''), html: `<b style="color:${C_TRACE}">OUV ${fmtInt(sol.hOpen)}</b>`, iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(fig); } }
   /* Points OSO, un par para (v0.45.0, vocabulaire d'Henri) : point d'ouverture OSO (gris : voile ouverte par l'ouvreur de sécurité, à la
