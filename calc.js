@@ -279,8 +279,7 @@
     const S = []; for (let c = 0; c < 360; c += 3) S.push(f(c));
     /* Par vent fort, deux traces peuvent passer par le même point (une basse, vent dans le dos ; une haute, face au vent).
        v0.44.1 (Henri, 22/11, décision finale) : on garde la plus BASSE, vent dans le dos, face à la zone de posé — MÊME RÈGLE PARTOUT,
-       y compris au bord du cercle à l'opposé (plus de cap inversé face au vent). Le danger d'un para très au-dessus de cette trace
-       est réglé par la règle des 30 % (ouverture abaissée, bloc keepH de solve). Historique : v0.40.0 la plus basse, v0.43.0 la plus
+       y compris au bord du cercle à l'opposé (plus de cap inversé face au vent). Historique : v0.40.0 la plus basse, v0.43.0 la plus
        haute (cap inversé), v0.44.1 retour à la plus basse.
        « Rentrer le long de la trace » ne passe plus par ici : la route y est figée (isv.along). */
     const n = S.length, mins = []; for (let k = 0; k < n; k++) if (S[k].d <= S[(k + n - 1) % n].d && S[k].d < S[(k + 1) % n].d) mins.push(S[k]);
@@ -352,13 +351,9 @@
       const perpNear = (d1, prev) => { const c1 = n360(d1 + 90), c2 = n360(d1 - 90), g = c => Math.abs(((c - prev + 540) % 360) - 180); return g(c1) <= g(c2) ? c1 : c2; };
       let O = null, nr = null, capPrev = null, flips = 0; isAl = !!al;
       if (al) weak = { c: weak.c, cap: al.cap, tr: full(al.cap) };
-      /* v0.44.0 (Henri, 22/11) : le para ne doit pas s'ouvrir trop au-dessus de la trace (sinon la descente rapide ne suffit pas et il
-         devrait se retourner à un moment non prévu → collisions). Ouverture terminée au plus à hTrace + keepPct % × (hTrace − hPtu),
-         keepPct réglable (Param., 30 % par défaut ; un pourcentage et non des mètres : 1 000 m loin du PTU ≠ 1 000 m près du PTU).
-         Au-delà, l'ouverture est abaissée : il chute plus longtemps, consigne CDO en hauteur, arrondie à la CENTAINE SUPÉRIEURE
-         (« tant pis si ça dépasse à la marge »). La trace et le cap ne bougent pas. La dérive en chute dépend du temps de chute,
-         donc on recale (boucle extérieure). */
-      for (let lv = 0; lv < 8; lv++) { capPrev = null;
+      /* v0.51.1 (Henri, 24/11) : hauteur gardée = l'ouverture reste TOUJOURS celle du temps de chute. L'appli ne l'abaisse plus
+         d'elle-même quand le para s'ouvre loin au-dessus de la trace (ancienne règle de la v0.44.0, supprimée : NE PAS la remettre).
+         Pour ouvrir à la hauteur de la trace, c'est le bouton « Appliquer » (mode « changer »), sur décision de l'utilisateur. */
       for (let pass = 0; pass < 8; pass++) {
         const d1 = traceDir(weak.tr.pts); let ach = acHeadingOf(F, isv, st, d1, isv.manual);
         if (achKeep != null && isv.vecHeading == null) { if (flips >= 2) ach = perpNear(d1, achKeep); else if (Math.abs(((ach - achKeep + 540) % 360) - 180) > 90) flips++; }
@@ -366,13 +361,6 @@
         if (al) { nr = nearestOn(weak.tr.pts, O); if (still) break; }
         else { const sol = capThrough(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, O); nr = sol; weak = { c: weak.c, cap: sol.cap, tr: full(sol.cap) };
           if (capPrev != null && Math.abs(((sol.cap - capPrev + 540) % 360) - 180) < 0.05) break; capPrev = sol.cap; }
-      }
-      const prevH = st.hOpen, pct = Math.max(0, prm.keepPct == null ? 30 : +prm.keepPct) / 100, hMax = nr.h + pct * Math.max(0, nr.h - hPtu);
-      if ((al || nr.d <= 30) && hMax < stPlan.hOpen - 1) { /* rentré le long de la trace : la chute plus longue décale l'ouverture hors de la trace → manualFix la ramène (sinon oscillation) */
-        const dOpen = st.f.drop - st.f.dropFF /* v0.44.2 : perte à l'ouverture de l'état en cours (elle grandit avec le temps de chute), recalée par la boucle — avec celle du plan (4 s), la CDO affichée était 70 m sous la hauteur où le calcul faisait tirer le para */, hCmd = Math.ceil((hMax + dOpen) / 100 - 1e-6) * 100, hNeed = Math.max(hPtu + 100, hCmd - dOpen);
-        if (hNeed >= stPlan.hOpen - 1) st = stPlan; else { st = relState(stPlan.fl, tFallFor(stPlan.hRel - hNeed, stPlan.tas, vff, openLoss, vzRef, true, stPlan.kff)); st.hOpen = hNeed; st.hCmd = hNeed + dOpen; }
-      } else st = stPlan;
-      if (Math.abs(st.hOpen - prevH) < 1) break;
       }
       /* out.frac = part de la descente qu'il reste au para sur la trace (1 = il s'ouvre à la hauteur de la trace) : sert seulement à
          afficher la ligne du Briefing « Voile plus performante que la trace » */
@@ -420,7 +408,7 @@
     const man = !!(isv.manual && isv.capManual == null), capShow = man ? capPlan : weak.cap;
     /* v0.40.0 (Henri) : le cercle est TOUJOURS celui de la hauteur d'ouverture réelle. Hauteur gardée : cercle de l'ouverture prévue
        (il ne bouge pas quand on déplace le vecteur dedans). Hauteur changée : cercle recalculé pour la nouvelle hauteur. */
-    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan) : /* v0.44.0 : en Garder, cercle de la hauteur gardée, même si l'ouverture est abaissée par la règle des 30 % (le vecteur ne sort pas du cercle) */ relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
+    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan) : relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
     const zonePlan = circ, circShow = circ, drShow = dr;
     if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`;
     const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });

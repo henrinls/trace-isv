@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.51.0';
+const VERSION = '0.51.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, keepPct: 30, tRef: 4,
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, tRef: 4,
   def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3, linkDelay: 60 }, apprV: 1, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
@@ -162,6 +162,7 @@ function upgrade(z) {
   return z;
 }
 let prm = store.get('isv.profile', null) || {};
+delete prm.keepPct; /* v0.51.1 (Henri) : règle d'abaissement d'office de l'ouverture supprimée, réglage retiré */
 /* v0.45.1 (Henri) : approche 5 NM et dégagement 3 NM par défaut ; les 3 / 1 de la v0.45.0 jamais modifiés sont repris (paramètres et ISV) */
 if (prm.apprV === undefined && prm.def && +prm.def.apprNm === 3 && +prm.def.exitNm === 1) { prm.def.apprNm = 5; prm.def.exitNm = 3; }
 Object.keys(DEFAULT_PARAMS).forEach(k => { if (prm[k] === undefined) prm[k] = clone(DEFAULT_PARAMS[k]); });
@@ -518,8 +519,8 @@ function passD(P, opt) { const D = [];
 function passPut(L, O, h, D) { const M = Pass.model(F, D, O, h);
   if (L.capManual != null) { L.pcap = L.capManual; L.capManual = null; } if (L.reversed) { L.prev = true; L.reversed = false; }
   const forced = passForced(L); if (!L.manual) L.keepH = true; L.manual = { lat: M[0].att.lat, lng: M[0].att.lng }; L.vecHeading = h; if (!forced) L.pauto = h; L.along = null; solKey = null; }
-/* Applique une proposition du moteur puis VÉRIFIE par le calcul complet ; si une équipe dépasse encore (vent différent à l'arrivée,
-   ouverture abaissée par la règle des 30 %), on redemande au moteur depuis là, avec plus de marge. */
+/* Applique une proposition du moteur puis VÉRIFIE par le calcul complet ; si une équipe dépasse encore (vent différent à l'arrivée),
+   on redemande au moteur depuis là, avec plus de marge. */
 function passApply(L, fit, refit) { let O = fit.O, h = fit.h;
   for (let k = 0; k < 4; k++) { const D0 = passD(passSols(L)); if (!D0) return false; passPut(L, O, h, D0); const P = passSols(L);
     if (P.every(p => !teamPlaced(p.I) || (p.sol.ok && !teamOut(p.sol)))) return true;
@@ -1418,7 +1419,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_keepPct', prm.keepPct == null ? 30 : prm.keepPct); setVal('p_offKm', prm.offKm);
+  setVal('p_margin', prm.margin); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_offKm', prm.offKm);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -2543,7 +2544,7 @@ const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(
 /* v0.45.0 (Henri) : Param › Valeurs par défaut — [clé, mini, maxi] ; champs d_<clé> ; l'ouvreur de sécurité garde sa clé prm.osoFt */
 const DEF_FIELDS = [['hPtu', 0, 5000], ['nParas', 1, 60], ['mte', 30, 400], ['dt', 0, 120], ['tGreen', 0, 120], ['tRed', 0, 120], ['fl', 30, 450], ['acMs', 20, 200], ['secLong', 0, 20000], ['secLat', 0, 10000], ['apprNm', 0, 50], ['exitNm', 0, 50], ['linkDelay', 0, 600]];
 DEF_FIELDS.forEach(([k, mn, mx]) => onNum('d_' + k, v => { prm.def[k] = k === 'nParas' ? Math.round(v) : v; saveProfile(); }, mn, mx));
-onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_keepPct', 'keepPct', 0, 300); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
+onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
