@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.48.0';
+const VERSION = '0.48.1';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -326,8 +326,7 @@ function syncCompass() {
   $('btnNorth').classList.toggle('rotated', Math.abs(((b % 360) + 360) % 360) > 0.5);
 }
 let rotT = 0;
-let rotD = 0;
-map.on('rotate', () => { clearTimeout(rotD); rotD = setTimeout(() => { if (typeof redraw === 'function') redraw(); }, 150); /* v0.48.0 : les noms des points OSO se placent selon l'orientation de la carte */ syncCompass(); if (typeof drawBarb === 'function' && current.zmt) drawBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && current.zmt) drawBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
 
 const fig = L.layerGroup().addTo(map);     // tracé recalculé à chaque dessin
 const handles = L.layerGroup().addTo(map); // points déplaçables, gardés d'un dessin à l'autre
@@ -878,21 +877,15 @@ function draw(light) {
      dérive sous voile). Ce sont des poignées : les déplacer décale d'autant le point d'ouverture, puis ils sont recalculés. */
   ouvHandles(SH.oso ? lowPoints() : null, 'osoL', osoIcon(C_GREY), 600, 'oso');
   ouvHandles(SH.oso ? greyPoints() : null, 'osoP', osoIcon(C_LOW), 610, 'oso');
-  /* v0.48.0 (Henri, 24/11) : nom des deux groupes écrit sur la carte, du côté extérieur de la trace : « ouverture OSO » près des points
-     gris, « posé OSO (point haut) » près des jaunes. Posé à côté du point du groupe le plus éloigné de la trace, dans le sens qui
-     s'en écarte. Masqué quand les deux groupes sont trop serrés à l'écran pour être lus (vue d'ensemble). */
-  if (SH.oso) { const LP = lowPoints() || [], GP = greyPoints() || [], cp = q => map.latLngToContainerPoint(LL(q)), boxes = [];
-    if (LP.length && GP.length && cp(LP[0]).distanceTo(cp(GP[0])) >= 26) [[LP, 'ouverture OSO', C_GREY], [GP, 'posé OSO (point haut)', C_LOW]].forEach(([G, txt, col]) => {
-      let far = null; G.forEach(q => { const n = Calc.nearestOn(sol.trace, q); if (!far || n.d > far.n.d) far = { q, n }; });
-      const a = cp(far.q), b = cp(far.n.pt); let ux = a.x - b.x, uy = a.y - b.y; const l = Math.hypot(ux, uy);
-      if (l < 3) { const t0 = cp(sol.trace[0]), t1 = cp(sol.trace[Math.min(1, sol.trace.length - 1)]); ux = -(t1.y - t0.y); uy = t1.x - t0.x; } /* point posé sur la trace : perpendiculaire à la trace */
-      const L2 = Math.hypot(ux, uy) || 1; ux /= L2; uy /= L2; const w = txt.length * 6.1, h = 14, side = Math.abs(ux) >= 0.6;
-      let d = 13, box = null; for (let k = 0; k < 4; k++) { const x = ux * d, y = uy * d, x0 = a.x + (side ? (ux > 0 ? x : x - w) : x - w / 2), y0 = a.y + (side ? y - h / 2 : (uy > 0 ? y : y - h)); box = { x0, y0, x1: x0 + w, y1: y0 + h, x, y };
-        if (!boxes.some(o => box.x0 < o.x1 + 3 && box.x1 > o.x0 - 3 && box.y0 < o.y1 + 1 && box.y1 > o.y0 - 1)) break; d += h + 1; } /* les deux noms se gênent : le second se pose une ligne plus loin */
-      boxes.push(box);
-      const css = side ? (ux > 0 ? `left:${box.x.toFixed(1)}px;top:${box.y.toFixed(1)}px;transform:translateY(-50%)` : `right:${(-box.x).toFixed(1)}px;top:${box.y.toFixed(1)}px;transform:translateY(-50%)`)
-        : (uy > 0 ? `left:${box.x.toFixed(1)}px;top:${box.y.toFixed(1)}px;transform:translateX(-50%)` : `left:${box.x.toFixed(1)}px;bottom:${(-box.y).toFixed(1)}px;transform:translateX(-50%)`);
-      L.marker(LL(far.q), { interactive: false, icon: L.divIcon({ className: 'olab', iconSize: [0, 0], iconAnchor: [0, 0], html: `<b style="color:${col};${css}">${txt}</b>` }) }).addTo(fig); }); }
+  /* v0.48.1 (Henri, 24/11) : nom des deux groupes écrit sur la carte, comme OUV : sur le point du para sur la trace. « ouverture OSO »
+     sur son point gris, « posé OSO (point haut) » sur son point jaune, même étiquette que OUV (à droite du point, ou inclinée au-dessus
+     quand la trace est à plat). Masqué quand les deux groupes sont trop serrés à l'écran pour être lus (vue d'ensemble). */
+  if (SH.oso) { const LP = lowPoints() || [], GP = greyPoints() || [], cp = q => map.latLngToContainerPoint(LL(q)), di = sol.dropIdx;
+    if (LP[di] && GP[di] && cp(LP[di]).distanceTo(cp(GP[di])) >= 26) { const k0 = sol.trace.length - 1, a = cp(sol.trace[0]), b = cp(sol.trace[k0]), flat = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
+      const dx = flat ? Math.cos(58 * Math.PI / 180) : 1, dy = flat ? -Math.sin(58 * Math.PI / 180) : 0, all = LP.concat(GP); /* sens d'écriture de l'étiquette à l'écran */
+      [[LP[di], 'ouverture OSO', C_GREY], [GP[di], 'posé OSO (point haut)', C_LOW]].forEach(([q, txt, col]) => { const c0 = cp(q); let off = 0;
+        all.forEach(o => { if (o === q) return; const v = cp(o), vx = v.x - c0.x, vy = v.y - c0.y, t = vx * dx + vy * dy; if (t > 0 && t < 90 && Math.abs(vx * dy - vy * dx) < 11) off = Math.max(off, t + 3); }); /* un autre point OSO est dans le passage du texte : le texte commence après lui */
+        L.marker(LL(q), { interactive: false, icon: L.divIcon({ className: 'dot' + (flat ? ' up' : ''), html: `<b style="color:${col}${off ? `;padding-left:${Math.round(off)}px` : ''}">${txt}</b>`, iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(fig); }); } }
   // Point le plus haut de la zone de sécurité
   if (SH.oso && I.alti && I.alti.max && I.alti.key === altiKey()) L.marker(LL(I.alti.max), { interactive: false, icon: triIcon }).addTo(fig);
   if (!light) updateInfo();

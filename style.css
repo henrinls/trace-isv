@@ -138,7 +138,6 @@ button.danger{border-color:#a33;color:#ff8a8a}
 #showPop button{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px 0 6px;border-radius:9px;background:#2a2a2a;border:2px solid #555;color:#999;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;touch-action:manipulation}
 #showPop button svg{flex:none;opacity:.4}#showPop button.on{color:#fff;border-color:#00e5ff;background:#1b3b42}#showPop button.on svg{opacity:1}#showPop button:not(.on) span{text-decoration:line-through}
 .osop{cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}.osop span{display:block;width:11px;height:11px;margin:8.5px;border-radius:50%;border:1.5px solid #000;box-sizing:border-box}.osop.lifting span{transform:scale(1.4)}
-.olab{pointer-events:none}.olab b{position:absolute;white-space:nowrap;font-size:11px;font-weight:700;line-height:14px;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000,0 0 1px #000}
 .osop.ends{cursor:default;pointer-events:none}.osop.ends span{background:rgba(255,205,235,.72);border-color:rgba(0,0,0,.8)}
 #quick #qRev.on{background:#ff8c00;color:#111;border-color:#ff8c00}
 #quick #qPrv{border-color:#ffd400}#quick #qPrv.on{background:#ffd400;color:#111}
