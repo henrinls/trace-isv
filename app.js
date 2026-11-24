@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.49.2';
+const VERSION = '0.50.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -25,7 +25,7 @@ const isDark = c => c === '#000000';
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
 const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 2, osoFt: 1900, offKm: 200, keepPct: 30, tRef: 4,
-  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3 }, apprV: 1, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
+  def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3, linkDelay: 60 }, apprV: 1, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -69,7 +69,7 @@ function wxUrl(lats, lngs, date, src, minimal, lite) {
 const wxKey = (zid, date) => `isv.wx.${zid || 'tmp'}.${date}`;
 const wxMem = {};
 function wxCached(zid, date) { const k = wxKey(zid, date); return wxMem[k] || (wxMem[k] = store.get(k, null)); }
-function wxWanted() { const I = isv(); return { center: I.ptu || current.zmt || { lat: current.center.lat, lng: current.center.lng }, halfKm: Math.max(GRID_KM, current.gridKm || 0) }; }
+function wxWanted() { const I = isv(); return { center: I.ptu || zmtOf(I) || { lat: current.center.lat, lng: current.center.lng }, halfKm: Math.max(GRID_KM, current.gridKm || 0) }; }
 function wxFits(rec) { if (!rec || !rec.center) return false; const w = wxWanted(); return Calc.dist(rec.center, w.center) < 5000 && rec.halfKm >= w.halfKm - 0.5; }
 async function wxFetch(z, date) {
   const src = wxSource(date), w = wxWanted(), c = w.center;
@@ -151,7 +151,7 @@ function upgrade(z) {
   z.isvs = z.isvs.map(upIsv);
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
-  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, reach: true, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
   /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
   z.isvs.forEach(i => { if (typeof i.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(i.when)) i.when = z.when; if (i.nameAuto) i.name = isvAutoName(i); });
@@ -194,7 +194,7 @@ function persist() {
 // Tous les caps affichés sont magnétiques (cap vrai − déclinaison du lieu) ; la géométrie et les vents restent en vrai
 let _dz = { k: null, v: 0 };
 function declCur() {
-  const I = isv(), c = I.ptu || current.zmt || current.center; if (!c) return 0;
+  const I = isv(), c = I.ptu || zmtOf(I) || current.center; if (!c) return 0;
   const k = c.lat.toFixed(1) + ',' + c.lng.toFixed(1);
   if (_dz.k !== k) { let v = 0; try { v = magDeclination(c.lat, c.lng, new Date()); } catch (e) { v = 0; } _dz = { k, v: isFinite(v) ? v : 0 }; }
   return _dz.v;
@@ -278,22 +278,26 @@ async function refreshPtuElev() {
 }
 /* v0.8.0 : altitude du terrain à la ZMT (tableau des vents à la verticale de la ZMT), gardée dans la zone */
 let zmtElevBusy = null;
-async function refreshZmtElev() {
-  const z = current, c = z.zmt; if (!c) return; const k = c.lat.toFixed(5) + ',' + c.lng.toFixed(5);
-  if ((z.zmtElevKey === k && typeof z.zmtElev === 'number') || zmtElevBusy === k) return;
+/* v0.50.0 (lot 3) : une ISV liée peut avoir SA zone de posé (I.ozmt, avec I.ozmtElev / I.ozmtElevKey) ; sinon c'est celle de la zone.
+   zmtOf(I) = la ZMT qui vaut pour cette ISV ; zmtHost(I) = l'objet qui la porte et le nom de ses champs. */
+function zmtOf(X) { X = X || isv(); return (X && X.ozmt) || current.zmt || null; }
+function zmtHost(X) { X = X || isv(); return X && X.ozmt ? { o: X, p: 'ozmt', e: 'ozmtElev', k: 'ozmtElevKey' } : { o: current, p: 'zmt', e: 'zmtElev', k: 'zmtElevKey' }; }
+async function refreshZmtElev(X) {
+  const z = current, H = zmtHost(X), c = H.o[H.p]; if (!c) return; const k = c.lat.toFixed(5) + ',' + c.lng.toFixed(5);
+  if ((H.o[H.k] === k && typeof H.o[H.e] === 'number') || zmtElevBusy === k) return;
   zmtElevBusy = k;
-  try { const [e] = await fetchElev([c]); if (current !== z || !z.zmt || z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) !== k || typeof e !== 'number') return; z.zmtElev = Math.round(e); z.zmtElevKey = k; persist(); fillInputs(); redraw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); }
-  catch (e) { /* pas de réseau : altitude du modèle météo en attendant */ }
+  try { const [el] = await fetchElev([c]); const c2 = H.o[H.p]; if (current !== z || !c2 || c2.lat.toFixed(5) + ',' + c2.lng.toFixed(5) !== k || typeof el !== 'number') return; H.o[H.e] = Math.round(el); H.o[H.k] = k; solKey = null; persist(); fillInputs(); redraw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); }
+  catch (err) { /* pas de réseau : altitude du modèle météo en attendant */ }
   finally { if (zmtElevBusy === k) zmtElevBusy = null; }
 }
-function zmtElev() { const z = current; return z.zmt && typeof z.zmtElev === 'number' && z.zmtElevKey === z.zmt.lat.toFixed(5) + ',' + z.zmt.lng.toFixed(5) ? z.zmtElev : null; }
+function zmtElev(X) { const H = zmtHost(X), c = H.o[H.p]; return c && typeof H.o[H.e] === 'number' && H.o[H.k] === c.lat.toFixed(5) + ',' + c.lng.toFixed(5) ? H.o[H.e] : null; }
 /* v0.10.0 (Henri) : toutes les hauteurs sont comptées au-dessus du sol de la ZMT (avant : sol sous le PTU).
    v0.13.1 : le sol sous le PTU ne sert plus jamais de référence quand il y a une ZMT (en attendant son altitude : modèle météo).
    Sans ZMT seulement : sol sous le PTU, sinon modèle météo. */
-function elev0() {
-  const ze = zmtElev(); if (ze != null) return ze;
-  if (current.zmt) refreshZmtElev();
-  const I = isv(); if (!current.zmt && typeof I.ptuElev === 'number') return I.ptuElev;
+function elev0(X) {
+  const I = X || isv(), ze = zmtElev(I); if (ze != null) return ze;
+  if (zmtOf(I)) refreshZmtElev(I);
+  if (!zmtOf(I) && typeof I.ptuElev === 'number') return I.ptuElev;
   const rec = wxCached(current.id, current.when.slice(0, 10)); if (rec && rec.nodes && rec.nodes[4]) return Math.round(rec.nodes[4].elev);
   return 0;
 }
@@ -326,7 +330,7 @@ function syncCompass() {
   $('btnNorth').classList.toggle('rotated', Math.abs(((b % 360) + 360) % 360) > 0.5);
 }
 let rotT = 0;
-map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && current.zmt) drawBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && zmtOf()) drawBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
 
 const fig = L.layerGroup().addTo(map);     // tracé recalculé à chaque dessin
 const handles = L.layerGroup().addTo(map); // points déplaçables, gardés d'un dessin à l'autre
@@ -403,7 +407,7 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 // ---------- Calcul ----------
 function calcInput(I) {
   const di = I.team.findIndex(p => p.id === I.dropId), ri = I.team.findIndex(p => p.id === I.relaxRef);
-  return { ptu: I.ptu, zmt: current.zmt, hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall, tRef: +prm.tRef > 0 ? +prm.tRef : 4,
+  return { ptu: I.ptu, zmt: zmtOf(I), hPtu: +I.hPtu, team: I.team.map(p => ({ name: p.name, canopy: p.canopy, mte: +p.mte > 0 ? +p.mte : null, dt: +p.dt })), tGreen: +I.tGreen, tRed: +I.tRed, fl: +I.fl, acMs: +I.acMs, tFall: +I.tFall, tRef: +prm.tRef > 0 ? +prm.tRef : 4,
     capManual: I.capManual, vecHeading: I.vecHeading, reversed: !!I.reversed, dropIdx: di >= 0 ? di : null, manual: I.manual, keepH: !!(I.manual && I.keepH), along: (I.manual && I.along && I.along.cap != null) ? { cap: +I.along.cap } : null, /* v0.43.0 : aussi en mode Changer */ relaxRef: I.relaxRef === 'red' ? 'red' : (ri >= 0 ? ri : 'green') };
 }
 let gridAsked = '';
@@ -430,15 +434,61 @@ function rotKeep(target) { /* après un changement de cap avion */
   if (I.keepH && !I.along && c0 && sol && sol.ok && sol.manualFix) { I.along = c0; solKey = null; } /* hauteur gardée, vecteur hors trace d'origine : il rentre le long de SA trace */
   manualFit();
 }
+/* ===== v0.50.0 (lot 3, Henri) : PLUSIEURS ÉQUIPES SUR UN MÊME PASSAGE = ISV LIÉES =====
+   Une ISV « liée » (I.link = { to: id de la première équipe, delay: secondes }) partage avec la première équipe du passage le FL,
+   la date et l'heure, la vitesse et le cap de l'avion. Son vecteur est sur le même axe avion : son VERT est à « delay » secondes
+   de vol après le ROUGE de l'équipe précédente (ordre = ordre de la liste des ISV). Elle garde son équipe, son PTU (celui de la
+   première équipe par défaut), son temps de chute, et peut avoir sa propre ZMT (I.ozmt). Son point de largage est donc IMPOSÉ :
+   I.manual est recalculé à chaque fois (jamais manualFit), en hauteur gardée par défaut (I.keepH), trace = celle qui passe par
+   son point d'ouverture. Si ce point est hors de sa zone de relaxation, on ne déplace rien : on le dit (sol.linkOut). */
+function passLead(X) { return X && X.link ? (current.isvs.find(x => x.id === X.link.to && !x.link) || null) : X; }
+function passTeams(X) { X = X || isv(); const L = passLead(X); if (!L) return [X]; return [L].concat(current.isvs.filter(x => x.link && x.link.to === L.id)); }
+let passOthMem = [];
+function passOthers(light) { const me = isv(), P = passInfo(me); if (!P) { passOthMem = []; return passOthMem; } if (light) return passOthMem.filter(o => current.isvs.includes(o.I) && o.I !== me);
+  passOthMem = passSols(me).map((p, k) => ({ I: p.I, sol: p.sol, n: k + 1 })).filter(p => p.I !== me && p.sol && p.sol.ok && p.sol.vec); return passOthMem; }
+/* Chronologie du passage : secondes depuis le vert de la première équipe */
+function passTimes(X) { const out = []; let t = 0; passSols(X).forEach((p, k) => { const s2 = p.sol, tot = s2 && s2.ok && s2.ex ? s2.ex.total : null; if (k) t += Math.max(0, +p.I.link.delay || 0); out.push({ I: p.I, sol: s2, n: k + 1, green: t, red: tot != null ? t + tot : null }); if (tot != null) t += tot; }); return out; }
+function passInfo(X) { X = X || isv(); const T = passTeams(X); return T.length > 1 ? { teams: T, idx: T.indexOf(X), lead: T[0] } : null; }
+let passMem = {};
+function teamSolve(X, prev, n) {
+  const e0 = elev0(X), run = inp => { try { return Calc.solve(inp, prm, F, e0); } catch (err) { console.error(err); return { ok: false, err: 'Erreur de calcul : ' + (err && err.message) }; } };
+  const stamp = [prm, e0, wxRec && wxRec.fetched, current.when, zeroWind];
+  if (!X.link) { const inp = calcInput(X), key = JSON.stringify([inp, stamp]), c = passMem[X.id]; if (c && c.key === key) return c.sol; const s = run(inp); passMem[X.id] = { key, sol: s }; return s; }
+  if (!prev || !prev.ok || !prev.vec) return { ok: false, err: 'L\'équipe précédente du passage n\'a pas encore de solution : commence par elle.' };
+  const a = Calc.unit(prev.acHeading), d = Math.max(0, +X.link.delay || 0) * prev.vg, target = Calc.fromLocal(prev.vec.red, { x: a.x * d, y: a.y * d });
+  X.vecHeading = prev.acHeading; X.reversed = false; X.capManual = null; X.along = null; if (X.keepH == null) X.keepH = true; if (!X.manual) X.manual = { lat: target.lat, lng: target.lng };
+  const inp0 = calcInput(X), key = JSON.stringify([Object.assign({}, inp0, { manual: null }), target, stamp]), c = passMem[X.id];
+  if (c && c.key === key) { X.manual = c.m; return c.sol; }
+  let m = X.manual, s = null;
+  for (let k = 0; k < 8; k++) { s = run(Object.assign({}, inp0, { manual: m })); if (!s.ok || !s.vec) break; const q = Calc.toLocal(s.vec.green, target); if (Math.hypot(q.x, q.y) < 1.5) break; m = Calc.fromLocal(m, q); }
+  X.manual = m;
+  if (s.ok) { s.flMin4 = null; s.linkOut = !!(s.manualFix || s.manualGap > 30);
+    if (s.linkOut) s.warn = `Équipe ${n} : à ${Math.round(+X.link.delay || 0)} s de l'équipe précédente, son point d'ouverture est hors de sa zone de relaxation, le PTU ne peut pas être rejoint. Change le délai, déplace son PTU, ou déplace le vecteur de la première équipe.`; }
+  passMem[X.id] = { key, sol: s, m }; return s;
+}
+function passSols(X) { const T = passTeams(X || isv()), L = T[0]; let prev = null;
+  return T.map((Y, k) => { if (Y.link) { Y.fl = L.fl; Y.acMs = L.acMs; Y.when = L.when; } prev = teamSolve(Y, prev, k + 1); return { I: Y, sol: prev }; }); }
+/* Glissement du vecteur (ou d'un point rose / OSO) d'une équipe liée : le long de l'axe avion seulement, ce qui change son délai */
+let linkDg = null;
+function linkMove(P0, ll) { const I = isv(); if (!I.link || !sol || !sol.ok) return;
+  if (!linkDg) linkDg = { d0: +I.link.delay || 0, p0: P0, a: Calc.unit(sol.acHeading), vg: sol.vg };
+  const q = Calc.toLocal(linkDg.p0, ll); I.link.delay = Math.max(0, Math.round((linkDg.d0 + (q.x * linkDg.a.x + q.y * linkDg.a.y) / linkDg.vg) * 10) / 10);
+  const n = performance.now(); if (n - dragT > 220) { dragT = n; solKey = null; draw(true); } }
+function linkEnd() { const I = isv(); linkDg = null; if (!I.link) return; I.link.delay = Math.round(I.link.delay); solKey = null; persist(); fillInputs(); redraw();
+  const P = passInfo(I); toast(`Équipe ${P ? P.idx + 1 : ''} : vert ${I.link.delay} s après le rouge de l'équipe précédente`); }
 function compute() {
   const I = isv();
   wxRec = wxCached(current.id, current.when.slice(0, 10));
   F = fieldOf(wxRec, current.when);
-  const inp = calcInput(I), e0 = elev0();
+  if (I.link && !passLead(I)) { delete I.link; } /* la première équipe a été supprimée : l'ISV redevient indépendante */
+  let inp = null, e0 = elev0();
+  if (I.link) { const P = passSols(I), me = P.find(p => p.I === I), s2 = me ? me.sol : { ok: false, err: 'Passage introuvable' }; if (s2 === sol && solKey === 'link') return; sol = s2; solKey = 'link'; inp = calcInput(I); }
+  else {
+  inp = calcInput(I);
   const key = JSON.stringify([inp, prm, e0, wxRec && wxRec.fetched, current.when, zeroWind]);
   if (key === solKey) return;
   try { sol = Calc.solve(inp, prm, F, e0); } catch (e) { console.error(e); sol = { ok: false, err: 'Erreur de calcul : ' + (e && e.message) }; }
-  solKey = key;
+  solKey = key; }
   /* v0.38.1 (Henri) : vecteur à la main → le FL pour 4 s est cherché en gardant le vecteur tel qu'il est (position du para et cap) :
      plus petit FL (multiple de 5) pour lequel le calcul complet donne au moins le temps de chute de référence */
   /* v0.39.4 (bug photo d'Henri : « hors de portée » après Appliquer) : I.manual est le point de LARGAGE ; à un FL plus bas la chute est
@@ -462,7 +512,7 @@ function pName(i) { const p = isv().team[i]; return p ? `n° ${i + 1}${p.name ? 
 /* v0.26.0 (Henri) : barbule du vent au sol de la ZMT (pictogramme des cartes aéronautiques / Windy), en cyan, côté au vent de la ZMT :
    trait dans le sens du vent avec une pointe vers la ZMT, empennage côté au vent : demi-barre = 5 kt, barre = 10 kt, triangle = 50 kt.
    Toujours affichée (carte et PDF), décalée de côté si elle chevauche la trace, le PTU ou le vecteur. */
-function groundWind() { if (!current.zmt || !F) return null; try { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); return isFinite(w.spd) ? w : null; } catch (e) { return null; } }
+function groundWind() { const zz = zmtOf(); if (!zz || !F) return null; try { const w = Calc.spdDir(Calc.windAt(F, zz.lat, zz.lng, elev0() + 10)); return isFinite(w.spd) ? w : null; } catch (e) { return null; } }
 /* v0.35.3 (Henri) : barbule juste SOUS l'étiquette « ZMT » ; hampe courte et fine, barres et triangles plus larges pour bien les voir.
    Géométrie en pixels × s (1 sur la carte, u dans le PDF), centrée sur C ; d = sens où va le vent (écran). */
 function barbGeom(kt, C, d, s) {
@@ -478,8 +528,8 @@ function barbGeom(kt, C, d, s) {
 }
 function barbBox(g) { const pts = g.lines.flat().concat(g.tris.flat()); if (g.calm) pts.push({ x: g.T.x - 3, y: g.T.y - 3 }, { x: g.T.x + 3, y: g.T.y + 3 }); return { x0: Math.min(...pts.map(q => q.x)), y0: Math.min(...pts.map(q => q.y)), x1: Math.max(...pts.map(q => q.x)), y1: Math.max(...pts.map(q => q.y)) }; }
 function barbWind(toPx) { /* sens écran du vent au sol et sa force (kt) */
-  const w = groundWind(); if (!w || !current.zmt) return null;
-  const z = toPx(current.zmt), r = (w.dir + 180) * Math.PI / 180, far = toPx(Calc.fromLocal(current.zmt, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 }));
+  const w = groundWind(), zz = zmtOf(); if (!w || !zz) return null;
+  const z = toPx(zz), r = (w.dir + 180) * Math.PI / 180, far = toPx(Calc.fromLocal(zz, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 }));
   let d = { x: far.x - z.x, y: far.y - z.y }; const l = Math.hypot(d.x, d.y) || 1; return { z, d: { x: d.x / l, y: d.y / l }, kt: w.spd * KT };
 }
 /* place la barbule centrée sous l'étiquette (cx = milieu de l'étiquette, top = bas de l'étiquette + 2) */
@@ -511,7 +561,7 @@ let vecHit = null;
    partout où le PTU reste joignable. Menu (appui long relâché) : la question est posée AVANT de toucher la carte ; glissement
    direct : le vecteur suit le doigt librement et la question est posée au lâcher (impossible pendant le geste).
    Le calcul dit où ramener le vecteur s'il est hors de portée (sol.manualFix) : plus de blocage sur l'ancien cercle. */
-function manualFit() { const I = isv(); compute(); for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
+function manualFit() { const I = isv(); compute(); if (I.link) return; /* v0.50.0 : équipe liée, point de largage imposé par le passage */ for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
 async function askOpenMode() {
   $('dlgDel').classList.remove('danger');
   const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; les points roses restent dans la zone de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, la zone est recalculée) ?', undefined, 'Changer', 'Garder');
@@ -520,6 +570,7 @@ async function askOpenMode() {
 }
 function vecMoveFn(ll) {
       if (!sol || !sol.ok) return; const I2 = isv();
+      if (I2.link) { if (!vecHit.lp) vecHit.lp = ll; return linkMove(vecHit.lp, ll); } /* v0.50.0 : équipe liée → glisse sur l'axe avion (délai) */
       if (!vecHit.off) vecHit.off = Calc.toLocal(ll, sol.vec.attach); // écart entre le doigt et le point de largage, gardé pendant tout le glissement
       if (vecHit.mode) I2.keepH = vecHit.mode === 'keep'; /* mode choisi avant (menu) */
       else if (!vecHit.gl) { vecHit.gl = { m: I2.manual, k: !!I2.keepH, cap: I2.capManual, al: I2.along || null }; I2.keepH = false; } /* glissement direct : libre, question au lâcher */
@@ -527,6 +578,7 @@ function vecMoveFn(ll) {
       const n = performance.now(); if (n - dragT > 220) { dragT = n; if (vecHit.h._lpDragging) manualFit(); draw(true); }
 }
 const vecEndFn = async () => {
+  if (isv().link) { vecHit.off = null; vecHit.lp = null; vecHit.gl = null; vecHit.mode = null; return linkEnd(); }
   vecHit.off = null; const I = isv(), g = vecHit.gl; vecHit.gl = null; vecHit.mode = null;
   if (g) { manualFit(); draw(true);
     const r = await askOpenMode();
@@ -595,16 +647,16 @@ function ouvGesture(m) {
   const start = () => { st = null; mode = null; const q = m.getLatLng(); R0 = { lat: q.lat, lng: q.lng }; };
   const init = () => { compute(); if (!sol || !sol.ok) return false; const I = isv(), o = ouvCur(); if (!R0) start();
     st = { R: R0, m0: I.manual ? { lat: I.manual.lat, lng: I.manual.lng } : { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }, o0: { lat: o.lat, lng: o.lng }, back: { m: I.manual, k: !!I.keepH, cap: I.capManual, al: I.along || null }, last: null }; return true; };
-  const move = ll => { if (!st && !init()) return; const I = isv(); st.last = ll;
+  const move = ll => { if (isv().link) { if (!R0) start(); return linkMove(R0, ll); } /* v0.50.0 : équipe liée */ if (!st && !init()) return; const I = isv(); st.last = ll;
     /* pendant le geste : tout est translaté de l'écart (aperçu) ; le calcul exact sur le point d'ouverture se fait au lâcher */
     I.manual = Calc.fromLocal(st.m0, Calc.toLocal(st.R, ll)); I.capManual = null; I.along = null; I.keepH = mode ? mode === 'keep' : false;
     const n = performance.now(); if (n - dragT > 220) { dragT = n; if (m._lpDragging) manualFit(); draw(true); } };
-  const end = async () => { const s = st, md = mode; st = null; mode = null; if (!s || !s.last) return; const I = isv();
+  const end = async () => { if (isv().link) { st = null; mode = null; return linkEnd(); } const s = st, md = mode; st = null; mode = null; if (!s || !s.last) return; const I = isv();
     if (!md) { manualFit(); draw(true); const r = await askOpenMode();
       if (r === null) { I.manual = s.back.m; I.keepH = s.back.k; I.capManual = s.back.cap; I.along = s.back.al; solKey = null; moveDone(); return; } I.keepH = r === 'keep'; }
     let target = Calc.fromLocal(s.o0, Calc.toLocal(s.R, s.last)); solKey = null; keepO(target);
     moveDone(); };
-  m._lpMenu = () => [
+  m._lpMenu = () => isv().link ? [{ label: '↔ Glisser le long de l\'axe avion', fn: () => LPMove.pick('Touche la carte : l\'équipe glisse d\'autant sur l\'axe avion', ll => { start(); move(ll); end(); }) }] : [
     { label: '✥ Déplacer', fn: async () => { const md = await askOpenMode(); if (!md) return;
       LPMove.pick(isOuv() ? 'Touche la carte : le point OUV va là' : 'Touche la carte : le point d\'ouverture se décale d\'autant', ll => { start(); mode = md; move(ll); end(); }); } },
     { label: '⇢ Rentrer le long de la trace', fn: async () => { const md = await askOpenMode(); if (!md) return; const q = m.getLatLng(), R = { lat: q.lat, lng: q.lng };
@@ -683,7 +735,7 @@ function vecHitLine(V, I) {
     vecHit.el = vecHit.line._path;
     /* v0.26.0 (Henri) : appui long relâché sur le vecteur → « Déplacer » (toucher la carte : le vecteur va là) ou « Rentrer »
        (le vecteur glisse le long de l'axe de la trace jusqu'au point le plus proche de l'endroit touché : la trace ne change pas de cap) */
-    vecHit.h._lpMenu = P => [
+    vecHit.h._lpMenu = P => isv().link ? [{ label: '↔ Glisser le long de l\'axe avion', fn: () => LPMove.pick('Touche la carte : le vecteur glisse sur l\'axe avion jusqu\'en face', ll => LPMove.replay(vecHit.h, P, ll, vecMoveFn, vecEndFn, () => { vecHit.off = null; vecHit.lp = null; })) }] : [
       { label: '✥ Déplacer', fn: async () => { const md = await askOpenMode(); if (!md) return;
         LPMove.pick('Touche la carte : le vecteur va là', ll => LPMove.replay(vecHit.h, P, ll, vecMoveFn, vecEndFn, () => { vecHit.off = null; vecHit.gl = null; vecHit.mode = md; })); } },
       { label: '⇢ Rentrer le long de la trace', fn: async () => { const md = await askOpenMode(); if (!md) return;
@@ -799,7 +851,7 @@ function altPos(p) { /* position d'une zone alternative : OSO (à moins de prm.o
   r.oso = Y.some(y => { const q = Calc.toLocal(y, p); return Math.hypot(q.x, q.y) <= (+prm.osoKm || 0) * 1000; });
   const T = sol.trace, a = Calc.toLocal(T[0], T[T.length - 1]), L0 = Math.hypot(a.x, a.y) || 1, q = Calc.toLocal(T[0], p), t = (q.x * a.x + q.y * a.y) / L0;
   if (t > L0) r.long = true;
-  else if (current.zmt) { const z = Calc.toLocal(current.zmt, p); r.court = Math.hypot(z.x, z.y) <= (+prm.courtKm || 0) * 1000; }
+  else if (zmtOf()) { const z = Calc.toLocal(zmtOf(), p); r.court = Math.hypot(z.x, z.y) <= (+prm.courtKm || 0) * 1000; }
   return r;
 }
 function altAutoName(p) { const r = altPos(p); return r.oso ? 'OSO' : r.long ? 'LONG' : r.court ? 'COURT' : 'INT'; } /* v0.42.2 (Henri) : ni OSO, ni long, ni court → INT (INT1, INT2… si homonymes, même règle que les autres) */ /* v0.29.0 : OSO ajouté (règle validée par Henri : 2 km autour du point jaune le plus proche, réglable) */
@@ -830,7 +882,7 @@ function draw(light) {
   // ZRT : affichage seulement
   if (SH.zrt) current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
   // ZMT et PTU
-  keep('zmt', SH.ptu ? current.zmt : null, zmtIcon, 300, ll => { current.zmt = ll; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); });
+  keep('zmt', SH.ptu ? zmtOf(I) : null, zmtIcon, 300, ll => { if (I.ozmt) I.ozmt = ll; else current.zmt = ll; dragRecalc(); }, () => { solKey = null; persist(); refreshZmtElev(I); fillInputs(); redraw(); });
   drawBarb(); /* v0.35.3 : après la ZMT (on lit la position de son étiquette) */
   keep('ptu', SH.ptu ? I.ptu : null, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); });
   // Points de l'ISV
@@ -855,6 +907,21 @@ function draw(light) {
   if (SH.lost) { const Z = lostZone(); if (Z) { const o = { interactive: false, lineCap: 'round', lineJoin: 'round' };
     L.polyline([Z.from, Z.near].map(LL), { color: C_LOST, weight: 2, dashArray: '4 6', interactive: false }).addTo(fig);
     L.polyline(Z.band.map(LL), Object.assign({ color: '#000', weight: 24, opacity: .35 }, o)).addTo(fig); L.polyline(Z.band.map(LL), Object.assign({ color: C_LOST, weight: 19, opacity: .7 }, o)).addTo(fig); } }
+  /* v0.50.0 (lot 3) : carte commune — les autres équipes du même passage, en plus fin ; toucher leur vecteur ouvre leur ISV */
+  passOthers(light).forEach(o => { const s2 = o.sol, vl2 = [LL(s2.vec.green), LL(s2.vec.red)];
+    L.polyline(s2.trace.map(LL), { color: '#000', weight: 4, opacity: .35, interactive: false }).addTo(fig); L.polyline(s2.trace.map(LL), { color: C_TRACE, weight: 2, opacity: .85, dashArray: '7 6', interactive: false }).addTo(fig);
+    L.polyline(vl2, { color: '#fff', weight: 6, opacity: .8, interactive: false }).addTo(fig); L.polyline(vl2, { color: '#000', weight: 3, interactive: false }).addTo(fig);
+    L.marker(vl2[0], { interactive: false, icon: dotIcon(C_START, 8, '') }).addTo(fig); L.marker(vl2[1], { interactive: false, icon: dotIcon(C_END, 8, '') }).addTo(fig);
+    L.marker(vl2[1], { interactive: false, icon: L.divIcon({ className: 'dot', html: `<b style="color:#fff">É${o.n}</b>`, iconSize: [10, 10], iconAnchor: [5, 5] }) }).addTo(fig);
+    if (o.I.ptu && (!I.ptu || Calc.dist(o.I.ptu, I.ptu) > 30)) L.marker(LL(o.I.ptu), { interactive: false, icon: dotIcon(C_PTU, 9, `PTU É${o.n}`) }).addTo(fig);
+    L.polyline(vl2, { color: '#fff', weight: 28, opacity: 0, interactive: true }).on('click', ev => { L.DomEvent.stop(ev); if (Date.now() < suppressClickUntil) return; openIsv(o.I.id); }).addTo(fig); });
+  /* v0.50.0 : pour une équipe liée, où peut-on poser SON PTU ? Son point d'ouverture est imposé par le passage : le PTU doit être tel
+     que ce point soit dans sa zone de relaxation. Contour = la zone de relaxation retournée autour du point d'ouverture (exact si le
+     vent est le même partout, approché sinon : le calcul, lui, dit toujours si le PTU est joignable). */
+  if (I.link && SH.reach && sol.attachOuv && I.ptu && sol.circleOuv.R > 0) { const st = Math.max(0.5, Math.min(4, 14 * mPerPx(sol.attachOuv) / Math.max(1, Calc.zoneSpan(sol.circleOuv).max) * 180 / Math.PI));
+    const R = Calc.zonePts(sol.circleOuv, st).map(q => { const v = Calc.toLocal(I.ptu, q); return Calc.fromLocal(sol.attachOuv, { x: -v.x, y: -v.y }); });
+    L.polygon(R.map(LL), { color: C_PTU, weight: 2, dashArray: '7 7', fill: false, interactive: false, smoothFactor: 0.2 }).addTo(fig);
+    const top = R.reduce((a, q) => (q.lat > a.lat ? q : a), R[0]); L.marker(LL(top), { interactive: false, icon: L.divIcon({ className: 'dot lostd', html: `<b style="color:${C_PTU}">PTU possibles</b>`, iconSize: [2, 2], iconAnchor: [1, 1] }) }).addTo(fig); }
   // Trace : tous les segments, de l'ouverture terminée au PTU
   const MI = traceMini(); syncSumWarn();
   if (SH.trace) {
@@ -890,6 +957,8 @@ function draw(light) {
   // autres applis) : appui long n'importe où sur le vecteur puis glisser = déplacer. Le point attrapé reste sous le doigt.
   keep('drop', null);
   vecHitLine(V, I);
+  if (I.link) { keep('rot', null); keep('rotR', null); [[V.green, C_START], [V.red, C_END]].forEach(([q, c]) => L.marker(LL(q), { interactive: false, icon: dotIcon(c, 13, '', 'big') }).addTo(fig)); } /* v0.50.0 : équipe liée, le cap avion est celui du passage : pas de pivot */
+  else {
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; if (rotO === undefined) rotO = ouvONow(); I.vecHeading = Calc.bearingOf(q); I.reversed = false; rotRecalc(); },
     () => { if (rotO) rotKeep(rotO); rotO = undefined; persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
@@ -897,6 +966,7 @@ function draw(light) {
   keep('rotR', V.red, dotIcon(C_END, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(sol.vec.attach, ll); if (Math.hypot(q.x, q.y) < 20) return; if (rotO === undefined) rotO = ouvONow(); I.vecHeading = Calc.bearingOf(q); I.reversed = false; rotRecalc(); },
     () => { if (rotO) rotKeep(rotO); rotO = undefined; persist(); fillInputs(); redraw(); if (sol && sol.ok) toast(`Cap du vecteur ${hdg(sol.acHeading)}`); });
+  }
   } else noVecHandles();
   // v0.5.3 (Henri) : plus d'étiquettes le long du vecteur et de la trace ; cap avion et cap para en haut à droite (#capInfo)
   /* v0.45.0 (Henri) : le point OUV est une poignée (invisible, posée sur le point rose) : le point d'ouverture va là où on appuie */
@@ -934,7 +1004,7 @@ function draw(light) {
 function capInfo() {
   const el = $('capInfo'); if (!el) return;
   if (!sol || !sol.ok) { el.classList.add('hidden'); el.innerHTML = ''; return; }
-  el.innerHTML = `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div><div class="altil">Altimétrie : <span id="altiState" class="ast wait">…</span></div>`;
+  const P = passInfo(); el.innerHTML = (P ? `<div>Équipe ${P.idx + 1}/${P.teams.length}${isv().link ? ` · +${Math.round(+isv().link.delay || 0)} s` : ''}</div>` : '') + `<div>Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m</div><div>Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}</div><div class="altil">Altimétrie : <span id="altiState" class="ast wait">…</span></div>`;
   el.classList.remove('hidden'); altiState(); /* v0.13.0 : l'état du point haut (… / ✓ / !) remplace le bouton Alti */
 }
 /* Bouton Alti : « … » tant que le point haut n'est pas calculé pour le vecteur actuel, coche verte quand c'est fait (v0.5.3) */
@@ -1029,12 +1099,13 @@ function fitInto(pts, R) {
 
 function figurePoints() {
   const I = isv(), pts = [];
-  if (current.zmt) pts.push(current.zmt); if (I.ptu) pts.push(I.ptu);
+  if (zmtOf(I)) pts.push(zmtOf(I)); if (I.ptu) pts.push(I.ptu);
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
     (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
     if (current.show.relax) Calc.zonePts(sol.circleOuv, 30).forEach(q => pts.push(q));
-    if (current.show.lost) { const Z = lostZone(); if (Z) Z.band.forEach(q => pts.push(q)); } /* v0.49.0 : la zone de recherche entre dans le cadrage */
+    if (current.show.lost) { const Z = lostZone(); if (Z) Z.band.forEach(q => pts.push(q)); }
+    passOthers(true).forEach(o => { pts.push(o.sol.vec.green, o.sol.vec.red); o.sol.trace.forEach(q => pts.push(q)); }); /* v0.50.0 : les autres équipes du passage entrent dans le cadrage */ /* v0.49.0 : la zone de recherche entre dans le cadrage */
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
 }
@@ -1087,6 +1158,11 @@ function fillInputs() {
   const I = isv();
   $('zoneName').textContent = current.id ? current.name : 'Nouvelle zone'; $('isvName').textContent = ' · ' + I.name;
   $('ver').textContent = VERSION;
+  { const PI = passInfo(I); $('linkBox').classList.toggle('hidden', !I.link); /* v0.50.0 (lot 3) : équipe liée à un passage */
+    $('btnAddTeam').textContent = `＋ Équipe ${PI ? PI.teams.length + 1 : 2} sur le même passage`;
+    if (I.link && PI) { $('linkInfo').innerHTML = `Équipe <b>${PI.idx + 1}</b> sur ${PI.teams.length} du passage de « ${esc(PI.lead.name)} ».`; setVal('i_linkDelay', Math.round(+I.link.delay || 0));
+      $('ownZInfo').textContent = I.ozmt ? `ZMT propre à cette équipe : ${fmtPos(I.ozmt)}` : 'ZMT : celle de la zone.'; $('btnOwnZ').classList.toggle('on', placing === 'OZ'); $('btnOwnZoff').classList.toggle('hidden', !I.ozmt); }
+    ['v_fl', 'v_ac', 'v_acKt', 'v_acH', 'v_acM', 'v_acP', 'v_acAuto', 'v_cap', 'v_capM', 'v_capP', 'v_capAuto'].forEach(id => { const el = $(id); if (el) el.disabled = !!I.link; }); }
   setVal('i_hPtu', I.hPtu); setVal('i_tGreen', I.tGreen); setVal('i_tRed', I.tRed); setVal('i_apprNm', I.apprNm); setVal('i_exitNm', I.exitNm);
   DEF_FIELDS.forEach(([k]) => setVal('d_' + k, prm.def[k]));
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
@@ -1104,8 +1180,8 @@ function fillInputs() {
 function syncQuick() {
   const I = isv();
   syncShowPop();
-  $('qRev').classList.toggle('on', !!I.reversed);
-  $('qVecAuto').classList.toggle('hidden', !(I.manual || I.vecHeading != null || I.capManual != null));
+  $('qRev').classList.toggle('on', !!I.reversed); $('qRev').classList.toggle('hidden', !!I.link);
+  $('qVecAuto').classList.toggle('hidden', I.link ? I.keepH !== false : !(I.manual || I.vecHeading != null || I.capManual != null));
   if ($('qZero')) $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
   $('qPoint').classList.toggle('on', ptOpen || !!(placing && typeof placing === 'object' && placing.kind !== 'move'));
   if (typeof syncPtPop === 'function') try { syncPtPop(); } catch (e) {}
@@ -1122,6 +1198,7 @@ const SHOW_ITEMS = [
   ['ptu', 'PTU et ZMT', '<circle cx="8" cy="12" r="5" fill="#ffd400" stroke="#111" stroke-width="2"/><circle cx="17" cy="12" r="4" fill="none" stroke="#ff8c00" stroke-width="2.4"/><path d="M17 5v14M10.5 12h13" stroke="#ff8c00" stroke-width="1.6"/>', true],
   ['oso', 'Points OSO et point haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
   ['sec', 'Zone de sécurité', '<path d="M3 9l8-5 10 6v8l-9 3-9-5z" fill="#ff8c00" fill-opacity=".45" stroke="#ff8c00" stroke-width="1.4"/>', false],
+  ['reach', 'PTU possibles (équipe liée)', '<circle cx="12" cy="12" r="8" fill="none" stroke="#ffd400" stroke-width="2.2" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2.6" fill="#ffd400" stroke="#111"/>', true],
   ['lost', 'Recherche d\'une voile libérée', '<path d="M4 19L20 6" stroke="#000" stroke-width="7" stroke-linecap="round" opacity=".5"/><path d="M4 19L20 6" stroke="#4d8dff" stroke-width="4.5" stroke-linecap="round"/><circle cx="4" cy="19" r="2.6" fill="#fff" stroke="#000"/><circle cx="20" cy="6" r="2.6" fill="#fff" stroke="#000"/>', false],
   ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
   ['sum', 'Sommets et zones délicates', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#b388ff" stroke="#111" stroke-width="2"/>', true],
@@ -1131,12 +1208,12 @@ let showOpen = false;
 function syncShowPop() {
   const pop = $('showPop'), b = $('qShow'); if (!pop || !b) return;
   pop.classList.toggle('hidden', !showOpen); b.classList.toggle('on', showOpen);
-  b.classList.toggle('part', SHOW_ITEMS.some(([k, , , d]) => d && !current.show[k])); /* quelque chose d'habituellement affiché est masqué */
+  b.classList.toggle('part', SHOW_ITEMS.some(([k, , , d]) => d && !current.show[k] && (k !== 'reach' || isv().link))); /* quelque chose d'habituellement affiché est masqué */
   syncStepBar(); /* v0.45.1 (photo d'Henri) : le bandeau jaune d'étape passait par-dessus le menu → masqué tant que le menu est ouvert */
   if (!showOpen) return;
   pop.textContent = '';
   { const h = document.createElement('div'); h.className = 'sph'; h.innerHTML = '<b>Affichage</b><button class="spx" title="Fermer">✕</button>'; h.querySelector('button').addEventListener('click', e => { e.stopPropagation(); closeShowPop(); }); pop.appendChild(h); } /* v0.45.1 (Henri) : croix pour refermer, en plus du toucher sur la carte */
-  SHOW_ITEMS.forEach(([k, label, svg]) => { const x = document.createElement('button'); x.className = current.show[k] ? 'on' : ''; x.title = (current.show[k] ? 'Masquer : ' : 'Afficher : ') + label;
+  SHOW_ITEMS.filter(([k]) => k !== 'reach' || isv().link /* v0.50.0 : seulement pour une équipe liée */).forEach(([k, label, svg]) => { const x = document.createElement('button'); x.className = current.show[k] ? 'on' : ''; x.title = (current.show[k] ? 'Masquer : ' : 'Afficher : ') + label;
     x.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24">${svg}</svg><span></span>`; x.querySelector('span').textContent = label;
     x.addEventListener('click', e => { e.stopPropagation(); current.show[k] = !current.show[k]; persist(); syncShowPop(); redraw(); }); pop.appendChild(x); });
   const r = b.getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - pop.offsetHeight - 8, r.top + r.height / 2 - pop.offsetHeight / 2)))}px`;
@@ -1144,7 +1221,7 @@ function syncShowPop() {
 function closeShowPop() { if (showOpen) { showOpen = false; syncShowPop(); } }
 $('qShow').addEventListener('click', () => { showOpen = !showOpen; if (showOpen) closeSheet(); syncShowPop(); });
 $('qRev').addEventListener('click', () => quick(() => { const I = isv(), t = ouvONow(); I.reversed = !I.reversed; rotKeep(t); }));
-$('qVecAuto').addEventListener('click', () => { quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.along = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
+$('qVecAuto').addEventListener('click', () => { if (isv().link) { quick(() => { isv().keepH = true; solKey = null; }); return toast('Équipe liée : hauteur d\'ouverture gardée (son vecteur reste imposé par le passage)'); } quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.along = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 /* v0.18.0 : bouton Vent 0 supprimé (Henri) */ if ($('qZero')) $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
 $('qBrief').addEventListener('click', () => toggleTab('brief')); /* v0.16.0 : bouton Briefing sous Prépa ISV */
@@ -1176,7 +1253,7 @@ async function ensureWx(force, date) {
   catch (e) { wxFailed[date] = true; toast(have ? 'Pas de réseau : prévision gardée, téléchargée le ' + fmtFetched(have.fetched) : 'Prévision impossible à télécharger (réseau ?)'); return have; }
   finally { wxBusy = false; fillInputs(); redraw(); }
 }
-function setWhen(w) { current.when = w; const I = isv(); I.when = w; if (I.nameAuto) I.name = isvAutoName(I); persist(); fillInputs(); redraw(); ensureWx(false); }
+function setWhen(w) { current.when = w; const I = isv(); passTeams(I).forEach(x => { x.when = w; if (x.nameAuto) x.name = isvAutoName(x); }); /* v0.50.0 : date et heure communes au passage */ I.when = w; if (I.nameAuto) I.name = isvAutoName(I); persist(); fillInputs(); redraw(); ensureWx(false); }
 $('qWhen').addEventListener('click', () => { $('jumpBox').classList.toggle('hidden'); syncJump(); });
 $('jumpOk').addEventListener('click', () => { $('jumpBox').classList.add('hidden'); });
 $('j_minus').addEventListener('click', () => setWhen(shiftWhen(current.when, -1)));
@@ -1211,7 +1288,7 @@ function windRows(Fx, pt, e0) { // une ligne par tranche de 1 000 ft (FL), du so
 }
 function renderWinds() {
   const date = tWhen.slice(0, 10);
-  $('t_unpick').textContent = current.zmt ? '↺ Revenir à la ZMT' : isv().ptu ? '↺ Revenir au PTU' : '↺ Revenir au centre';
+  $('t_unpick').textContent = zmtOf() ? '↺ Revenir à la ZMT' : isv().ptu ? '↺ Revenir au PTU' : '↺ Revenir au centre';
   if (windPt) { /* point choisi sur la carte */
     const k = pickKey(windPt, date), rec = pickMem[k], Fx = rec ? fieldOf(rec, tWhen) : null, e0 = rec ? rec.nodes[0].elev : 0;
     $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
@@ -1223,7 +1300,7 @@ function renderWinds() {
     return;
   }
   /* v0.8.0 : par défaut à la verticale de la ZMT (demande d'Henri), visible dès la ZMT posée, avant le PTU */
-  const z = current.zmt;
+  const z = zmtOf();
   const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = elev0();
   $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
   $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol ${z ? 'de la ZMT ' : ''}(${fmtInt(e0)} m)`;
@@ -1251,9 +1328,9 @@ $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.targ
 // ---------- Placement de la ZMT, du PTU et des points ----------
 function placeBanner() { if (window._stepsReady) requestAnimationFrame(syncStepBar);
   if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.', 'Type de point ?'); return; }
-  setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
+  setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'OZ' ? 'Touche la carte pour placer la ZMT propre à cette équipe.' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
     : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Touche la trace au DÉBUT de la zone délicate.' : 'Touche la trace à la FIN de la zone délicate.') : 'Touche la carte pour placer le point libre.') : null,
-    placing === 'Z' ? 'Pose de la ZMT' : placing === 'P' ? 'Pose du PTU' : placing ? (placing.kind === 'move' ? `Déplacer « ${placing.name} »` : placing.kind === 'alt' ? 'Pose d\'une zone alternative' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Zone délicate : début' : 'Zone délicate : fin') : 'Pose d\'un point libre') : null);
+    placing === 'Z' ? 'Pose de la ZMT' : placing === 'OZ' ? 'Pose de la ZMT de l\'équipe' : placing === 'P' ? 'Pose du PTU' : placing ? (placing.kind === 'move' ? `Déplacer « ${placing.name} »` : placing.kind === 'alt' ? 'Pose d\'une zone alternative' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Zone délicate : début' : 'Zone délicate : fin') : 'Pose d\'un point libre') : null);
   if (!placing) updateInfo();
 }
 function startPlacing(what) { placing = placing === what ? null : what; stopMeasure(); if (placing) closeSheet(); placeBanner(); fillInputs(); }
@@ -1450,7 +1527,7 @@ map.on('click', e => {
   const sn = snapPlace({ lat: e.latlng.lat, lng: e.latlng.lng }), p = sn.p;
   if (sn.temp) setTempPt(null);
   placing = null; placeBanner();
-  if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
+  if (what === 'Z') setZmt(p); else if (what === 'OZ') setOwnZmt(p); else if (what === 'P') setPtu(p);
   else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; pt.elev = typeof p.z === 'number' ? Math.round(p.z) : null; if (pt.elev == null) pointElev(pt); persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
   else { ptOpen = false; ptPal = false; if (what.kind === 'zd') addZd(p, what); else if (what.kind === 'free' && sn.temp) addSummit(p); else addPoint(p, what); }
   fillInputs();
@@ -1710,13 +1787,15 @@ function renderBrief() {
   /* v0.45.0 (Henri) : type de saut en première ligne, pas en jaune. HAHO = ouverture au temps de chute de référence (4 s) ;
      HAMO = hauteur d'ouverture choisie (autre temps de chute, ou vecteur rentré). Pas de HALO : il ne se prépare pas avec l'appli. */
   if (ok) row('Type de saut', jumpType(s));
+  { const PT = passInfo() ? passTimes() : null; if (PT) { const me = PT.find(p => p.I === I); /* v0.50.0 : passage commun */
+    row('Passage commun', `équipe ${me.n} sur ${PT.length}${I.link ? ` · vert ${Math.round(+I.link.delay || 0)} s après le rouge de l'équipe ${me.n - 1}` : ''} · même avion, même FL, même cap`, true); } }
   { const ze = zmtElev(), e0 = elev0(); /* v0.14.0 : coordonnées et sol de la ZMT avec le nom de la zone (plus de paragraphe Arrivée) */
-    row('Zone', `${esc(current.id ? current.name : 'Nouvelle zone')}${current.zmt ? ` (${fmtPos(current.zmt)} · ${fmtInt(e0)} m${ze == null ? ' provisoire' : ''})` : ''}`); }
+    row('Zone', `${esc(current.id ? current.name : 'Nouvelle zone')}${zmtOf() ? ` (${isv().ozmt ? 'ZMT propre à cette équipe : ' : ''}${fmtPos(zmtOf())} · ${fmtInt(e0)} m${ze == null ? ' provisoire' : ''})` : ''}`); }
   row('ISV', esc(I.name));
   row('Date et heure', fmtWhenY(current.when));
   row('Météo', wxRec ? `${esc(wxRec.model.split(' (')[0])}, prévision du ${fmtFetched(wxRec.fetched)}` : '<b class="warn">aucune prévision : calcul sans vent</b>');
   if (zeroWind) row('', '<b class="warn">ESSAI VENT 0</b>');
-  if (current.zmt && F) { const w = Calc.spdDir(Calc.windAt(F, current.zmt.lat, current.zmt.lng, elev0() + 10)); row('Vent au sol (ZMT)', `${Math.round(w.spd * KT)} kt du ${hdg(w.dir)}`); }
+  if (zmtOf() && F) { const w = Calc.spdDir(Calc.windAt(F, zmtOf().lat, zmtOf().lng, elev0() + 10)); row('Vent au sol (ZMT)', `${Math.round(w.spd * KT)} kt du ${hdg(w.dir)}`); }
   end();
   if (!ok) { out.push(`<p class="hint">${esc(s && s.err ? s.err : 'Place la ZMT (onglet Zones) puis le PTU (onglet Prépa ISV).')}</p>`); box.innerHTML = out.join(''); return; }
   if (s.warn) out.push(`<p class="hint"><b class="warn">⚠️ ${esc(s.warn)}</b></p>`);
@@ -1736,6 +1815,9 @@ function renderBrief() {
   row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`); /* v0.18.1 : en blanc (Henri) */
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
   end(); out.push('</div>');
+  { const PT = passInfo() ? passTimes() : null; if (PT) { sec('Passage commun'); /* v0.50.0 : chronologie depuis le vert de la première équipe */
+    PT.forEach(p => row(`Équipe ${p.n}${p.I === I ? ' (cette ISV)' : ''}`, p.sol && p.sol.ok ? `vert à ${p.green ? '+' + Math.round(p.green) + ' s' : '0 s'} · rouge à +${Math.round(p.red)} s · ${p.I.team.length} para${p.I.team.length > 1 ? 's' : ''} · cap para ${hdg(p.sol.cap)}${p.sol.linkOut ? ' · PTU NON JOIGNABLE' : ''}` : 'pas de solution', p.I === I));
+    end(); } }
   sec('Largage');
   row('FL de largage', `FL${s.fl}`, true);
   if (s.flMin4 != null) row(`(FL possible pour ${fmt1(+prm.tRef || 4)} s de chute)`, `(FL${String(s.flMin4).padStart(3, '0')} · même ouverture terminée, ${fmtInt(Math.round(s.hOpen))} m) <button class="applyFl">Appliquer</button>`); /* v0.47.1 (Henri) : FL possible et CDO possible = même règle, entre parenthèses, à l'écran comme dans le PDF */ /* v0.37.0 / v0.38.0 (Henri) */
@@ -2078,7 +2160,7 @@ async function computeAlti(manual) {
 }
 function altiVals() { // valeurs d'altimétrie, ou null si le point haut n'est pas à jour
   const I = isv(); if (!sol || !sol.ok) return null;
-  const ref = current.zmt || I.ptu, alpha = Calc.pOfZ(F, ref.lat, ref.lng, sol.elev0) /* v0.10.0 : ALPHA au sol de la ZMT */, o = { alpha: Math.round(alpha), elevPtu: sol.elev0 };
+  const ref = zmtOf(I) || I.ptu, alpha = Calc.pOfZ(F, ref.lat, ref.lng, sol.elev0) /* v0.10.0 : ALPHA au sol de la ZMT */, o = { alpha: Math.round(alpha), elevPtu: sol.elev0 };
   if (I.alti && I.alti.max && I.alti.key === altiKey()) { const m = I.alti.max; o.max = m; o.oso = Math.round(Calc.pOfZ(F, m.lat, m.lng, m.elev)); o.hRel = sol.altRel - m.elev; }
   return o;
 }
@@ -2178,7 +2260,7 @@ $('p_offline').addEventListener('change', e => { prm.offline = !!e.target.checke
 function syncOffline() { $('p_offline').checked = !!prm.offline; try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ offline: !!prm.offline }); } catch (e) {} }
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
 /* v0.45.0 (Henri) : Param › Valeurs par défaut — [clé, mini, maxi] ; champs d_<clé> ; l'ouvreur de sécurité garde sa clé prm.osoFt */
-const DEF_FIELDS = [['hPtu', 0, 5000], ['nParas', 1, 60], ['mte', 30, 400], ['dt', 0, 120], ['tGreen', 0, 120], ['tRed', 0, 120], ['fl', 30, 450], ['acMs', 20, 200], ['secLong', 0, 20000], ['secLat', 0, 10000], ['apprNm', 0, 50], ['exitNm', 0, 50]];
+const DEF_FIELDS = [['hPtu', 0, 5000], ['nParas', 1, 60], ['mte', 30, 400], ['dt', 0, 120], ['tGreen', 0, 120], ['tRed', 0, 120], ['fl', 30, 450], ['acMs', 20, 200], ['secLong', 0, 20000], ['secLat', 0, 10000], ['apprNm', 0, 50], ['exitNm', 0, 50], ['linkDelay', 0, 600]];
 DEF_FIELDS.forEach(([k, mn, mx]) => onNum('d_' + k, v => { prm.def[k] = k === 'nParas' ? Math.round(v) : v; saveProfile(); }, mn, mx));
 onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_keepPct', 'keepPct', 0, 300); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
 
@@ -2223,7 +2305,8 @@ function renderIsvList() {
   } else zs.innerHTML = `<b>${esc(current.name || 'Nouvelle zone')}</b>`;
   current.isvs.forEach(I => {
     const li = document.createElement('li'); li.className = I.id === current.cur ? 'cur' : '';
-    li.innerHTML = `<span class="zn">${esc(I.name)} <small class="mut">${I.team.length} para${I.team.length > 1 ? 's' : ''} · FL${I.fl}</small></span>`;
+    const PI = passInfo(I); if (I.link) li.classList.add('lk');
+    li.innerHTML = `<span class="zn">${I.link ? '↳ ' : ''}${esc(I.name)} <small class="mut">${PI ? `équipe ${PI.idx + 1}/${PI.teams.length}${I.link ? ` · +${Math.round(+I.link.delay || 0)} s` : ''} · ` : ''}${I.team.length} para${I.team.length > 1 ? 's' : ''} · FL${I.fl}</small></span>`;
     li.querySelector('.zn').onclick = () => openIsv(I.id);
     const ren = document.createElement('button'); ren.textContent = '✎'; ren.onclick = async () => {
       /* v0.14.0 : un nom saisi arrête le nommage automatique ; bouton pour revenir au nom par défaut (date et heure) */
@@ -2236,7 +2319,7 @@ function renderIsvList() {
     const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => {
       if (current.isvs.length < 2) return toast('Une zone garde au moins une ISV');
       if (!(await ask(`Supprimer l'ISV « ${I.name} » ?`))) return;
-      current.isvs = current.isvs.filter(x => x.id !== I.id); if (current.cur === I.id) current.cur = current.isvs[0].id; resetMarkers(); changed(true);
+      current.isvs = current.isvs.filter(x => x.id !== I.id); current.isvs.forEach(x => { if (x.link && x.link.to === I.id) delete x.link; }); /* v0.50.0 : ses équipes liées redeviennent des ISV indépendantes */ if (current.cur === I.id) current.cur = current.isvs[0].id; resetMarkers(); changed(true);
     };
     li.append(ren, del); ul.append(li);
   });
@@ -2246,6 +2329,18 @@ $('btnNewIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const I = newIsv(); I.when = current.when; I.nameAuto = true; I.name = isvAutoName(I); current.isvs.push(I); openIsv(I.id); startPlacing(current.zmt ? 'P' : 'Z');
 });
+/* v0.50.0 (lot 3) : ajouter une équipe sur le même passage que l'ISV ouverte */
+$('btnAddTeam').addEventListener('click', async () => {
+  if (!(await askZoneName())) return; const L = passLead(isv()); if (!L) return;
+  if (!L.ptu) return toast('Place d\'abord le PTU de la première équipe');
+  const T = passTeams(L), X = newIsv(); X.when = L.when; X.fl = L.fl; X.acMs = L.acMs; X.hPtu = L.hPtu; X.ptu = { lat: L.ptu.lat, lng: L.ptu.lng }; X.ptuElev = L.ptuElev;
+  X.link = { to: L.id, delay: dv('linkDelay') }; X.keepH = true; X.nameAuto = false; X.name = `${L.name} · É${T.length + 1}`;
+  current.isvs.splice(current.isvs.indexOf(T[T.length - 1]) + 1, 0, X); openIsv(X.id); toast(`Équipe ${T.length + 1} ajoutée : vert ${X.link.delay} s après le rouge de l'équipe ${T.length}`);
+});
+function setOwnZmt(p) { const I = isv(); if (!I.link) return; current.show.ptu = true; I.ozmt = { lat: p.lat, lng: p.lng }; I.ozmtElev = null; I.ozmtElevKey = null; solKey = null; persist(); refreshZmtElev(I); fillInputs(); draw(); toast('ZMT propre à cette équipe placée'); }
+$('btnOwnZ').addEventListener('click', () => startPlacing('OZ'));
+$('btnOwnZoff').addEventListener('click', () => { const I = isv(); delete I.ozmt; delete I.ozmtElev; delete I.ozmtElevKey; solKey = null; changed(); toast('Cette équipe reprend la ZMT de la zone'); });
+onNum('i_linkDelay', v => { const I = isv(); if (I.link) I.link.delay = v; }, 0, 600);
 $('btnDupIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const src = isv(), I = clone(src); I.id = uid('i');
@@ -2472,7 +2567,7 @@ function gpxText() {
   let o = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="trace-isv ${VERSION}" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">\n` +
     `  <metadata><name>${x(current.name + ' - ' + I.name)}</name><time>${new Date().toISOString()}</time></metadata>\n`;
   // Points : ZMT, OUV, PTU, début et fin de largage, sorties, points de l'ISV
-  if (current.zmt) o += wpt(current.zmt, 'ZMT', 'Flag, Red');
+  if (zmtOf()) o += wpt(zmtOf(), 'ZMT', 'Flag, Red');
   o += wpt(s.attachOuv || s.trace[0], 'OUV', 'Flag, Blue', s.elev0 + s.hOpen) + wpt(I.ptu, 'PTU', 'Flag, Green', s.elev0 + I.hPtu);
   o += wpt(s.vec.green, 'DEBUT LARG', 'Navaid, Green', s.altRel) + wpt(s.vec.red, 'FIN LARG', 'Navaid, Red', s.altRel);
   s.vec.exits.forEach(e => { const p = I.team[e.i]; o += wpt(e, `P${e.i + 1}${p.name ? ' ' + p.name : ''}`, 'Navaid, Black', s.altRel); });
@@ -2531,7 +2626,7 @@ function roadmapText() {
   const above = j0 ? s.hOpen - (s.attachH != null ? s.attachH : s.hOpen) : 0;
   if (above > 20) out.push(`Ouverture ${nb(above)} m au-dessus de la trace (trace à ${nb(s.attachH)} m à cet endroit) : rejoindre les hauteurs des points à la descente rapide.`);
   out.push('');
-  const zmt = current.zmt, toZ = zmt ? Calc.toLocal(I.ptu, zmt) : null, dZ = toZ ? Math.hypot(toZ.x, toZ.y) : 0;
+  const zmt = zmtOf(I), toZ = zmt ? Calc.toLocal(I.ptu, zmt) : null, dZ = toZ ? Math.hypot(toZ.x, toZ.y) : 0;
   usedCouples().forEach(u => {
     const lg0 = legTimes(u), lg = j0 ? [{ L: lg0[j0 - 1].L * f0, t: lg0[j0 - 1].t * f0, loss: lg0[j0 - 1].loss * f0 }].concat(lg0.slice(j0)) : lg0, m = R.length - 1, weak = s.weak && s.weak.canopy && u.c.id === s.weak.canopy.id && u.mte === s.weak.mte, who = u.idx.map(i => I.team[i].name ? `${i + 1} ${I.team[i].name}` : String(i + 1)).join(', ');
     out.push('='.repeat(100), `${u.c.name} - MTE ${nb(u.mte)} kg - para${u.idx.length > 1 ? 's' : ''} n° ${who}`);
@@ -2659,6 +2754,8 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   /* v0.39.2 (Henri) : la carte du PDF = celle de l'appli (mêmes couleurs, mêmes étiquettes, pas d'écriture le long du vecteur ni de la trace) */
   const PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
   if (SH.lost) { const Z = lostZone(); if (Z) { line([Z.from, Z.near], C_LOST, 1.6, [4, 6]); line(Z.band, 'rgba(0,0,0,.35)', 19); line(Z.band, 'rgba(77,141,255,.75)', 15); } } /* v0.49.0 : bande de recherche d'une voile libérée, sous la trace */
+  passOthers(false).forEach(o => { const s2 = o.sol; line(s2.trace, 'rgba(0,0,0,.35)', 4); line(s2.trace, C_TRACE, 2, [7, 6]); line([s2.vec.green, s2.vec.red], 'rgba(255,255,255,.8)', 6); line([s2.vec.green, s2.vec.red], '#000', 3);
+    dot(s2.vec.green, C_START, 3.2); const c = dot(s2.vec.red, C_END, 3.2); shadowText(`É${o.n}`, c.x + 8 * u, c.y, '#fff', 10); if (o.I.ptu && Calc.dist(o.I.ptu, I.ptu) > 30) { const c2 = dot(o.I.ptu, C_PTU, 4.5); shadowText(`PTU É${o.n}`, c2.x + 9 * u, c2.y, C_PTU, 10); } }); /* v0.50.0 : carte commune du passage */
   if (SH.trace) { line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6); }
   if (SH.trace && SH.sum) zdSpans().forEach(z => line(traceSlice(sol.trace, z.s0, z.s1), z.stale || PB.ids.has(z.zid) ? 'rgba(255,140,0,.75)' : 'rgba(179,136,255,.75)', 7, [10, 8]));
   if (SH.trace) { const MI = traceMini(), k0 = sol.trace.length - 1, TPc = sol.trace.map(toC), flat = Math.abs(TPc[k0].x - TPc[0].x) > Math.abs(TPc[k0].y - TPc[0].y); let last = null;
@@ -2675,10 +2772,10 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
     if (SH.vec) { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11); }
     if (SH.trace) { const t = toC(Calc.pointAt(sol.trace, sol.length / 2)); shadowText(`CAP ${hdg(sol.cap)} · ${fmtKm(sol.length)}`, t.x + 12 * u, t.y, '#fff', 11); } }
   const cible = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); if (name) shadowText(name, c.x + 16 * u, c.y - 12 * u, color, 11); };
-  if (SH.ptu && current.zmt) { const bw = barbWind(toC); if (bw) { const bg = barbUnder(bw, u, bw.z.x + 16 * u + 12 * u, bw.z.y - 5 * u); g.save(); g.lineCap = 'round'; /* sous l'étiquette « ZMT » du PDF (écrite à x+16u, y−12u) */
+  if (SH.ptu && zmtOf()) { const bw = barbWind(toC); if (bw) { const bg = barbUnder(bw, u, bw.z.x + 16 * u + 12 * u, bw.z.y - 5 * u); g.save(); g.lineCap = 'round'; /* sous l'étiquette « ZMT » du PDF (écrite à x+16u, y−12u) */
       const st = (col, w) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); bg.lines.forEach(([a, b]) => { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }); if (bg.calm) { g.moveTo(bg.T.x + 2.5 * u, bg.T.y); g.arc(bg.T.x, bg.T.y, 2.5 * u, 0, 7); } g.stroke(); };
       st('rgba(0,0,0,.55)', 2.6 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = .6 * u; g.stroke(); }); st('#00e5ff', 1.1 * u); g.restore(); } } /* v0.26.0 : barbule du vent au sol */
-  if (SH.ptu && current.zmt) cible(current.zmt, C_ZMT, 'ZMT');
+  if (SH.ptu && zmtOf()) cible(zmtOf(), C_ZMT, 'ZMT');
   if (SH.ptu) { const c = dot(I.ptu, C_PTU, 8); shadowText(`PTU ${fmtInt(I.hPtu)} m`, c.x - 12 * u, c.y, C_PTU, 11, 'right'); }
   isv().points.forEach(pt => { if (!(pt.kind === 'alt' ? SH.alt : (pt.auto === 'S' || pt.kind === 'zd') ? SH.sum : SH.free)) return; if (pt.kind === "alt") cible(pt, '#ff2020', pointLabel(pt)); else { const col = sStale(pt) || PB.ids.has(pt.id) || PB.ids.has(pt.zid) ? C_WARN : pt.auto === 'S' ? C_ZD : pt.color || '#fff', c = toC(pt), s = 5.5 * u; g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4); g.fillStyle = col; g.strokeStyle = '#111'; g.lineWidth = 1.6 * u; g.fillRect(-s, -s, 2 * s, 2 * s); g.strokeRect(-s, -s, 2 * s, 2 * s); g.restore(); const lb = pointLabel(pt); if (lb) shadowText(lb, c.x + 12 * u, c.y, col, 11); } });
   if (SH.vec) { const OP = ouvPts(), OV = OP ? ouvVec() : null; if (OV) { OV.forEach(p => dot(p, C_OUV_END, 4.5)); OP.forEach(p => dot(p, C_TRACE, 4.5)); const c = toC(sol.attachOuv); shadowText(`OUV ${fmtInt(sol.hOpen)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); } } /* v0.46.0 : points d'ouverture roses, OUV = para sur la trace */
@@ -2727,7 +2824,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
     sol.turn ? `Prise de cap à ${sol.turn}` : 'Prise de cap : dans l\'axe',
     `CDO : ${sol.openLowered ? fmtInt(Math.round(sol.hCmd)) + ' m' : fmt1(sol.tFall) + ' s'}`,
     `Cap para : ${hdg(sol.cap)}`,
-    sol.hand ? `PTU main ${sol.hand}` : (current.zmt ? 'PTU dans l\'axe' : 'ZMT non placée')];
+    sol.hand ? `PTU main ${sol.hand}` : (zmtOf() ? 'PTU dans l\'axe' : 'ZMT non placée')];
   hi.forEach((t, i) => tx(t, col2, l0 + lh * (0.3 + i * 1.9), '#ffd400', big, true));
   hi2.forEach((t, i) => tx(t, col3, l0 + lh * (0.1 + i * 1.4), '#00e5ff', big, true));
   }
@@ -2750,7 +2847,7 @@ function pdfDataPages(doc) {
   row('Point d\'entrée PTU', fmtPos(I.ptu)); row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT (${fmtInt(sol.elev0)} m)`);
   row('Ouverture terminée (OUV)', fmtPos(sol.attachOuv || sol.ouv));
   row('Début de largage (vert)', fmtPos(sol.vec.green)); row('Fin de largage (rouge)', fmtPos(sol.vec.red));
-  if (current.zmt) row('Zone de posé (ZMT)', fmtPos(current.zmt));
+  if (zmtOf()) row('Zone de posé (ZMT)', fmtPos(zmtOf()));
   y += 3; title('Altimétrie');
   const av = altiVals();
   row('OSO', av && av.max ? `${av.oso} hPa (point haut ${fmtInt(av.max.elev)} m)` : 'non calculé', true);
@@ -3050,7 +3147,8 @@ function openLowInfo() {
 }
 function applyOpenLow() {
   const q = openLowInfo(); if (!q) return; const I = isv(), g0 = traceGrid(), s0 = traceSig();
-  I.keepH = false; I.along = { cap: q.cap }; I.manual = q.m; I.capManual = null; I.cdoRef = null; solKey = null; manualFit();
+  if (I.link) { I.keepH = false; solKey = null; compute(); } /* équipe liée : seul le mode change, le vecteur reste imposé */
+  else { I.keepH = false; I.along = { cap: q.cap }; I.manual = q.m; I.capManual = null; I.cdoRef = null; solKey = null; manualFit(); }
   I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0);
   stepFocus = 'vec'; persist(); closeSheet(); changed(); syncSteps(); redraw();
   toast(sol && sol.ok ? `Ouverture abaissée sur la trace : CDO ${fmtInt(Math.ceil(sol.hCmd / 100 - 1e-6) * 100)} m. Revérifie le vecteur de largage puis les points OSO` : 'Ouverture abaissée');

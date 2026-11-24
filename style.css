@@ -230,7 +230,7 @@ button,input,select,label,a{touch-action:manipulation}
 #teamList,#canList,#isvList,#zrtList,#ptList{list-style:none;margin:0;padding:0}
 #isvList li,#zrtList li,#ptList li{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #262626}
 #isvList .zn,#zrtList .zn,#ptList .zn{flex:1;cursor:pointer;padding:8px 0}
-#isvList li.cur .zn{color:#ff8bd6;font-weight:700}
+#isvList li.cur .zn{color:#ff8bd6;font-weight:700}#isvList li.lk{padding-left:14px}
 #teamList li.para{padding:7px 0;border-bottom:1px solid #262626}
 #teamList li.zdrag{position:relative;z-index:5;background:#2a2a2a;box-shadow:0 4px 14px rgba(0,0,0,.6)}
 #teamList .pr1,#teamList .pr2{display:flex;gap:6px;align-items:center}

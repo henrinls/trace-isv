@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.49.2">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.50.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.49.2">
+<link rel="stylesheet" href="style.css?v=0.50.0">
 </head>
 <body>
 <div id="map"></div>
@@ -147,6 +147,15 @@
     <h3 class="isvzone">ISV de la zone <span id="isvZone"></span></h3>
     <ul id="isvList"></ul>
     <div class="row grid2"><button id="btnNewIsv">＋ Nouvelle ISV</button><button id="btnDupIsv">⧉ Dupliquer l'ISV ouverte</button></div>
+    <div class="row"><button id="btnAddTeam" class="wide">＋ Équipe suivante sur le même passage</button></div>
+    <div id="linkBox" class="hidden">
+      <h3>Passage commun</h3>
+      <p class="calc" id="linkInfo"></p>
+      <div class="grid2"><div><label>Délai après le rouge de l'équipe précédente (s)</label><input id="i_linkDelay" inputmode="numeric"></div><div></div></div>
+      <div class="grid2"><button id="btnOwnZ">📍 ZMT propre à cette équipe</button><button id="btnOwnZoff">↺ ZMT de la zone</button></div>
+      <p class="hint" id="ownZInfo"></p>
+      <p class="hint">Équipe liée : même avion, donc même FL, même vitesse, même cap et même heure que la première équipe du passage (à modifier dans son ISV). Son vecteur est sur le même axe : on règle seulement le délai, ici ou en faisant glisser son vecteur le long de l'axe. Elle a son équipe, son temps de chute et son PTU (celui de la première équipe au départ). Le contour jaune pointillé « PTU possibles » montre où son PTU peut être posé pour rester joignable ; il est exact si le vent est le même partout, approché sinon.</p>
+    </div>
 
     <h3>Point d'entrée PTU</h3>
     <div class="grid2"><button id="btnPlaceP">📍 Toucher la carte</button><button id="btnCoordP">⌨ Coordonnées</button></div>
@@ -286,6 +295,7 @@
       <div></div>
       <div><label>Approche avant le vert (NM)</label><input id="d_apprNm" inputmode="decimal"></div>
       <div><label>Dégagement après le rouge (NM)</label><input id="d_exitNm" inputmode="decimal"></div>
+      <div><label>Délai entre deux équipes d'un même passage (s)</label><input id="d_linkDelay" inputmode="numeric"></div>
     </div>
     <p class="hint">Ces valeurs servent à créer une nouvelle ISV ou un nouveau para ; les changer ne modifie pas les ISV qui existent déjà. Le temps de chute d'une nouvelle ISV est le temps de chute en HAHO (paragraphe Chute et ouverture). L'ouvreur de sécurité se règle ensuite para par para (Prépa ISV › Équipe) : il place le point d'ouverture OSO de chaque para, donc son point de posé OSO.</p>
 
@@ -351,17 +361,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.49.2"></script>
-<script src="vendor/leaflet-rotate.js?v=0.49.2"></script>
-<script src="vendor/mgrs.min.js?v=0.49.2"></script>
-<script src="geo.js?v=0.49.2"></script>
-<script src="clubs.js?v=0.49.2"></script>
-<script src="wmm.js?v=0.49.2"></script>
-<script src="calc.js?v=0.49.2"></script>
-<script src="windpick.js?v=0.49.2"></script>
-<script src="pdfview.js?v=0.49.2"></script>
-<script src="lpmove.js?v=0.49.2"></script>
-<script src="app.js?v=0.49.2"></script>
-<script src="photo.js?v=0.49.2"></script>
+<script src="vendor/leaflet.js?v=0.50.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.50.0"></script>
+<script src="vendor/mgrs.min.js?v=0.50.0"></script>
+<script src="geo.js?v=0.50.0"></script>
+<script src="clubs.js?v=0.50.0"></script>
+<script src="wmm.js?v=0.50.0"></script>
+<script src="calc.js?v=0.50.0"></script>
+<script src="windpick.js?v=0.50.0"></script>
+<script src="pdfview.js?v=0.50.0"></script>
+<script src="lpmove.js?v=0.50.0"></script>
+<script src="app.js?v=0.50.0"></script>
+<script src="photo.js?v=0.50.0"></script>
 </body>
 </html>
