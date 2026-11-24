@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.50.1">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.51.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.50.1">
+<link rel="stylesheet" href="style.css?v=0.51.0">
 </head>
 <body>
 <div id="map"></div>
@@ -151,10 +151,12 @@
     <div id="linkBox" class="hidden">
       <h3>Passage commun</h3>
       <p class="calc" id="linkInfo"></p>
-      <div class="grid2"><div><label>Délai après le rouge de l'équipe précédente (s)</label><input id="i_linkDelay" inputmode="numeric"></div><div></div></div>
-      <div class="grid2"><button id="btnOwnZ">📍 ZMT propre à cette équipe</button><button id="btnOwnZoff">↺ ZMT de la zone</button></div>
-      <p class="hint" id="ownZInfo"></p>
-      <p class="hint">Équipe liée : même avion, donc même FL, même vitesse, même cap et même heure que la première équipe du passage (à modifier dans son ISV). Son vecteur est sur le même axe : on règle seulement le délai, ici ou en faisant glisser son vecteur le long de l'axe. Elle a son équipe, son temps de chute et son PTU (celui de la première équipe au départ). Le contour jaune pointillé « PTU possibles » montre où son PTU peut être posé pour rester joignable ; il est exact si le vent est le même partout, approché sinon.</p>
+      <div class="grid2" id="linkDelayRow"><div><label>Délai après le rouge de l'équipe précédente (s)</label><input id="i_linkDelay" inputmode="numeric"></div><div></div></div>
+      <p class="hint" id="teamZInfo"></p>
+      <div class="row"><button id="btnTeamPlace" class="wide">📍 Poser la ZMT</button></div>
+      <div class="row"><button id="btnPassShift" class="wide hidden">↔ Décaler le passage</button></div>
+      <div class="row"><button id="btnOpen4" class="wide hidden">↺ Remettre l'ouverture de cette équipe au temps de chute en HAHO</button></div>
+      <p class="hint">Même avion pour toutes les équipes : même FL, même vitesse, même cap et même heure (à modifier dans l'ISV de la première équipe). Le vert d'une équipe suit le rouge de la précédente après le délai. Règle : tous les points roses d'une équipe, roses clairs compris, doivent être dans SA zone de relaxation. Une équipe ajoutée n'a ni ZMT ni PTU : pose d'abord sa ZMT (ou touche la ZMT d'une autre équipe pour prendre la même zone, PTU compris), puis son PTU. Les deux pointillés jaunes montrent où le PTU est possible, sans rien bouger (intérieur) ou en décalant le passage (extérieur). Tirer le vecteur de la première équipe déplace tout le passage ; tirer celui d'une autre équipe le long de l'axe change son délai. Rien ne bouge tout seul : si un changement fait sortir une équipe de sa zone, l'appli le dit et propose « Décaler » ou d'annuler. « Vecteur automatique » recalcule tout le passage. Le bouton ≡ de la liste change l'ordre des équipes.</p>
     </div>
 
     <h3>Point d'entrée PTU</h3>
@@ -226,6 +228,7 @@
     <h3>Export</h3>
     <div class="row grid2"><button id="btnPdf" class="primary">📄 PDF A4</button><button id="btnGpx" class="primary">🧭 Export GPX</button></div>
     <div class="row"><button id="btnTxt" class="wide">📝 Feuille de route (.txt)</button></div>
+    <div class="row"><button id="btnPassPdf" class="wide hidden">✈️ PDF du passage (équipage)</button></div>
     <p class="hint">PDF : une page A4 paysage, carte cap para vers le haut et Briefing. GPX : vecteur, trace (itinéraire et ligne), OUV, PTU, ZMT et tes points. Feuille de route : pour naviguer sans GPS, un tableau par couple voile + MTE de l'équipe — à chaque point de la trace, la hauteur, la distance et le temps depuis le point OUV, puis le cap, la distance et le temps jusqu'au point suivant.</p>
 
     <div id="briefBody"></div>
@@ -317,6 +320,10 @@
   </div>
 </div>
 
+<div id="chDlg" class="hidden">
+  <div class="box"><button id="chX" class="chx" title="Fermer">✕</button><p id="chText"></p><div class="dlgbtns" id="chBtns"></div></div>
+</div>
+
 <div id="nzDlg" class="hidden">
   <div class="box">
     <p><b>Nouvelle zone : où ?</b></p>
@@ -361,17 +368,18 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.50.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.50.1"></script>
-<script src="vendor/mgrs.min.js?v=0.50.1"></script>
-<script src="geo.js?v=0.50.1"></script>
-<script src="clubs.js?v=0.50.1"></script>
-<script src="wmm.js?v=0.50.1"></script>
-<script src="calc.js?v=0.50.1"></script>
-<script src="windpick.js?v=0.50.1"></script>
-<script src="pdfview.js?v=0.50.1"></script>
-<script src="lpmove.js?v=0.50.1"></script>
-<script src="app.js?v=0.50.1"></script>
-<script src="photo.js?v=0.50.1"></script>
+<script src="vendor/leaflet.js?v=0.51.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.51.0"></script>
+<script src="vendor/mgrs.min.js?v=0.51.0"></script>
+<script src="geo.js?v=0.51.0"></script>
+<script src="clubs.js?v=0.51.0"></script>
+<script src="wmm.js?v=0.51.0"></script>
+<script src="calc.js?v=0.51.0"></script>
+<script src="pass.js?v=0.51.0"></script>
+<script src="windpick.js?v=0.51.0"></script>
+<script src="pdfview.js?v=0.51.0"></script>
+<script src="lpmove.js?v=0.51.0"></script>
+<script src="app.js?v=0.51.0"></script>
+<script src="photo.js?v=0.51.0"></script>
 </body>
 </html>

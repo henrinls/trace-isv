@@ -35,8 +35,8 @@ ul{list-style:none;padding:0;margin:0}
 .search{display:flex;gap:6px}
 #searchResults .res{width:100%;text-align:left;margin:3px 0;background:#202020;font-size:13px}
 #ioText{min-height:90px;margin-top:6px}
-#dialog,#pdfReady,#nzDlg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
-#dialog .box,#pdfReady .box,#nzDlg .box{background:#1d1d1d;border-radius:14px;padding:16px;width:100%;max-width:380px}
+#dialog,#pdfReady,#nzDlg,#chDlg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
+#dialog .box,#pdfReady .box,#nzDlg .box,#chDlg .box{background:#1d1d1d;border-radius:14px;padding:16px;width:100%;max-width:380px}
 #dialog input{margin:8px 0 12px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(110px + env(safe-area-inset-bottom));background:#333;color:#fff;padding:9px 14px;border-radius:10px;z-index:2100;max-width:90vw;text-align:center;font-size:14px}
 .dot span{display:block;border-radius:50%;border:2px solid #111;box-shadow:0 0 0 1.5px rgba(255,255,255,.8)}
@@ -358,3 +358,9 @@ h3.hgchk{display:flex;align-items:center;gap:8px}.gchk{display:inline-flex;align
 #banner:has(.sinfo){padding-right:38px;min-height:58px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
 .paraBox{border:2px solid #ff3b30;border-radius:10px;padding:0 8px 6px;margin:10px 0}#sheet .paraBox h3{margin:0 -10px 2px;padding-left:8px;padding-right:8px;border-left:2px solid #ff3b30;border-right:2px solid #ff3b30;border-radius:8px 8px 0 0} /* v0.38.0 : le titre collé garde les bords rouges (il ne cache plus le cadre) */
 .applyFl{display:inline-block;margin:4px 0 0 6px;padding:4px 12px;border-radius:8px;background:#1f6feb;color:#fff;border:none;font-weight:700;font-size:14px;width:auto}
+
+/* v0.51.0 : fenêtre à choix (croix pour fermer, boutons de même taille), texte des pointillés du PTU, bouton « Poser » de la liste */
+#chDlg .box{position:relative;padding-top:34px}#chDlg p{margin:0 0 14px;line-height:1.4}.chx{position:absolute;top:6px;right:6px;width:34px;height:30px;padding:0;background:transparent;border:0;color:#bbb;font-size:18px}
+#chBtns.hidden{display:none}
+.ptulab{pointer-events:none}.ptulab span{position:absolute;white-space:nowrap;font:700 12px/1 -apple-system,system-ui,sans-serif;color:#ffd400;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;transform-origin:center}
+#isvList li .tplace{flex:none;padding:6px 10px;font-size:13px}#isvList li .zhandle{flex:none}

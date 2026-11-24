@@ -192,7 +192,13 @@
     return { pts, cap, length: len, direct: Math.hypot(d.x, d.y), time, top: P };
   }
   // Cap qui met l'ouverture le plus loin du PTU en ligne droite
-  function bestCap(F, ptu, elev0, hPtu, hOpen, can, margin) {
+  /* v0.51.0 : meilleur cap et zone de relaxation ne dépendent pas de la position du vecteur ; un passage à plusieurs équipes les
+     redemande des dizaines de fois avec les mêmes données (40 ms à chaque fois) → gardés en mémoire, par champ de vent. */
+  const memoF = new WeakMap(), memo0 = new Map();
+  function memo(F, key, make) { let M = F ? memoF.get(F) : memo0; if (!M) { M = new Map(); memoF.set(F, M); } if (M.has(key)) return M.get(key); if (M.size > 60) M.clear(); const v = make(); M.set(key, v); return v; }
+  const canKey = can => [can.vx, can.vz, can.mk].join('/');
+  function bestCap(F, ptu, elev0, hPtu, hOpen, can, margin) { return memo(F, ['bc', ptu.lat, ptu.lng, elev0, hPtu, hOpen, canKey(can), margin].join('|'), () => bestCap0(F, ptu, elev0, hPtu, hOpen, can, margin)); }
+  function bestCap0(F, ptu, elev0, hPtu, hOpen, can, margin) {
     const f = c => trace(F, ptu, elev0, hPtu, hOpen, can, c, margin).direct;
     let best = 0, bd = -1;
     for (let c = 0; c < 360; c += 3) { const d = f(c); if (d > bd) { bd = d; best = c; } }
@@ -203,7 +209,8 @@
   // les traces (tous caps, marge comprise) : un cercle exact si le vent est le même sur toute la zone, à peine déformé sinon.
   // Le cercle rendu est le plus grand cercle qui tient dans cette zone ET qui passe par l'ouverture de la trace au cap donné :
   // la trace part toujours pile de son bord. Sans cap (ou cas dégénéré) : cercle centré, de rayon la plus petite portée.
-  function relaxCircle(F, ptu, elev0, hPtu, hOpen, can, margin, cap) {
+  function relaxCircle(F, ptu, elev0, hPtu, hOpen, can, margin, cap) { return memo(F, ['rc', ptu.lat, ptu.lng, elev0, hPtu, hOpen, canKey(can), margin, cap].join('|'), () => relaxCircle0(F, ptu, elev0, hPtu, hOpen, can, margin, cap)); }
+  function relaxCircle0(F, ptu, elev0, hPtu, hOpen, can, margin, cap) {
     const top = (c, m) => trace(F, ptu, elev0, hPtu, hOpen, can, c, m).top;
     let la = 0, lo = 0, n = 0;
     for (let c = 0; c < 360; c += 15) { const q = top(c, 0); la += q.lat; lo += q.lng; n++; }
@@ -396,7 +403,7 @@
     const tr = weak.tr, ptsDown = tr.pts.slice().reverse(); // de l'ouverture terminée vers le PTU
     out.cap = n360(weak.cap); out.capAuto = isv.capManual == null && !isv.manual;
     out.trace = ptsDown; out.direct = tr.direct; out.length = tr.length; out.ouv = ptsDown[0];
-    Object.assign(out, { hCmd: st.hCmd != null ? st.hCmd : st.hOpen + (st.f.drop - st.f.dropFF), fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, openDrop: st.f.drop - st.f.dropFF, tOpen: st.f.tOpen, elev0, vzRef, margin });
+    Object.assign(out, { hCmd: st.hCmd != null ? st.hCmd : st.hOpen + (st.f.drop - st.f.dropFF), fl: st.fl, openLowered: st !== stPlan, hOpenPlan: stPlan.hOpen, tFallPlan: stPlan.tFall, hRel: st.hRel, altRel: st.altRel, hOpen: st.hOpen, tas: st.tas, tFall: st.tFall, drop: st.f.drop, openDrop: st.f.drop - st.f.dropFF, tOpen: st.f.tOpen, elev0, vzRef, margin, fallSt: st.f /* v0.51.0 : état de la chute, pour recalculer la dérive sous RSE à un autre cap avion (passage à plusieurs équipes) */ });
 
     // Cap de l'avion : perpendiculaire au premier segment de la trace, sens le plus face au vent (ou cap choisi), ⇅ Sens l'inverse
     const dir1 = traceDir(tr.pts), acHeading = keepH && achKeep != null ? achKeep : acHeadingOf(F, isv, st, dir1, ptsDown[0]); /* hauteur gardée : cap avion de la dernière passe (cohérent avec le point d'ouverture) */
@@ -419,6 +426,9 @@
     const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });
     out.circleOuv = circShow; out.circle = toDrop(circShow, drShow);
     out.zoneOuv = circ; out.zone = toDrop(zonePlan, drShow);
+    /* v0.51.0 : zone de la hauteur d'ouverture PRÉVUE (temps de chute), même quand l'ouverture a été abaissée (mode Changer) : c'est d'elle
+       que dépend la possibilité de rejoindre le PTU ; sert au placement d'un passage à plusieurs équipes */
+    out.zonePlan = (keepH || st === stPlan) ? circ : relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan);
 
     // Vecteur : le para choisi s'ouvre sur la trace ; on fait glisser ce point le long de la trace (vers le PTU) jusqu'à ce que
     // le vert et le rouge soient dans la zone avec marge (non affichée). La trace ne change pas.
@@ -443,7 +453,7 @@
       } else if (L > 2 * circ.R) sFit = null;
     } else
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
-    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de large) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de relaxation sur ce cap : tourne-le ou change de para sur le point de largage.`); sFit = s0; }
+    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de large) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de relaxation sur ce cap : tourne-le ou change de para sur la trace.`); sFit = s0; }
     const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
     out.keepH = keepH; out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
     out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),
@@ -502,6 +512,6 @@
   }
 
   const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, canRef, canOpenRef, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
-    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, zoneOut, zonePts, zoneSpan, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
+    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, zoneR, zoneOut, zonePts, zoneSpan, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

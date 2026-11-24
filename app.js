@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.50.1';
+const VERSION = '0.51.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -149,9 +149,12 @@ function upgrade(z) {
   if (z.zmt === undefined) { const c = z.isvs.find(i => i.id === z.cur && i.zmt) || z.isvs.find(i => i.zmt); z.zmt = c ? c.zmt : null; }
   z.isvs.forEach(i => { delete i.zmt; });
   z.isvs = z.isvs.map(upIsv);
+  /* v0.51.0 : passages créés en v0.50.0 → équipes déjà posées ; même PTU que la première équipe et pas de ZMT propre = même zone qu'elle */
+  z.isvs.forEach(x => { if (x.link && x.zst === undefined) { const L = z.isvs.find(q => q.id === x.link.to && !q.link); x.zst = x.ptu ? 'ok' : 'todo'; if (L && L.ptu && x.ptu && !x.ozmt && Math.abs(L.ptu.lat - x.ptu.lat) < 1e-5 && Math.abs(L.ptu.lng - x.ptu.lng) < 1e-5) x.zsrc = L.id; } });
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
-  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, reach: true, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, reach: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  if (!z.reachV) { z.show.reach = false; z.reachV = 1; } /* v0.51.0 : les pointillés du PTU s'affichent pendant la pose, puis seulement par l'interrupteur */
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
   /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
   z.isvs.forEach(i => { if (typeof i.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(i.when)) i.when = z.when; if (i.nameAuto) i.name = isvAutoName(i); });
@@ -280,8 +283,8 @@ async function refreshPtuElev() {
 let zmtElevBusy = null;
 /* v0.50.0 (lot 3) : une ISV liée peut avoir SA zone de posé (I.ozmt, avec I.ozmtElev / I.ozmtElevKey) ; sinon c'est celle de la zone.
    zmtOf(I) = la ZMT qui vaut pour cette ISV ; zmtHost(I) = l'objet qui la porte et le nom de ses champs. */
-function zmtOf(X) { X = X || isv(); return (X && X.ozmt) || current.zmt || null; }
-function zmtHost(X) { X = X || isv(); return X && X.ozmt ? { o: X, p: 'ozmt', e: 'ozmtElev', k: 'ozmtElevKey' } : { o: current, p: 'zmt', e: 'zmtElev', k: 'zmtElevKey' }; }
+function zmtOf(X) { X = X || isv(); if (X && (X.link || X.zsrc)) { if (X.link && X.zst === 'todo') return null; const R = zRoot(X); if (R !== X) return zmtOf(R); } /* v0.51.0 : équipe sans ZMT encore, ou qui a repris celle d'une autre */ return (X && X.ozmt) || current.zmt || null; }
+function zmtHost(X) { X = X || isv(); if (X && X.zsrc) { const R = zRoot(X); if (R !== X) return zmtHost(R); } return X && X.ozmt ? { o: X, p: 'ozmt', e: 'ozmtElev', k: 'ozmtElevKey' } : { o: current, p: 'zmt', e: 'zmtElev', k: 'zmtElevKey' }; }
 async function refreshZmtElev(X) {
   const z = current, H = zmtHost(X), c = H.o[H.p]; if (!c) return; const k = c.lat.toFixed(5) + ',' + c.lng.toFixed(5);
   if ((H.o[H.k] === k && typeof H.o[H.e] === 'number') || zmtElevBusy === k) return;
@@ -434,55 +437,291 @@ function rotKeep(target) { /* après un changement de cap avion */
   if (I.keepH && !I.along && c0 && sol && sol.ok && sol.manualFix) { I.along = c0; solKey = null; } /* hauteur gardée, vecteur hors trace d'origine : il rentre le long de SA trace */
   manualFit();
 }
-/* ===== v0.50.0 (lot 3, Henri) : PLUSIEURS ÉQUIPES SUR UN MÊME PASSAGE = ISV LIÉES =====
-   Une ISV « liée » (I.link = { to: id de la première équipe, delay: secondes }) partage avec la première équipe du passage le FL,
-   la date et l'heure, la vitesse et le cap de l'avion. Son vecteur est sur le même axe avion : son VERT est à « delay » secondes
-   de vol après le ROUGE de l'équipe précédente (ordre = ordre de la liste des ISV). Elle garde son équipe, son PTU (celui de la
-   première équipe par défaut), son temps de chute, et peut avoir sa propre ZMT (I.ozmt). Son point de largage est donc IMPOSÉ :
-   I.manual est recalculé à chaque fois (jamais manualFit), en hauteur gardée par défaut (I.keepH), trace = celle qui passe par
-   son point d'ouverture. Si ce point est hors de sa zone de relaxation, on ne déplace rien : on le dit (sol.linkOut). */
+/* ===== v0.51.0 (Henri, 24/11/2026) : REFONTE du lot 3 — PLUSIEURS ÉQUIPES SUR UN MÊME PASSAGE =====
+   Modèle : la première équipe est une ISV ordinaire ; chaque équipe suivante est une ISV « liée » (I.link = { to: id de la première
+   équipe, delay: secondes }). Même avion : même FL, même vitesse, même cap, même heure. Le VERT d'une équipe est à « delay »
+   secondes de vol après le ROUGE de la précédente (ordre = ordre de la liste des ISV). Son point de largage est donc IMPOSÉ :
+   I.manual est recalculé à chaque fois (Pass.solveAt, jamais manualFit), hauteur d'ouverture gardée par défaut (4 s de chute).
+   Ce qui a changé par rapport à la v0.50.0 (décisions d'Henri, récapitulées dans le questionnaire du 24/11) :
+     - une équipe ajoutée n'a NI ZMT NI PTU : I.zst = 'todo' (ZMT à poser) → 'ptu' (PTU à poser) → 'ok'. Tant qu'elle n'est pas posée,
+       rien n'est calculé pour elle : on affiche seulement son vecteur, ses points roses et les deux pointillés du PTU (pendSolve) ;
+     - une ZMT n'a qu'un PTU : prendre la ZMT d'une autre équipe (I.zsrc = id de cette équipe) reprend aussi son PTU. Les équipes qui
+       partagent une ZMT forment un GROUPE (zRoot) ;
+     - RÈGLE : tous les points roses (roses clairs compris) de chaque équipe doivent être dans SA zone de relaxation ;
+     - même ZMT → RECALAGE : le groupe est traité comme un seul grand vecteur, son milieu sur la trace la plus longue (passAuto) ;
+     - ZMT différente → rien ne bouge si le PTU est possible tel quel, sinon « Décaler » = plus petit déplacement (passShift) ;
+     - après la pose, rien ne bouge tout seul : avertissement « Décaler » / « Annuler … » (passAfter) ;
+     - le cap avion peut tourner (du plus petit angle) pour faire rentrer une équipe, JAMAIS arrondi d'office (étape « Arrondir »).
+   Le moteur de recherche est dans pass.js (pur, testé sous node) ; ici on l'alimente et on VÉRIFIE toujours par le calcul complet. */
 function passLead(X) { return X && X.link ? (current.isvs.find(x => x.id === X.link.to && !x.link) || null) : X; }
 function passTeams(X) { X = X || isv(); const L = passLead(X); if (!L) return [X]; return [L].concat(current.isvs.filter(x => x.link && x.link.to === L.id)); }
+function passInfo(X) { X = X || isv(); const T = passTeams(X); return T.length > 1 ? { teams: T, idx: T.indexOf(X), lead: T[0] } : null; }
+const teamPlaced = X => !X.link || (X.zst !== 'todo' && X.zst !== 'ptu' && !!X.ptu);
+/* Équipe dont on tient la ZMT et le PTU (elle-même, ou celle qu'elle a reprise, en remontant la chaîne) */
+function zRoot(X) { let g = 0; while (X && X.zsrc && g++ < 9) { const S = current.isvs.find(x => x.id === X.zsrc); if (!S || S === X) break; X = S; } return X; }
+function zSync(X) { if (!X.zsrc) return; const R = zRoot(X); if (R === X || !R.ptu) return;
+  if (!X.ptu || X.ptu.lat !== R.ptu.lat || X.ptu.lng !== R.ptu.lng) { X.ptu = { lat: R.ptu.lat, lng: R.ptu.lng }; X.ptuElev = R.ptuElev; } X.hPtu = R.hPtu; }
 let passOthMem = [];
 function passOthers(light) { const me = isv(), P = passInfo(me); if (!P) { passOthMem = []; return passOthMem; } if (light) return passOthMem.filter(o => current.isvs.includes(o.I) && o.I !== me);
-  passOthMem = passSols(me).map((p, k) => ({ I: p.I, sol: p.sol, n: k + 1 })).filter(p => p.I !== me && p.sol && p.sol.ok && p.sol.vec); return passOthMem; }
+  passOthMem = passSols(me).map((p, k) => ({ I: p.I, sol: p.sol, n: k + 1 })).filter(p => p.I !== me && p.sol && p.sol.vec && (p.sol.ok || p.sol.pend)); return passOthMem; }
 /* Chronologie du passage : secondes depuis le vert de la première équipe */
-function passTimes(X) { const out = []; let t = 0; passSols(X).forEach((p, k) => { const s2 = p.sol, tot = s2 && s2.ok && s2.ex ? s2.ex.total : null; if (k) t += Math.max(0, +p.I.link.delay || 0); out.push({ I: p.I, sol: s2, n: k + 1, green: t, red: tot != null ? t + tot : null }); if (tot != null) t += tot; }); return out; }
-function passInfo(X) { X = X || isv(); const T = passTeams(X); return T.length > 1 ? { teams: T, idx: T.indexOf(X), lead: T[0] } : null; }
+function passTimes(X) { const out = []; let t = 0; passSols(X).forEach((p, k) => { const s2 = p.sol, tot = s2 && s2.ex ? s2.ex.total : null; if (k) t += Math.max(0, +p.I.link.delay || 0); out.push({ I: p.I, sol: s2, n: k + 1, green: t, red: tot != null ? t + tot : null }); if (tot != null) t += tot; }); return out; }
 let passMem = {};
-function teamSolve(X, prev, n) {
-  const e0 = elev0(X), run = inp => { try { return Calc.solve(inp, prm, F, e0); } catch (err) { console.error(err); return { ok: false, err: 'Erreur de calcul : ' + (err && err.message) }; } };
-  const stamp = [prm, e0, wxRec && wxRec.fetched, current.when, zeroWind];
-  if (!X.link) { const inp = calcInput(X), key = JSON.stringify([inp, stamp]), c = passMem[X.id]; if (c && c.key === key) return c.sol; const s = run(inp); passMem[X.id] = { key, sol: s }; return s; }
-  if (!prev || !prev.ok || !prev.vec) return { ok: false, err: 'L\'équipe précédente du passage n\'a pas encore de solution : commence par elle.' };
-  const a = Calc.unit(prev.acHeading), d = Math.max(0, +X.link.delay || 0) * prev.vg, target = Calc.fromLocal(prev.vec.red, { x: a.x * d, y: a.y * d });
-  X.vecHeading = prev.acHeading; X.reversed = false; X.capManual = null; X.along = null; if (X.keepH == null) X.keepH = true; if (!X.manual) X.manual = { lat: target.lat, lng: target.lng };
-  const inp0 = calcInput(X), key = JSON.stringify([Object.assign({}, inp0, { manual: null }), target, stamp]), c = passMem[X.id];
-  if (c && c.key === key) { X.manual = c.m; return c.sol; }
-  let m = X.manual, s = null;
-  for (let k = 0; k < 8; k++) { s = run(Object.assign({}, inp0, { manual: m })); if (!s.ok || !s.vec) break; const q = Calc.toLocal(s.vec.green, target); if (Math.hypot(q.x, q.y) < 1.5) break; m = Calc.fromLocal(m, q); }
-  X.manual = m;
-  if (s.ok) { s.flMin4 = null; s.linkOut = !!(s.manualFix || s.manualGap > 30);
-    if (s.linkOut) s.warn = `Équipe ${n} : à ${Math.round(+X.link.delay || 0)} s de l'équipe précédente, son point d'ouverture est hors de sa zone de relaxation, le PTU ne peut pas être rejoint. Change le délai, déplace son PTU, ou déplace le vecteur de la première équipe.`; }
-  passMem[X.id] = { key, sol: s, m }; return s;
+const passStamp = e0 => [prm, e0, wxRec && wxRec.fetched, current.when, zeroWind];
+const teamOut = s => !!(s && s.ok && (s.manualFix || s.manualGap > 30)); /* un point rose (ou l'ouverture du para sur la trace) est hors de sa zone */
+const passRun = (inp, e0) => { try { return Calc.solve(inp, prm, F, e0); } catch (err) { console.error(err); return { ok: false, err: 'Erreur de calcul : ' + (err && err.message) }; } };
+/* Équipe pas encore posée : calcul PROVISOIRE (PTU provisoire = sa ZMT si elle est posée, sinon le PTU de la première équipe ; sol à
+   l'altitude de sa ZMT si on la connaît, sinon de celle de la première équipe) pour connaître ses temps de sortie, sa dérive sous RSE
+   et la forme de sa zone de relaxation. Rendu : pas de trace (ok = false, pend), mais son vecteur et ses points roses. */
+function pendSolve(X, target, h, L) {
+  const own = X.zst === 'ptu' && X.ozmt, ze = own ? zmtElev(X) : null, e0 = ze != null ? ze : elev0(L), ptu0 = own ? { lat: X.ozmt.lat, lng: X.ozmt.lng } : L.ptu;
+  const err = X.zst === 'ptu' ? 'Pose le PTU de cette équipe.' : 'Pose la ZMT de cette équipe.';
+  if (!ptu0) return { ok: false, pend: X.zst, err };
+  const inp = Object.assign(calcInput(X), { ptu: ptu0, zmt: null, manual: null, keepH: false, along: null, capManual: null, vecHeading: h, reversed: false });
+  const key = JSON.stringify([inp, passStamp(e0)]), c = passMem['pv_' + X.id]; let pv = c && c.key === key ? c.sol : null;
+  if (!pv) { pv = passRun(inp, e0); passMem['pv_' + X.id] = { key, sol: pv }; }
+  if (!pv.ok || !pv.vec) return { ok: false, pend: X.zst, err: pv.err || err };
+  const d = Pass.desc(pv, 0, null, false), m = Pass.model(F, [d], target, h)[0], u = Calc.unit(h);
+  return { ok: false, pend: X.zst, err, acHeading: h, vg: m.vg, ex: pv.ex, dropIdx: d.idx, prov: pv, Z0: pv.zonePlan, ptu0, e0, ouv: m.ouv, pA: m.pA, pB: m.pB,
+    vec: { heading: h, length: Calc.dist(m.green, m.red), green: m.green, red: m.red, attach: m.att, exits: d.te.map((t, i) => Object.assign(Pass.move(m.green, u, m.vg * t), { t, i })) },
+    pinks: d.te.map(t => Pass.move(m.pA, u, m.vg * t)) };
 }
+function teamSolve(X, prev, n, L) {
+  if (!X.link) { const e0 = elev0(X), inp = calcInput(X), key = JSON.stringify([inp, passStamp(e0)]), c = passMem[X.id]; if (c && c.key === key) return c.sol; const s = passRun(inp, e0); passMem[X.id] = { key, sol: s }; return s; }
+  if (!prev || !prev.vec || !(prev.vg > 0)) return { ok: false, pend: teamPlaced(X) ? undefined : X.zst, err: 'L\'équipe précédente du passage n\'a pas encore de solution : commence par elle.' };
+  const h = prev.acHeading, a = Calc.unit(h), d = Math.max(0, +X.link.delay || 0) * prev.vg, target = Calc.fromLocal(prev.vec.red, { x: a.x * d, y: a.y * d });
+  X.vecHeading = h; X.reversed = false; X.capManual = null; X.along = null; if (X.keepH == null) X.keepH = true;
+  if (!teamPlaced(X)) return pendSolve(X, target, h, L);
+  const e0 = elev0(X), inp = Object.assign(calcInput(X), { manual: null, keepH: X.keepH !== false }), key = JSON.stringify([inp, target, h, passStamp(e0)]), c = passMem[X.id];
+  if (c && c.key === key) { X.manual = c.m; return c.sol; }
+  let r; try { r = Pass.solveAt(prm, F, inp, e0, target, h, prev.vg, c && c.m && c.target && c.sol && c.sol.ok && !teamOut(c.sol) ? Calc.fromLocal(c.m, Calc.toLocal(c.target, target)) : null); /* point gardé en mémoire seulement s'il venait d'une équipe DANS sa zone */ } catch (err) { console.error(err); r = { s: { ok: false, err: 'Erreur de calcul : ' + (err && err.message) }, m: X.manual }; }
+  const s = r.s; if (r.m) X.manual = r.m;
+  if (s.ok) { s.flMin4 = null; s.linkOut = teamOut(s); if (s.linkOut) s.warn = passWarn(n); }
+  passMem[X.id] = { key, sol: s, m: r.m, target }; return s;
+}
+const passWarn = n => `Équipe ${n} : des points roses sont hors de sa zone de relaxation, le PTU ne peut pas être rejoint depuis là. Décale le passage (bouton « Décaler le passage »), change le délai ou déplace sa ZMT et son PTU.`;
 function passSols(X) { const T = passTeams(X || isv()), L = T[0]; let prev = null;
-  return T.map((Y, k) => { if (Y.link) { Y.fl = L.fl; Y.acMs = L.acMs; Y.when = L.when; } prev = teamSolve(Y, prev, k + 1); return { I: Y, sol: prev }; }); }
-/* Glissement du vecteur (ou d'un point rose / OSO) d'une équipe liée : le long de l'axe avion seulement, ce qui change son délai */
+  return T.map((Y, k) => { if (Y.link) { Y.fl = L.fl; Y.acMs = L.acMs; Y.when = L.when; } zSync(Y); prev = teamSolve(Y, prev, k + 1, L);
+    if (!k && T.length > 1 && prev.ok) { prev.flMin4 = null; prev.linkOut = teamOut(prev); if (prev.linkOut && !/^Équipe 1 :/.test(prev.warn || '')) prev.warn = passWarn(1); } /* la première équipe d'un passage obéit à la même règle */
+    return { I: Y, sol: prev }; }); }
+const passOuts = P => P.map((p, k) => (teamPlaced(p.I) && teamOut(p.sol) ? k + 1 : 0)).filter(Boolean); /* numéros des équipes hors de leur zone */
+/* Descripteurs pour le moteur (pass.js). opt.free = équipe posée à traiter comme si elle ne l'était pas (pointillés par Affichage). */
+function passD(P, opt) { const D = [];
+  for (const p of P) { const s = p.sol, X = p.I, dl = X.link ? +X.link.delay || 0 : 0;
+    if (s && s.ok && s.fallSt) D.push(Pass.desc(s, dl, zRoot(X).id, !(opt && opt.free === X)));
+    else if (s && s.pend && s.prov) D.push(Pass.desc(s.prov, dl, null, false));
+    else return null; }
+  return D; }
+/* Met le passage en (O = vert de la première équipe, h = cap avion). La première équipe passe en vecteur posé (hauteur gardée si
+   elle était en automatique), cap avion figé à h : sinon il resterait perpendiculaire à SA trace et le passage tournerait tout seul.
+   L.pauto = cap figé par l'appli (pas par Henri) ; L.pcap / L.prev = cap para et sens demandés par Henri avant le passage. */
+function passPut(L, O, h, D) { const M = Pass.model(F, D, O, h);
+  if (L.capManual != null) { L.pcap = L.capManual; L.capManual = null; } if (L.reversed) { L.prev = true; L.reversed = false; }
+  const forced = passForced(L); if (!L.manual) L.keepH = true; L.manual = { lat: M[0].att.lat, lng: M[0].att.lng }; L.vecHeading = h; if (!forced) L.pauto = h; L.along = null; solKey = null; }
+/* Applique une proposition du moteur puis VÉRIFIE par le calcul complet ; si une équipe dépasse encore (vent différent à l'arrivée,
+   ouverture abaissée par la règle des 30 %), on redemande au moteur depuis là, avec plus de marge. */
+function passApply(L, fit, refit) { let O = fit.O, h = fit.h;
+  for (let k = 0; k < 4; k++) { const D0 = passD(passSols(L)); if (!D0) return false; passPut(L, O, h, D0); const P = passSols(L);
+    if (P.every(p => !teamPlaced(p.I) || (p.sol.ok && !teamOut(p.sol)))) return true;
+    const D = passD(P); if (!D) return false; const f = refit(D, P[0].sol.vec.green, P[0].sol.acHeading, 15 + 25 * (k + 1)); if (!f || !f.ok) return false; O = f.O; h = f.h; }
+  return false; }
+const PASS_F = ['manual', 'vecHeading', 'keepH', 'along', 'capManual', 'reversed', 'fl', 'acMs', 'tGreen', 'tRed', 'steps', 'link', 'pauto', 'pcap', 'prev', 'ptu', 'ptuElev', 'hPtu', 'ozmt', 'ozmtElev', 'ozmtElevKey', 'zst', 'zsrc', 'tFall', 'cdoRef'];
+function passSnap(L) { L = passLead(L || isv()); if (!L) return null; const P = passSols(L);
+  return { lead: L.id, order: current.isvs.map(x => x.id), out: passOuts(P), t: passTeams(L).map(x => ({ id: x.id, has: PASS_F.map(k => k in x), v: JSON.stringify(PASS_F.map(k => (x[k] === undefined ? null : x[k]))) })) }; }
+function passRestore(s) { if (!s) return; s.t.forEach(r => { const x = current.isvs.find(q => q.id === r.id); if (!x) return; const v = JSON.parse(r.v); PASS_F.forEach((k, i) => { if (r.has[i]) x[k] = v[i]; else delete x[k]; }); });
+  current.isvs.sort((a, b) => s.order.indexOf(a.id) - s.order.indexOf(b.id)); passMem = {}; solKey = null; }
+const passForced = L => L.vecHeading != null && L.vecHeading !== L.pauto; /* cap avion choisi par Henri (pas figé par l'appli) */
+/* « Décaler » : le plus petit déplacement du passage qui remet toutes les équipes dans leur zone (cap tourné du plus petit angle si
+   besoin). Rend { ok, dist, dh, h } ; rien n'est changé si c'est impossible. */
+function passShiftPlan(L) { const P = passSols(L), D = passD(P); if (!D || !P[0].sol.vec) return { ok: false }; return Pass.fitShift(F, D, P[0].sol.vec.green, P[0].sol.acHeading); }
+function passShift(L, plan) { const snap = passSnap(L), forced = passForced(L), f = plan || passShiftPlan(L); if (!f.ok) return false;
+  const ok = passApply(L, f, (D, O, h, m) => Pass.fitShift(F, D, O, h, { margin: m })); if (!ok) { passRestore(snap); return false; }
+  if (!forced || f.dh) L.pauto = L.vecHeading; return true; }
+/* « Vecteur automatique » d'un passage, et recalage quand une équipe prend la ZMT d'une autre : tout est replacé.
+     1. le groupe de la première équipe est placé comme un seul grand vecteur (Pass.virtualSolve) : son milieu sur la trace la plus
+        longue (cap para demandé par Henri, sinon le meilleur), rentré le long de cette trace jusqu'à ce que ça tienne ;
+     2. passage à une seule ZMT : on vérifie avec la zone de chaque équipe (voiles différentes) et on rentre encore s'il le faut ;
+     3. passage mixte : compromis réparti entre les groupes (Pass.fitBalance, « répartir la misère »).
+   Garde les ZMT, PTU, délais, FL et hauteurs d'ouverture. Rend { ok, why }. */
+function passAuto(L) { L = passLead(L || isv()); const snap = passSnap(L), fail = why => { passRestore(snap); return { ok: false, why }; };
+  const forced = passForced(L), hForce = forced ? L.vecHeading : null, cap = L.capManual != null ? L.capManual : (L.pcap != null ? L.pcap : null), rev = !!(L.reversed || L.prev);
+  const P0 = passSols(L), D = passD(P0); if (!D) return fail('une équipe du passage n\'a pas de solution');
+  const T = P0.map(p => p.I), RL = zRoot(L); let b = 0; T.forEach((x, k) => { if (teamPlaced(x) && zRoot(x) === RL) b = k; });
+  const e0 = elev0(L), base = Object.assign(calcInput(L), { manual: null, keepH: false, along: null, capManual: cap, vecHeading: hForce, reversed: forced ? false : rev });
+  const alone = passRun(base, e0); if (!alone.ok) return fail(alone.err);
+  const V = Pass.virtualSolve(prm, F, base, e0, Pass.span(D, 0, b), base.team[alone.weak && alone.weak.idx >= 0 ? alone.weak.idx : 0]); if (!V.ok || !V.vec) return fail(V.err || 'calcul impossible');
+  let O = V.vec.green, h = V.acHeading; const mixed = T.some(x => teamPlaced(x) && zRoot(x) !== RL);
+  if (mixed) { const f = Pass.fitBalance(F, D, O, h, forced ? { dhs: [0] } : null); if (!f.ok) return fail('aucune position ne met toutes les équipes dans leur zone'); O = f.O; h = f.h; }
+  else { const P = Pass.prep(Pass.model(F, D, O, h), D); let t = null;
+    if (Pass.viol(P, 0, 0) <= -15) t = { x: 0, y: 0 };
+    else { let tot = 0; for (let i = 1; i < V.trace.length; i++) tot += Calc.dist(V.trace[i - 1], V.trace[i]); /* on rentre encore, le long de la même trace */
+      for (let s = V.slide, st = Math.max(10, tot / 3000); s <= tot && !t; s += st) { const q = Calc.toLocal(V.attachOuv, Calc.pointAt(V.trace, s)); if (Pass.viol(P, q.x, q.y) <= -15) t = q; } }
+    if (t) O = Calc.fromLocal(O, t);
+    else { const f = Pass.fitShift(F, D, O, h, forced ? { dhs: [0] } : null); if (!f.ok) return fail('le passage est plus long que la zone de relaxation : il ne peut pas y rentrer'); O = f.O; h = f.h; } }
+  const ok = passApply(L, { O, h }, (D2, O2, h2, m) => (mixed ? Pass.fitBalance(F, D2, O2, h2, { margin: m, dhs: [0] }) : Pass.fitShift(F, D2, O2, h2, { margin: m, dhs: [0] })));
+  if (!ok) return fail('une équipe reste hors de sa zone');
+  if (cap != null) L.pcap = cap; if (!forced) L.pauto = L.vecHeading; if (rev) L.prev = true;
+  return { ok: true, h: L.vecHeading }; }
+/* Cap avion choisi par Henri pour un passage : il tourne autour de son milieu, rien d'autre ne bouge (contrôle ensuite : passAfter) */
+function passTurn(L, h2) { const P = passSols(L), D = passD(P); if (!D || !P[0].sol.vec) return false; const R = Pass.turned(F, D, P[0].sol.vec.green, P[0].sol.acHeading, h2); passPut(L, R.O, h2, D); L.pauto = null; return true; }
+/* Étape « Arrondir » d'un passage : cap avion à la dizaine magnétique la plus proche, passage rentré juste ce qu'il faut ; si ça ne
+   passe pas, l'autre dizaine voisine. Jamais fait d'office (Henri). */
+function passRound(L) { const P = passSols(L), D = passD(P); if (!D || !P[0].sol.vec) return { ok: false }; const snap = passSnap(L), O = P[0].sol.vec.green, h = P[0].sol.acHeading, m = magOf(h), a = Math.round(m / 10) * 10;
+  for (const c of [a, a + (m >= a ? 10 : -10)]) { const h2 = trueOf(n360(c)), R = Pass.turned(F, D, O, h, h2), f = Pass.fitShift(F, D, R.O, h2, { dhs: [0] }); if (!f.ok) continue;
+    if (passApply(L, f, (D2, O2, h3, mg) => Pass.fitShift(F, D2, O2, h3, { margin: mg, dhs: [0] }))) { L.pauto = null; return { ok: true, h: h2, dist: f.dist }; } passRestore(snap); }
+  return { ok: false }; }
+/* Glissement du vecteur (ou d'un point rose / OSO) : équipe suivante = le long de l'axe avion, ce qui change son délai ; première équipe
+   d'un passage = tout le passage se déplace d'autant (Henri, questionnaire point 15). */
 let linkDg = null;
-function linkMove(P0, ll) { const I = isv(); if (!I.link || !sol || !sol.ok) return;
-  if (!linkDg) linkDg = { d0: +I.link.delay || 0, p0: P0, a: Calc.unit(sol.acHeading), vg: sol.vg };
-  const q = Calc.toLocal(linkDg.p0, ll); I.link.delay = Math.max(0, Math.round((linkDg.d0 + (q.x * linkDg.a.x + q.y * linkDg.a.y) / linkDg.vg) * 10) / 10);
+function linkMove(P0, ll) { const I = isv(); if (!sol || !sol.vec) return;
+  if (!I.link) { if (!linkDg) linkDg = { snap: passSnap(I), p0: P0, m0: I.manual ? { lat: I.manual.lat, lng: I.manual.lng } : { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }, h: sol.acHeading, d: passD(passSols(I)) };
+    if (linkDg.d && !I.manual) passPut(I, sol.vec.green, linkDg.h, linkDg.d); /* première équipe encore en automatique : on la fige d'abord là où elle est */
+    I.manual = Calc.fromLocal(linkDg.m0, Calc.toLocal(linkDg.p0, ll)); I.along = null; }
+  else { if (!linkDg) linkDg = { snap: passSnap(I), d0: +I.link.delay || 0, p0: P0, a: Calc.unit(sol.acHeading), vg: sol.vg };
+    const q = Calc.toLocal(linkDg.p0, ll); I.link.delay = Math.max(0, Math.round((linkDg.d0 + (q.x * linkDg.a.x + q.y * linkDg.a.y) / linkDg.vg) * 10) / 10); }
   const n = performance.now(); if (n - dragT > 220) { dragT = n; solKey = null; draw(true); } }
-function linkEnd() { const I = isv(); linkDg = null; if (!I.link) return; I.link.delay = Math.round(I.link.delay); solKey = null; persist(); fillInputs(); redraw();
-  const P = passInfo(I); toast(`Équipe ${P ? P.idx + 1 : ''} : vert ${I.link.delay} s après le rouge de l'équipe précédente`); }
+function linkEnd() { const I = isv(), g = linkDg; linkDg = null; if (!g) return;
+  if (I.link) { I.link.delay = Math.round(I.link.delay); const P = passInfo(I); toast(`Équipe ${P ? P.idx + 1 : ''} : vert ${I.link.delay} s après le rouge de l'équipe précédente`); }
+  passAfter(I.link ? 'le délai' : 'le déplacement', g.snap); }
+/* Après un changement fait par Henri sur un passage (déplacement, délai, FL, cap avion) : si une équipe SORT de sa zone, on le dit et
+   on propose « Décaler » (s'il existe un décalage) ou d'annuler ce qu'il vient de faire. Rien ne bouge tout seul ; fermer la fenêtre
+   garde le changement, l'avertissement reste affiché sur l'équipe. */
+async function passAfter(what, snap) { const I = isv(), L = passLead(I); solKey = null; persist(); fillInputs(); draw();
+  if (!L || !passInfo(L)) return; const out = passOuts(passSols(L)), was = (snap && snap.out) || []; if (!out.some(n => !was.includes(n))) return;
+  const f = passShiftPlan(L), who = out.length > 1 ? `Équipes ${out.join(', ')} : des points roses sortent de leur zone de relaxation.` : `Équipe ${out[0]} : des points roses sortent de sa zone de relaxation.`;
+  const r = await choose(`${who} ${f.ok ? `Décaler le passage de ${fmtInt(Math.round(f.dist))} m${f.dh ? `, cap avion tourné de ${Math.abs(f.dh)}° (${hdg(f.h)})` : ''} les fait rentrer.` : 'Aucun décalage du passage ne les fait rentrer.'}`,
+    [snap ? ['undo', `Annuler ${what}`] : null, f.ok ? ['shift', 'Décaler'] : null].filter(Boolean));
+  if (r === 'shift') { const ok = passShift(L, f); toast(ok ? `Passage décalé${f.dh ? ` · cap avion ${hdg(L.vecHeading)}` : ''}` : 'Décalage impossible finalement : rien n\'a bougé'); }
+  else if (r === 'undo') { passRestore(snap); toast(`Annulé : ${what} est revenu${/^la /.test(what) ? 'e' : ''} comme avant`); }
+  solKey = null; persist(); fillInputs(); draw(); }
+/* ===== v0.51.0 : pose d'une équipe du passage (ZMT puis PTU), pointillés du PTU, ordre des équipes ===== */
+/* Fenêtre à boutons libres, avec une croix : choose(texte, [[clé, libellé], …]) rend la clé choisie, ou null si on ferme.
+   Les boutons ont tous la même taille (Henri : « pas un énorme bouton Annuler »). */
+function choose(text, buttons) { return new Promise(res => { const d = $('chDlg'), box = $('chBtns'); $('chText').textContent = text; box.innerHTML = '';
+  const done = v => { d.classList.add('hidden'); res(v); };
+  buttons.forEach(([k, label], i) => { const b = document.createElement('button'); b.textContent = label; if (i === buttons.length - 1) b.className = 'primary'; b.onclick = () => done(k); box.append(b); });
+  box.classList.toggle('hidden', !buttons.length); $('chX').onclick = () => done(null); d.classList.remove('hidden'); }); }
+const teamNo = X => { const P = passInfo(X); return P ? P.idx + 1 : 1; };
+const passMoving = I => !!(I && (I.link || passInfo(I))); /* gestes sur le vecteur : équipe suivante = son délai, première équipe = tout le passage */
+function teamDone(msg) { placing = null; placeBanner(); passMem = {}; solKey = null; persist(); fillInputs(); draw(); if (sol && sol.ok) fitFigure(); refreshPtuElev(); ensureWx(false).then(() => { solKey = null; redraw(); }); if (msg) toast(msg); }
+/* Bouton « Poser la ZMT » / « Poser le PTU » : retour à la carte, cadrée sur le passage et les pointillés */
+async function startTeamPlace() { const I = isv(); if (!I.link) return;
+  if (teamPlaced(I)) { if (!(await ask(`Reposer la ZMT et le PTU de l'équipe ${teamNo(I)} ? Sa trace sera recalculée une fois le nouveau PTU posé.`, undefined, null, 'Reposer'))) return;
+    delete I.zsrc; delete I.ozmt; delete I.ozmtElev; delete I.ozmtElevKey; I.ptu = null; I.zst = 'todo'; passMem = {}; solKey = null; persist(); }
+  placing = I.zst === 'ptu' ? 'TP' : 'TZ'; stopMeasure(); closeSheet(); current.show.ptu = true; current.show.vec = true; placeBanner(); fillInputs(); draw(); fitFigure(); }
+/* Prendre la ZMT (et donc le PTU) d'une autre équipe → toujours recalé : la trace la plus longue au milieu du groupe (Henri, point 7) */
+function teamShare(S) { const I = isv(), R = zRoot(S), nR = teamNo(R); if (R === I) return; if (!R.ptu) return toast(`L'équipe ${nR} n'a pas encore de PTU`);
+  const snap = passSnap(I); delete I.ozmt; delete I.ozmtElev; delete I.ozmtElevKey; I.zsrc = R.id; I.ptu = { lat: R.ptu.lat, lng: R.ptu.lng }; I.ptuElev = R.ptuElev; I.hPtu = R.hPtu; I.zst = 'ok'; I.manual = null; passMem = {}; solKey = null;
+  const r = passAuto(I);
+  if (!r.ok) { passRestore(snap); placing = 'TZ'; placeBanner(); draw(); choose(`Impossible de prendre la ZMT de l'équipe ${nR} : ${r.why}. Réduis le délai, monte le FL ou pose une autre ZMT pour cette équipe.`, []); return; }
+  passStepsTouch(); teamDone(`Même ZMT et même PTU que l'équipe ${nR} : passage recalé, la trace la plus longue au milieu du groupe`); }
+function teamOwnZmt(p) { const I = isv(); delete I.zsrc; I.ozmt = { lat: p.lat, lng: p.lng }; I.ozmtElev = null; I.ozmtElevKey = null; I.ptu = null; I.zst = 'ptu'; current.show.ptu = true; passMem = {}; solKey = null; persist(); refreshZmtElev(I);
+  placing = 'TP'; placeBanner(); fillInputs(); draw(); }
+/* ZMT touchée : celle d'une autre équipe (à moins de 26 px du doigt) = la même zone ; ailleurs = une nouvelle ZMT */
+function teamZmtAt(p) { const I = isv(), cp = map.latLngToContainerPoint(LL(p)); let hit = null, bd = 26;
+  passTeams(I).forEach(X => { if (X === I || !teamPlaced(X)) return; const z = zmtOf(X); if (!z) return; const d = cp.distanceTo(map.latLngToContainerPoint(LL(z))); if (d < bd) { bd = d; hit = X; } });
+  if (hit) teamShare(hit); else teamOwnZmt(p); }
+/* PTU touché (ZMT nouvelle) : possible tel quel → rien ne bouge ; possible en décalant → fenêtre « Ne rien bouger » / « Décaler » ;
+   sinon on le dit et on reste en pose. C'est le calcul complet qui tranche, pas le tracé des pointillés. */
+async function teamPtuAt(p) { const I = isv(), L = passLead(I), n = teamNo(I), snap = passSnap(I);
+  const back = msg => { passRestore(snap); placing = 'TP'; placeBanner(); solKey = null; fillInputs(); draw(); if (msg) toast(msg); };
+  I.ptu = { lat: p.lat, lng: p.lng }; I.ptuElev = typeof p.z === 'number' ? Math.round(p.z) : null; I.zst = 'ok'; I.manual = null; passMem = {}; solKey = null;
+  const P = passSols(L), me = (P.find(q => q.I === I) || {}).sol;
+  if (!me || !me.ok) return back((me && me.err) || 'Calcul impossible avec ce PTU');
+  if (!teamOut(me)) { passStepsTouch(); return teamDone(`PTU de l'équipe ${n} posé : rien n'a bougé`); }
+  const f = passShiftPlan(L);
+  if (!f.ok) return back('Impossible ici : même en décalant le passage, les points roses ne rentrent pas dans leur zone. Touche ailleurs.');
+  draw();
+  const r = await choose(`Ce PTU n'est possible qu'en décalant le passage de ${fmtInt(Math.round(f.dist))} m${f.dh ? `, cap avion tourné de ${Math.abs(f.dh)}° (${hdg(f.h)})` : ''} : les équipes déjà posées restent dans leur zone.`, [['keep', 'Ne rien bouger'], ['shift', 'Décaler']]);
+  if (r !== 'shift') return back('PTU non pris : touche ailleurs');
+  if (!passShift(L, f)) return back('Décalage impossible finalement : touche ailleurs');
+  passStepsTouch(); teamDone(`PTU de l'équipe ${n} posé · passage décalé de ${fmtInt(Math.round(f.dist))} m${f.dh ? ` · cap avion ${hdg(L.vecHeading)}` : ''}`); }
+function teamZmtMove(p) { const I = isv(); if (I.ozmt) { I.ozmt = { lat: p.lat, lng: p.lng }; I.ozmtElev = null; I.ozmtElevKey = null; passMem = {}; solKey = null; persist(); refreshZmtElev(I); }
+  placing = 'TP'; placeBanner(); fillInputs(); draw(); }
+/* Une équipe ajoutée ou posée après coup : « Arrondir » repasse à revérifier pour le passage (les étapes de trace le font toutes seules) */
+function passStepsTouch() { const L = passLead(isv()); if (L && L.steps && L.steps.caps) L.steps.caps.force = true; }
+/* Les deux pointillés du PTU d'une équipe suivante (pass.js › ptuZones), gardés en mémoire tant que rien n'a changé */
+const zoneId = (() => { const W = new WeakMap(); let n = 0; return z => { if (!z) return 0; if (!W.has(z)) W.set(z, ++n); return W.get(z); }; })();
+let ptuZMem = { key: '', Z: null, id: null }, ptuLab = [];
+function ptuZonesOf(I, light) { const L = passLead(I); if (!L || !I.link) return null; if (light && ptuZMem.id === I.id) return ptuZMem.Z;
+  const P = passSols(L), k = P.findIndex(p => p.I === I), s = k >= 0 ? P[k].sol : null; if (!s || !P[0].sol || !P[0].sol.vec) return null;
+  const pend = !teamPlaced(I), Z0 = pend ? s.Z0 : (s.ok ? (s.zonePlan || s.zoneOuv) : null), ptu0 = pend ? s.ptu0 : I.ptu; if (!Z0 || !ptu0 || !(Z0.R > 0)) return null;
+  const D = passD(P, { free: I }); if (!D) return null; const O = P[0].sol.vec.green, h = P[0].sol.acHeading;
+  const key = JSON.stringify([O, h, k, ptu0, zoneId(Z0), D.map(d => [d.te, d.total, d.idx, d.delay, Math.round(d.altRel), zoneId(d.zone)])]);
+  if (ptuZMem.key !== key || ptuZMem.id !== I.id) { let Z = null; try { Z = Pass.ptuZones(F, D, k, O, h, Z0, ptu0); } catch (e) { console.error(e); } ptuZMem = { key, Z, id: I.id }; }
+  return ptuZMem.Z; }
+/* Contour lissé pour le dessin (le moteur rend 90 points) : interpolation de Catmull-Rom, fermée */
+function smoothRing(R, n) { const out = [], N = R.length, P = R.map(q => Calc.toLocal(R[0], q));
+  for (let i = 0; i < N; i++) { const p0 = P[(i + N - 1) % N], p1 = P[i], p2 = P[(i + 1) % N], p3 = P[(i + 2) % N];
+    for (let j = 0; j < n; j++) { const t = j / n, t2 = t * t, t3 = t2 * t, f = (a, b, c, d) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+      out.push(Calc.fromLocal(R[0], { x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) })); } }
+  return out; }
+function drawPtuZones(light) { ptuLab = []; const I = isv(); if (!I.link) return; const pend = !teamPlaced(I); if (!pend && !current.show.reach) return;
+  const Z = ptuZonesOf(I, light); if (!Z) return;
+  [[Z.outer, 0.6, 'PTU possible en décalant le passage'], [Z.inner, 1, 'PTU possible sans rien bouger']].forEach(([R, op, txt]) => { if (!R) return; const S = smoothRing(R, 5);
+    L.polygon(S.map(LL), { color: '#000', weight: 4.4, opacity: 0.35 * op, dashArray: '9 8', fill: false, interactive: false, smoothFactor: 0.2 }).addTo(fig);
+    L.polygon(S.map(LL), { color: C_PTU, weight: 2.3, opacity: op, dashArray: '9 8', fill: false, interactive: false, smoothFactor: 0.2 }).addTo(fig);
+    ptuLab.push({ S, txt, op, m: null }); });
+  ptuLabels(); }
+/* Texte écrit UNE fois le long de chaque pointillé (Henri, point 4), sur la partie visible à l'écran : au milieu du plus long morceau
+   de contour visible, incliné comme lui, du côté intérieur. Replacé à chaque déplacement, zoom ou rotation de la carte. */
+function ptuLabels() { if (!ptuLab.length) return; const sz = map.getSize(), rc = map.getContainer().getBoundingClientRect(), bot = 96;
+  /* partie visible = hors de la colonne de boutons de gauche et du bandeau du haut */
+  const qb = [...document.querySelectorAll('#quick button')].map(b => b.getBoundingClientRect()).filter(b => b.height), bn = $('banner').classList.contains('hidden') ? null : $('banner').getBoundingClientRect();
+  const pad = 34, left = Math.max(pad, qb.length ? Math.max(...qb.map(b => b.right)) - rc.left + 14 : 0), top = Math.max(64, bn ? bn.bottom - rc.top + 14 : 0);
+  const busy = []; passTeams().forEach(X => { if (X.ptu) busy.push(X.ptu); const z = zmtOf(X); if (z) busy.push(z); }); try { passSols().forEach(p => { if (p.sol && p.sol.vec) busy.push(p.sol.vec.green, p.sol.vec.red); }); } catch (e) {}
+  for (let i = 0; i < busy.length; i++) busy[i] = map.latLngToContainerPoint(LL(busy[i]));
+  ptuLab.forEach(o => { if (o.m) { fig.removeLayer(o.m); o.m = null; } const C = o.S.map(q => map.latLngToContainerPoint(LL(q))), N = C.length, vis = C.map(c => c.x > left && c.x < sz.x - pad && c.y > top && c.y < sz.y - bot);
+    if (!vis.some(Boolean)) return; let best = null;
+    const start = vis.every(Boolean) ? 0 : vis.findIndex((v, i) => v && !vis[(i + N - 1) % N]);
+    for (let i = 0; i < N;) { const a = (start + i) % N; if (!vis[a]) { i++; continue; } let len = 0, n = 1; while (n < N - i && vis[(a + n) % N]) { len += C[(a + n) % N].distanceTo(C[(a + n - 1) % N]); n++; } if (!best || len > best.len) best = { a, n, len }; i += n; }
+    if (!best || best.len < 40) return;
+    /* dans ce morceau, l'endroit le plus dégagé : loin des vecteurs, des PTU et des ZMT (sinon le texte se pose sur leurs étiquettes), et pas trop près des bouts */
+    let k = (best.a + (best.n >> 1)) % N; { const edge = Math.min(best.n >> 1, Math.max(2, Math.round(120 / Math.max(1, best.len / best.n)))); let sc = -1;
+      for (let j = edge; j < best.n - edge; j++) { const i = (best.a + j) % N, c = C[i]; let d = 1e9; busy.forEach(b => { d = Math.min(d, c.distanceTo(b)); }); d = Math.min(d, 260) - Math.abs(j - best.n / 2) * 0.02; if (d > sc) { sc = d; k = i; } } }
+    const p = C[k], q0 = C[(k + N - 3) % N], q1 = C[(k + 3) % N];
+    let ang = Math.atan2(q1.y - q0.y, q1.x - q0.x) * 180 / Math.PI; if (ang > 90) ang -= 180; else if (ang < -90) ang += 180;
+    const cx = C.reduce((s, c) => s + c.x, 0) / N, cy = C.reduce((s, c) => s + c.y, 0) / N, r = ang * Math.PI / 180, up = { x: Math.sin(r), y: -Math.cos(r) }, side = up.x * (cx - p.x) + up.y * (cy - p.y) >= 0 ? -1 : 1;
+    o.m = L.marker(LL(o.S[k]), { interactive: false, icon: L.divIcon({ className: 'ptulab', iconSize: [0, 0], html: `<span style="transform:translate(-50%,-50%) rotate(${ang.toFixed(1)}deg) translateY(${side * 11}px);opacity:${o.op < 1 ? 0.85 : 1}">${o.txt}</span>` }) }).addTo(fig); }); }
+/* Équipe pas encore posée : son vecteur et ses points roses, tels quels (aucun avertissement tant que ZMT et PTU ne sont pas posés),
+   et les ZMT des autres équipes, à toucher pour prendre la même zone. */
+function drawPending(I) { const s = sol; if (!s || !s.pend || !s.vec) return; const V = s.vec, vl = [LL(V.green), LL(V.red)];
+  if (placing === 'TZ' || I.zst === 'todo') { const seen = new Set(); passTeams(I).forEach((X, k) => { if (X === I || !teamPlaced(X)) return; const R = zRoot(X), z = zmtOf(X); if (!z || seen.has(R.id)) return; seen.add(R.id);
+    L.marker(LL(z), { zIndexOffset: 320, icon: L.divIcon({ className: 'tgt zmt', iconSize: [34, 34], iconAnchor: [17, 17], html: `<span></span><b>ZMT É${teamNo(R)}</b>` }) }).on('click', ev => { L.DomEvent.stop(ev); if (Date.now() < suppressClickUntil) return; if (placing === 'TZ') teamShare(R); }).addTo(fig); }); }
+  L.polyline(vl, { color: '#fff', weight: 9, opacity: .9, interactive: false }).addTo(fig); L.polyline(vl, { color: '#000', weight: 4.5, interactive: false }).addTo(fig);
+  V.exits.forEach(e => L.marker(LL(e), { interactive: false, icon: L.divIcon({ className: 'exitp' + (e.i === s.dropIdx ? ' ref' : ''), iconSize: [12, 12], iconAnchor: [6, 6], html: '<span></span>' }) }).addTo(fig));
+  [[V.green, C_START], [V.red, C_END]].forEach(([q, c]) => L.marker(LL(q), { interactive: false, icon: dotIcon(c, 13, '', 'big') }).addTo(fig));
+  [s.pA, s.pB].forEach(q => L.marker(LL(q), { interactive: false, icon: osoIcon(C_OUV_END) }).addTo(fig));
+  s.pinks.forEach(q => L.marker(LL(q), { interactive: false, icon: osoIcon(C_TRACE) }).addTo(fig)); }
+/* Ordre des équipes d'un passage (poignée ≡ de la liste). La première équipe porte les réglages communs : si une autre passe en
+   tête, elle les reprend et le passage garde sa place (son premier vert ne bouge pas). */
+function passSetLead(N, L) { /* N = équipe qui devient la première, L = l'ancienne */ if (N === L) return; const T = passTeams(L), d0 = dv('linkDelay');
+  N.fl = L.fl; N.acMs = L.acMs; N.when = L.when; N.pcap = L.pcap != null ? L.pcap : L.capManual; N.prev = L.prev; N.pauto = L.pauto; N.steps = Object.assign({}, N.steps, L.steps && L.steps.caps ? { caps: L.steps.caps } : {});
+  delete N.link; N.zst = 'ok'; T.forEach(X => { if (X !== N) X.link = { to: N.id, delay: X.link ? X.link.delay : d0 }; }); L.zst = L.ptu ? 'ok' : 'todo'; L.capManual = null; L.reversed = false; if (L.keepH == null || !L.manual) L.keepH = true; }
+/* Noms automatiques des équipes (« <nom du passage> · É2 ») : ils suivent l'ordre après un changement d'ordre ou une suppression.
+   Un nom saisi par Henri n'est pas touché. */
+function passRename(L, base) { const T = passTeams(L), re = /^(.*?) · É\d+$/; base = base || ((re.exec(L.name) || [])[1]) || L.name;
+  T.forEach((X, k) => { const m = re.exec(X.name); if (X.name === base || (m && m[1] === base)) { X.name = k ? `${base} · É${k + 1}` : base; if (k) X.nameAuto = false; } }); }
+async function passReorder(ids) { const L = passLead(isv()), T = passTeams(L), N = ids.map(id => T.find(x => x.id === id)).filter(Boolean);
+  if (N.length !== T.length || N.every((x, i) => x === T[i])) return renderIsvList();
+  if (!teamPlaced(N[0])) { toast('Pose d\'abord la ZMT et le PTU de cette équipe : la première équipe du passage doit avoir sa trace'); return renderIsvList(); }
+  const snap = passSnap(L), P0 = passSols(L), O = P0[0].sol.vec ? P0[0].sol.vec.green : null, h = P0[0].sol.acHeading, forced = passForced(L);
+  const slots = current.isvs.map((x, i) => (T.includes(x) ? i : -1)).filter(i => i >= 0); passSetLead(N[0], L); N.forEach((x, k) => { current.isvs[slots[k]] = x; });
+  const F1 = N[0]; F1.vecHeading = h; if (!forced) F1.pauto = h; passRename(F1, ((/^(.*?) · É\d+$/.exec(L.name) || [])[1]) || L.name); passMem = {}; solKey = null;
+  if (O) { const D = passD(passSols(F1)); if (D) passPut(F1, O, h, D); if (!forced) F1.pauto = h; }
+  passStepsTouch(); solKey = null; persist(); fillInputs(); draw();
+  const out = passOuts(passSols(F1)); if (!out.length) return toast('Ordre des équipes changé : le passage garde sa place');
+  const r = await choose(`Dans ce nouvel ordre, ${out.length > 1 ? `les équipes ${out.join(', ')} sortent de leur zone` : `l'équipe ${out[0]} sort de sa zone`} de relaxation. Tout recalculer replace le passage (il rentrera le vecteur pour que ce soit possible).`, [['undo', 'Annuler'], ['auto', 'Tout recalculer']]);
+  if (r === 'auto') { const a = passAuto(F1); if (!a.ok) { passRestore(snap); toast(`Impossible : ${a.why}. Ordre remis comme avant.`); } else toast('Passage recalculé dans le nouvel ordre'); }
+  else if (r === 'undo') { passRestore(snap); toast('Ordre remis comme avant'); }
+  solKey = null; persist(); fillInputs(); draw(); }
 function compute() {
   const I = isv();
   wxRec = wxCached(current.id, current.when.slice(0, 10));
   F = fieldOf(wxRec, current.when);
   if (I.link && !passLead(I)) { delete I.link; } /* la première équipe a été supprimée : l'ISV redevient indépendante */
   let inp = null, e0 = elev0();
-  if (I.link) { const P = passSols(I), me = P.find(p => p.I === I), s2 = me ? me.sol : { ok: false, err: 'Passage introuvable' }; if (s2 === sol && solKey === 'link') return; sol = s2; solKey = 'link'; inp = calcInput(I); }
+  if (I.link || passInfo(I)) { const P = passSols(I), me = P.find(p => p.I === I), s2 = me ? me.sol : { ok: false, err: 'Passage introuvable' }; if (s2 === sol && solKey === 'link') return; sol = s2; solKey = 'link'; inp = calcInput(I); } /* v0.51.0 : la première équipe d'un passage aussi (même mémoire de calcul que les autres) */
   else {
   inp = calcInput(I);
   const key = JSON.stringify([inp, prm, e0, wxRec && wxRec.fetched, current.when, zeroWind]);
@@ -561,7 +800,7 @@ let vecHit = null;
    partout où le PTU reste joignable. Menu (appui long relâché) : la question est posée AVANT de toucher la carte ; glissement
    direct : le vecteur suit le doigt librement et la question est posée au lâcher (impossible pendant le geste).
    Le calcul dit où ramener le vecteur s'il est hors de portée (sol.manualFix) : plus de blocage sur l'ancien cercle. */
-function manualFit() { const I = isv(); compute(); if (I.link) return; /* v0.50.0 : équipe liée, point de largage imposé par le passage */ for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
+function manualFit() { const I = isv(); compute(); if (I.link || passInfo(I)) return; /* v0.50.0 : équipe liée, point de largage imposé par le passage ; v0.51.0 : dans un passage rien ne bouge tout seul, première équipe comprise */ for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
 async function askOpenMode() {
   $('dlgDel').classList.remove('danger');
   const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; les points roses restent dans la zone de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, la zone est recalculée) ?', undefined, 'Changer', 'Garder');
@@ -570,7 +809,7 @@ async function askOpenMode() {
 }
 function vecMoveFn(ll) {
       if (!sol || !sol.ok) return; const I2 = isv();
-      if (I2.link) { if (!vecHit.lp) vecHit.lp = ll; return linkMove(vecHit.lp, ll); } /* v0.50.0 : équipe liée → glisse sur l'axe avion (délai) */
+      if (passMoving(I2)) { if (!vecHit.lp) vecHit.lp = ll; return linkMove(vecHit.lp, ll); } /* v0.50.0 : équipe liée → glisse sur l'axe avion (délai) ; v0.51.0 : première équipe d'un passage → tout le passage */
       if (!vecHit.off) vecHit.off = Calc.toLocal(ll, sol.vec.attach); // écart entre le doigt et le point de largage, gardé pendant tout le glissement
       if (vecHit.mode) I2.keepH = vecHit.mode === 'keep'; /* mode choisi avant (menu) */
       else if (!vecHit.gl) { vecHit.gl = { m: I2.manual, k: !!I2.keepH, cap: I2.capManual, al: I2.along || null }; I2.keepH = false; } /* glissement direct : libre, question au lâcher */
@@ -578,7 +817,7 @@ function vecMoveFn(ll) {
       const n = performance.now(); if (n - dragT > 220) { dragT = n; if (vecHit.h._lpDragging) manualFit(); draw(true); }
 }
 const vecEndFn = async () => {
-  if (isv().link) { vecHit.off = null; vecHit.lp = null; vecHit.gl = null; vecHit.mode = null; return linkEnd(); }
+  if (passMoving(isv())) { vecHit.off = null; vecHit.lp = null; vecHit.gl = null; vecHit.mode = null; return linkEnd(); }
   vecHit.off = null; const I = isv(), g = vecHit.gl; vecHit.gl = null; vecHit.mode = null;
   if (g) { manualFit(); draw(true);
     const r = await askOpenMode();
@@ -647,16 +886,16 @@ function ouvGesture(m) {
   const start = () => { st = null; mode = null; const q = m.getLatLng(); R0 = { lat: q.lat, lng: q.lng }; };
   const init = () => { compute(); if (!sol || !sol.ok) return false; const I = isv(), o = ouvCur(); if (!R0) start();
     st = { R: R0, m0: I.manual ? { lat: I.manual.lat, lng: I.manual.lng } : { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }, o0: { lat: o.lat, lng: o.lng }, back: { m: I.manual, k: !!I.keepH, cap: I.capManual, al: I.along || null }, last: null }; return true; };
-  const move = ll => { if (isv().link) { if (!R0) start(); return linkMove(R0, ll); } /* v0.50.0 : équipe liée */ if (!st && !init()) return; const I = isv(); st.last = ll;
+  const move = ll => { if (passMoving(isv())) { if (!R0) start(); return linkMove(R0, ll); } /* v0.50.0 : équipe liée ; v0.51.0 : toute équipe d'un passage */ if (!st && !init()) return; const I = isv(); st.last = ll;
     /* pendant le geste : tout est translaté de l'écart (aperçu) ; le calcul exact sur le point d'ouverture se fait au lâcher */
     I.manual = Calc.fromLocal(st.m0, Calc.toLocal(st.R, ll)); I.capManual = null; I.along = null; I.keepH = mode ? mode === 'keep' : false;
     const n = performance.now(); if (n - dragT > 220) { dragT = n; if (m._lpDragging) manualFit(); draw(true); } };
-  const end = async () => { if (isv().link) { st = null; mode = null; return linkEnd(); } const s = st, md = mode; st = null; mode = null; if (!s || !s.last) return; const I = isv();
+  const end = async () => { if (passMoving(isv())) { st = null; mode = null; return linkEnd(); } const s = st, md = mode; st = null; mode = null; if (!s || !s.last) return; const I = isv();
     if (!md) { manualFit(); draw(true); const r = await askOpenMode();
       if (r === null) { I.manual = s.back.m; I.keepH = s.back.k; I.capManual = s.back.cap; I.along = s.back.al; solKey = null; moveDone(); return; } I.keepH = r === 'keep'; }
     let target = Calc.fromLocal(s.o0, Calc.toLocal(s.R, s.last)); solKey = null; keepO(target);
     moveDone(); };
-  m._lpMenu = () => isv().link ? [{ label: '↔ Glisser le long de l\'axe avion', fn: () => LPMove.pick('Touche la carte : l\'équipe glisse d\'autant sur l\'axe avion', ll => { start(); move(ll); end(); }) }] : [
+  m._lpMenu = () => passMoving(isv()) ? [{ label: isv().link ? '↔ Glisser le long de l\'axe avion (délai)' : '✥ Déplacer tout le passage', fn: () => LPMove.pick(isv().link ? 'Touche la carte : l\'équipe glisse d\'autant sur l\'axe avion' : 'Touche la carte : tout le passage se déplace d\'autant', ll => { start(); move(ll); end(); }) }] : [
     { label: '✥ Déplacer', fn: async () => { const md = await askOpenMode(); if (!md) return;
       LPMove.pick(isOuv() ? 'Touche la carte : le point OUV va là' : 'Touche la carte : le point d\'ouverture se décale d\'autant', ll => { start(); mode = md; move(ll); end(); }); } },
     { label: '⇢ Rentrer le long de la trace', fn: async () => { const md = await askOpenMode(); if (!md) return; const q = m.getLatLng(), R = { lat: q.lat, lng: q.lng };
@@ -735,7 +974,7 @@ function vecHitLine(V, I) {
     vecHit.el = vecHit.line._path;
     /* v0.26.0 (Henri) : appui long relâché sur le vecteur → « Déplacer » (toucher la carte : le vecteur va là) ou « Rentrer »
        (le vecteur glisse le long de l'axe de la trace jusqu'au point le plus proche de l'endroit touché : la trace ne change pas de cap) */
-    vecHit.h._lpMenu = P => isv().link ? [{ label: '↔ Glisser le long de l\'axe avion', fn: () => LPMove.pick('Touche la carte : le vecteur glisse sur l\'axe avion jusqu\'en face', ll => LPMove.replay(vecHit.h, P, ll, vecMoveFn, vecEndFn, () => { vecHit.off = null; vecHit.lp = null; })) }] : [
+    vecHit.h._lpMenu = P => passMoving(isv()) ? [{ label: isv().link ? '↔ Glisser le long de l\'axe avion (délai)' : '✥ Déplacer tout le passage', fn: () => LPMove.pick(isv().link ? 'Touche la carte : le vecteur glisse sur l\'axe avion jusqu\'en face' : 'Touche la carte : tout le passage se déplace d\'autant', ll => LPMove.replay(vecHit.h, P, ll, vecMoveFn, vecEndFn, () => { vecHit.off = null; vecHit.lp = null; })) }] : [
       { label: '✥ Déplacer', fn: async () => { const md = await askOpenMode(); if (!md) return;
         LPMove.pick('Touche la carte : le vecteur va là', ll => LPMove.replay(vecHit.h, P, ll, vecMoveFn, vecEndFn, () => { vecHit.off = null; vecHit.gl = null; vecHit.mode = md; })); } },
       { label: '⇢ Rentrer le long de la trace', fn: async () => { const md = await askOpenMode(); if (!md) return;
@@ -875,6 +1114,15 @@ function ptNum(pt) {
   return String(grp.indexOf(pt) + 1);
 }
 function pointLabel(pt) { const nm = ptName(pt), sf = ptSuffix(pt); return `${nm}${ptNum(pt)}${sf ? (nm ? '-' : '') + sf : ''}`; } /* v0.20.0 : tiret au lieu de l'espace (« ALT2-P12 », « S-4338 ») */
+/* Les autres équipes du même passage, en plus fin ; toucher leur vecteur ouvre leur ISV. Une équipe pas encore posée n'a pas de trace. */
+function drawOthers(I, light) { passOthers(light).forEach(o => { const s2 = o.sol, vl2 = [LL(s2.vec.green), LL(s2.vec.red)];
+    if (s2.ok) { L.polyline(s2.trace.map(LL), { color: '#000', weight: 4, opacity: .35, interactive: false }).addTo(fig); L.polyline(s2.trace.map(LL), { color: C_TRACE, weight: 2, opacity: .85, dashArray: '7 6', interactive: false }).addTo(fig); }
+    L.polyline(vl2, { color: '#fff', weight: 6, opacity: .8, interactive: false }).addTo(fig); L.polyline(vl2, { color: '#000', weight: 3, interactive: false }).addTo(fig);
+    L.marker(vl2[0], { interactive: false, icon: dotIcon(C_START, 8, '') }).addTo(fig); L.marker(vl2[1], { interactive: false, icon: dotIcon(C_END, 8, '') }).addTo(fig);
+    L.marker(vl2[1], { interactive: false, icon: L.divIcon({ className: 'dot', html: `<b style="color:#fff">É${o.n}</b>`, iconSize: [10, 10], iconAnchor: [5, 5] }) }).addTo(fig);
+    if (o.I.ptu && teamPlaced(o.I) && (!I.ptu || Calc.dist(o.I.ptu, I.ptu) > 30)) L.marker(LL(o.I.ptu), { interactive: false, icon: dotIcon(C_PTU, 9, `PTU É${o.n}`) }).addTo(fig);
+    L.polyline(vl2, { color: '#fff', weight: 28, opacity: 0, interactive: true }).on('click', ev => { L.DomEvent.stop(ev); if (Date.now() < suppressClickUntil || placing) return; openIsv(o.I.id); }).addTo(fig); }); }
+let ptuDragSnap = null;
 function draw(light) {
   compute();
   if (!light && typeof Photo !== 'undefined') Photo.sync(); /* v0.9.0 : manquait (photo calée pas suivie au changement de zone) */
@@ -882,9 +1130,12 @@ function draw(light) {
   // ZRT : affichage seulement
   if (SH.zrt) current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
   // ZMT et PTU
-  keep('zmt', SH.ptu ? zmtOf(I) : null, zmtIcon, 300, ll => { if (I.ozmt) I.ozmt = ll; else current.zmt = ll; dragRecalc(); }, () => { solKey = null; persist(); refreshZmtElev(I); fillInputs(); redraw(); });
+  keep('zmt', SH.ptu ? zmtOf(I) : null, zmtIcon, 300, ll => { const H = zmtHost(I); H.o[H.p] = ll; /* v0.51.0 : la ZMT est portée par l'équipe qui la tient (elle peut être partagée) */ passMem = {}; solKey = null; dragRecalc(); }, () => { solKey = null; persist(); refreshZmtElev(I); fillInputs(); redraw(); },
+    () => { if (placing === 'TP' && I.ozmt) { placing = 'TM'; placeBanner(); redraw(); } });
+  if (mk.zmt && mk.zmt._icon) mk.zmt._icon.style.pointerEvents = placing === 'TM' ? 'none' : ''; /* en déplacement, la ZMT ne capte plus l'appui : on peut toucher juste à côté */ /* pendant la pose du PTU, toucher la ZMT de l'équipe permet de la déplacer sans quitter la pose (Henri, point 5) */
   drawBarb(); /* v0.35.3 : après la ZMT (on lit la position de son étiquette) */
-  keep('ptu', SH.ptu ? I.ptu : null, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); }, () => { persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); });
+  keep('ptu', SH.ptu ? I.ptu : null, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { if (passInfo(I)) { /* v0.51.0 : dans un passage, le PTU appartient à l'équipe qui tient la ZMT ; le vecteur ne bouge pas */ if (!ptuDragSnap) ptuDragSnap = passSnap(I); const R = zRoot(I); R.ptu = ll; R.ptuElev = null; I.ptu = ll; passMem = {}; solKey = null; return dragRecalc(); } I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); },
+    () => { const sn = ptuDragSnap; ptuDragSnap = null; persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); if (sn) passAfter('le déplacement du PTU', sn); });
   // Points de l'ISV
   const seen = {}, PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
   isv().points.forEach(pt => {
@@ -896,7 +1147,9 @@ function draw(light) {
   });
   Object.keys(mk).filter(k => k.startsWith('pt_') && !seen[k]).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; });
 
-  if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvP'); ouvHandles(null, 'ouvE'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP'); if (!light) updateInfo(); capInfo(); return; }
+  if (!sol || !sol.ok) { noVecHandles(); ouvHandles(null, 'ouvP'); ouvHandles(null, 'ouvE'); ouvHandles(null, 'osoL'); ouvHandles(null, 'osoP');
+    ptuLab = []; if (sol && sol.pend) { drawOthers(I, light); drawPtuZones(light); drawPending(I); } /* v0.51.0 : équipe du passage pas encore posée */
+    if (!light) updateInfo(); capInfo(); if (!light && window._stepsReady) { syncSteps(); requestAnimationFrame(syncStepBar); } return; }
   // Cercle de relaxation (points de largage)
   if (SH.relax && sol.circleOuv.R > 0) { const zp = L.polygon(Calc.zonePts(sol.circleOuv, Math.max(0.25, Math.min(4, 14 * mPerPx(sol.circleOuv.c) / Math.max(1, Calc.zoneSpan(sol.circleOuv).max) * 180 / Math.PI)) /* un sommet tous les 14 px environ : lisse à toutes les échelles */).map(LL), { /* v0.47.0 (Henri) : la VRAIE zone de relaxation (bouts de trace de tous les caps), plus le cercle inscrit */ /* v0.46.0 (Henri) : cercle des points d'OUVERTURE, fixe — avant : celui des points de largage, qui glissait avec le cap avion */ color: C_RELAX, weight: 2.4, fill: false, interactive: false, smoothFactor: 0.15 /* sinon Leaflet simplifie le contour à 1 px près : il paraît anguleux */ });
     /* Leaflet arrondit chaque sommet au pixel : sur un contour presque rond, ça le fait onduler. Sommets projetés sans arrondi. */
@@ -907,21 +1160,8 @@ function draw(light) {
   if (SH.lost) { const Z = lostZone(); if (Z) { const o = { interactive: false, lineCap: 'round', lineJoin: 'round' };
     L.polyline([Z.from, Z.near].map(LL), { color: C_LOST, weight: 2, dashArray: '4 6', interactive: false }).addTo(fig);
     L.polyline(Z.band.map(LL), Object.assign({ color: '#000', weight: 24, opacity: .35 }, o)).addTo(fig); L.polyline(Z.band.map(LL), Object.assign({ color: C_LOST, weight: 19, opacity: .7 }, o)).addTo(fig); } }
-  /* v0.50.0 (lot 3) : carte commune — les autres équipes du même passage, en plus fin ; toucher leur vecteur ouvre leur ISV */
-  passOthers(light).forEach(o => { const s2 = o.sol, vl2 = [LL(s2.vec.green), LL(s2.vec.red)];
-    L.polyline(s2.trace.map(LL), { color: '#000', weight: 4, opacity: .35, interactive: false }).addTo(fig); L.polyline(s2.trace.map(LL), { color: C_TRACE, weight: 2, opacity: .85, dashArray: '7 6', interactive: false }).addTo(fig);
-    L.polyline(vl2, { color: '#fff', weight: 6, opacity: .8, interactive: false }).addTo(fig); L.polyline(vl2, { color: '#000', weight: 3, interactive: false }).addTo(fig);
-    L.marker(vl2[0], { interactive: false, icon: dotIcon(C_START, 8, '') }).addTo(fig); L.marker(vl2[1], { interactive: false, icon: dotIcon(C_END, 8, '') }).addTo(fig);
-    L.marker(vl2[1], { interactive: false, icon: L.divIcon({ className: 'dot', html: `<b style="color:#fff">É${o.n}</b>`, iconSize: [10, 10], iconAnchor: [5, 5] }) }).addTo(fig);
-    if (o.I.ptu && (!I.ptu || Calc.dist(o.I.ptu, I.ptu) > 30)) L.marker(LL(o.I.ptu), { interactive: false, icon: dotIcon(C_PTU, 9, `PTU É${o.n}`) }).addTo(fig);
-    L.polyline(vl2, { color: '#fff', weight: 28, opacity: 0, interactive: true }).on('click', ev => { L.DomEvent.stop(ev); if (Date.now() < suppressClickUntil) return; openIsv(o.I.id); }).addTo(fig); });
-  /* v0.50.0 : pour une équipe liée, où peut-on poser SON PTU ? Son point d'ouverture est imposé par le passage : le PTU doit être tel
-     que ce point soit dans sa zone de relaxation. Contour = la zone de relaxation retournée autour du point d'ouverture (exact si le
-     vent est le même partout, approché sinon : le calcul, lui, dit toujours si le PTU est joignable). */
-  if (I.link && SH.reach && sol.attachOuv && I.ptu && sol.circleOuv.R > 0) { const st = Math.max(0.5, Math.min(4, 14 * mPerPx(sol.attachOuv) / Math.max(1, Calc.zoneSpan(sol.circleOuv).max) * 180 / Math.PI));
-    const R = Calc.zonePts(sol.circleOuv, st).map(q => { const v = Calc.toLocal(I.ptu, q); return Calc.fromLocal(sol.attachOuv, { x: -v.x, y: -v.y }); });
-    L.polygon(R.map(LL), { color: C_PTU, weight: 2, dashArray: '7 7', fill: false, interactive: false, smoothFactor: 0.2 }).addTo(fig);
-    const top = R.reduce((a, q) => (q.lat > a.lat ? q : a), R[0]); L.marker(LL(top), { interactive: false, icon: L.divIcon({ className: 'dot lostd', html: `<b style="color:${C_PTU}">PTU possibles</b>`, iconSize: [2, 2], iconAnchor: [1, 1] }) }).addTo(fig); }
+  drawOthers(I, light); /* v0.50.0 (lot 3) : carte commune, les autres équipes du même passage */
+  drawPtuZones(light); /* v0.51.0 : les deux pointillés du PTU (interrupteur d'Affichage pour une équipe déjà posée) */
   // Trace : tous les segments, de l'ouverture terminée au PTU
   const MI = traceMini(); syncSumWarn();
   if (SH.trace) {
@@ -957,7 +1197,7 @@ function draw(light) {
   // autres applis) : appui long n'importe où sur le vecteur puis glisser = déplacer. Le point attrapé reste sous le doigt.
   keep('drop', null);
   vecHitLine(V, I);
-  if (I.link) { keep('rot', null); keep('rotR', null); [[V.green, C_START], [V.red, C_END]].forEach(([q, c]) => L.marker(LL(q), { interactive: false, icon: dotIcon(c, 13, '', 'big') }).addTo(fig)); } /* v0.50.0 : équipe liée, le cap avion est celui du passage : pas de pivot */
+  if (passMoving(I)) { keep('rot', null); keep('rotR', null); [[V.green, C_START], [V.red, C_END]].forEach(([q, c]) => L.marker(LL(q), { interactive: false, icon: dotIcon(c, 13, '', 'big') }).addTo(fig)); } /* v0.50.0 : équipe liée, le cap avion est celui du passage : pas de pivot */
   else {
   keep('rot', V.green, dotIcon(C_START, 15, '', 'big'), 650,
     ll => { if (!sol || !sol.ok) return; const q = Calc.toLocal(ll, sol.vec.attach); if (Math.hypot(q.x, q.y) < 20) return; if (rotO === undefined) rotO = ouvONow(); I.vecHeading = Calc.bearingOf(q); I.reversed = false; rotRecalc(); },
@@ -1100,12 +1340,13 @@ function fitInto(pts, R) {
 function figurePoints() {
   const I = isv(), pts = [];
   if (zmtOf(I)) pts.push(zmtOf(I)); if (I.ptu) pts.push(I.ptu);
+  if (sol && sol.pend && sol.vec) { pts.push(sol.vec.green, sol.vec.red); passOthers(true).forEach(o => { pts.push(o.sol.vec.green, o.sol.vec.red); if (o.I.ptu) pts.push(o.I.ptu); const z = zmtOf(o.I); if (z) pts.push(z); }); const Z = ptuZonesOf(I, true); if (Z && Z.inner) Z.inner.forEach((q, i) => { if (i % 6 === 0) pts.push(q); }); } /* v0.51.0 : équipe à poser → le passage et le pointillé intérieur */
   if (sol && sol.ok) {
     sol.trace.forEach(p => pts.push(p)); pts.push(sol.vec.green, sol.vec.red);
     (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p));
     if (current.show.relax) Calc.zonePts(sol.circleOuv, 30).forEach(q => pts.push(q));
     if (current.show.lost) { const Z = lostZone(); if (Z) Z.band.forEach(q => pts.push(q)); }
-    passOthers(true).forEach(o => { pts.push(o.sol.vec.green, o.sol.vec.red); o.sol.trace.forEach(q => pts.push(q)); }); /* v0.50.0 : les autres équipes du passage entrent dans le cadrage */ /* v0.49.0 : la zone de recherche entre dans le cadrage */
+    passOthers(true).forEach(o => { pts.push(o.sol.vec.green, o.sol.vec.red); if (o.sol.ok) o.sol.trace.forEach(q => pts.push(q)); }); /* v0.50.0 : les autres équipes du passage entrent dans le cadrage */ /* v0.49.0 : la zone de recherche entre dans le cadrage */
   }
   return pts.map(p => ({ lat: p.lat, lng: p.lng }));
 }
@@ -1113,6 +1354,10 @@ function updateInfo() {
   const I = isv(); let t = null;
   if (placing) return;
   let ti = null;
+  if (I.link && !teamPlaced(I)) { const n = teamNo(I); /* v0.51.0 : équipe du passage pas encore posée → consigne de pose (guidage) */
+    if (I.zst === 'ptu') { t = `Équipe ${n} : sa ZMT est posée, il reste son PTU (bouton « Poser le PTU » de Prépa ISV ou de la liste). Les pointillés montrent où il est possible.`; ti = `Pose le PTU de l'équipe ${n}`; }
+    else { t = `Équipe ${n} : rien n'est calculé tant que sa ZMT et son PTU ne sont pas posés. Bouton « Poser la ZMT » de Prépa ISV ou de la liste ; pour prendre la même zone qu'une autre équipe, touche SA ZMT.`; ti = `Pose la ZMT de l'équipe ${n}`; }
+    if (!guideOn()) t = null; return setBanner(t, ti); }
   if (!current.zmt && !I.ptu) { t = 'Onglet Zones : place la zone de posé (ZMT), puis le point d\'entrée PTU dans l\'onglet Prépa ISV.'; ti = 'Pose la ZMT, puis le PTU'; }
   else if (!I.ptu) { t = 'Place le point d\'entrée PTU (onglet Prépa ISV).'; ti = 'Pose le PTU'; }
   else if (sol && !sol.ok) { t = sol.err; ti = 'Calcul impossible'; }
@@ -1143,25 +1388,30 @@ function addPlaceCancel() {
   const b = $('banner'); if (b.querySelector('.bcancel')) return;
   const c = document.createElement('button'); c.className = 'bcancel'; c.textContent = '✕'; c.title = p ? 'Annuler' : 'Fermer'; /* Henri : plus de gros bouton Annuler, une croix en haut à droite du bandeau */
   /* v0.35.9 (Henri) : croix sur TOUS les bandeaux du haut ; en placement = annuler, sinon (« Pose la ZMT, puis le PTU »…) = fermer la consigne */
-  c.onclick = e => { e.stopPropagation(); if (p) { cancelPlacing(); toast('Placement annulé'); } else { bannerShut = b.dataset.t; b.classList.add('hidden'); hideBannerInfo(); } };
+  c.onclick = e => { e.stopPropagation(); if (p) { const tm = placing === 'TM'; cancelPlacing(); toast(tm ? 'Déplacement de la ZMT annulé : pose le PTU' : 'Placement annulé'); } else { bannerShut = b.dataset.t; b.classList.add('hidden'); hideBannerInfo(); } };
   b.classList.add('hasx'); b.append(c);
 }
-function cancelPlacing() { placing = null; ptOpen = false; ptPal = false; placeBanner(); fillInputs(); redraw(); }
+function cancelPlacing() { placing = placing === 'TM' ? 'TP' : null; /* v0.51.0 : annuler le déplacement de la ZMT ramène à la pose du PTU */ ptOpen = false; ptPal = false; placeBanner(); fillInputs(); redraw(); }
 let toastT;
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), 3200); }
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
 function setVal(id, v) { const el = $(id); if (document.activeElement !== el) el.value = v == null ? '' : v; }
 function changed(fit) { persist(); fillInputs(); draw(); if (fit && sol && sol.ok) fitFigure(); }
-function onNum(id, fn, min, max) { $(id).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || (min != null && v < min) || (max != null && v > max)) { toast('Valeur refusée'); fillInputs(); return; } fn(v); changed(); }); }
+const PASS_WATCH = { v_fl: 'le FL', v_ac: 'la vitesse', v_acKt: 'la vitesse', i_linkDelay: 'le délai', i_tGreen: 'la marge de début', i_tRed: 'la marge de fin' }; /* v0.51.0 : saisies après lesquelles on vérifie que chaque équipe du passage reste dans sa zone */
+function onNum(id, fn, min, max) { $(id).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || (min != null && v < min) || (max != null && v > max)) { toast('Valeur refusée'); fillInputs(); return; } const sn = PASS_WATCH[id] && passInfo() ? passSnap() : null; fn(v); changed(); if (sn) passAfter(PASS_WATCH[id], sn); }); }
 function fillInputs() {
   compute(); // les champs affichent toujours le dernier calcul
   const I = isv();
   $('zoneName').textContent = current.id ? current.name : 'Nouvelle zone'; $('isvName').textContent = ' · ' + I.name;
   $('ver').textContent = VERSION;
-  { const PI = passInfo(I); $('linkBox').classList.toggle('hidden', !I.link); /* v0.50.0 (lot 3) : équipe liée à un passage */
-    $('btnAddTeam').textContent = `＋ Équipe ${PI ? PI.teams.length + 1 : 2} sur le même passage`;
-    if (I.link && PI) { $('linkInfo').innerHTML = `Équipe <b>${PI.idx + 1}</b> sur ${PI.teams.length} du passage de « ${esc(PI.lead.name)} ».`; setVal('i_linkDelay', Math.round(+I.link.delay || 0));
-      $('ownZInfo').textContent = I.ozmt ? `ZMT propre à cette équipe : ${fmtPos(I.ozmt)}` : 'ZMT : celle de la zone.'; $('btnOwnZ').classList.toggle('on', placing === 'OZ'); $('btnOwnZoff').classList.toggle('hidden', !I.ozmt); }
+  { const PI = passInfo(I); $('linkBox').classList.toggle('hidden', !PI); /* v0.50.0 (lot 3) : passage commun ; v0.51.0 : affiché pour toutes ses équipes, la première aussi */
+    $('btnAddTeam').textContent = `＋ Équipe ${PI ? PI.teams.length + 1 : 2} sur le même passage`; $('btnPassPdf').classList.toggle('hidden', !PI);
+    if (PI) { const pl = teamPlaced(I), R = zRoot(I), out = passOuts(passSols(I));
+      $('linkInfo').innerHTML = `Équipe <b>${PI.idx + 1}</b> sur ${PI.teams.length} du passage de « ${esc(PI.lead.name)} ».` + (out.length ? ` <b class="warn">⚠️ ${out.length > 1 ? 'Équipes ' + out.join(', ') + ' hors de leur zone' : 'Équipe ' + out[0] + ' hors de sa zone'} de relaxation.</b>` : '');
+      $('linkDelayRow').classList.toggle('hidden', !I.link); if (I.link) setVal('i_linkDelay', Math.round(+I.link.delay || 0));
+      $('teamZInfo').textContent = !I.link ? 'Première équipe : elle porte le FL, la vitesse, le cap avion et l\'heure du passage. Tirer son vecteur déplace tout le passage.' : I.zst === 'todo' ? 'ZMT à poser : rien n\'est calculé pour cette équipe tant que sa ZMT et son PTU ne sont pas posés.' : I.zst === 'ptu' ? `ZMT posée (${fmtPos(I.ozmt)}) : PTU à poser.` : R !== I ? `Même ZMT et même PTU que l'équipe ${teamNo(R)}.` : I.ozmt ? `ZMT de cette équipe : ${fmtPos(I.ozmt)}` : 'ZMT : celle de la zone.';
+      const bp = $('btnTeamPlace'); bp.classList.toggle('hidden', !I.link); bp.textContent = !pl ? (I.zst === 'ptu' ? '📍 Poser le PTU' : '📍 Poser la ZMT') : '📍 Reposer la ZMT et le PTU'; bp.classList.toggle('primary', !pl);
+      $('btnPassShift').classList.toggle('hidden', !out.length); $('btnOpen4').classList.toggle('hidden', !(pl && I.manual && I.keepH === false)); }
     ['v_fl', 'v_ac', 'v_acKt', 'v_acH', 'v_acM', 'v_acP', 'v_acAuto', 'v_cap', 'v_capM', 'v_capP', 'v_capAuto'].forEach(id => { const el = $(id); if (el) el.disabled = !!I.link; }); }
   setVal('i_hPtu', I.hPtu); setVal('i_tGreen', I.tGreen); setVal('i_tRed', I.tRed); setVal('i_apprNm', I.apprNm); setVal('i_exitNm', I.exitNm);
   DEF_FIELDS.forEach(([k]) => setVal('d_' + k, prm.def[k]));
@@ -1180,8 +1430,8 @@ function fillInputs() {
 function syncQuick() {
   const I = isv();
   syncShowPop();
-  $('qRev').classList.toggle('on', !!I.reversed); $('qRev').classList.toggle('hidden', !!I.link);
-  $('qVecAuto').classList.toggle('hidden', I.link ? I.keepH !== false : !(I.manual || I.vecHeading != null || I.capManual != null));
+  $('qRev').classList.toggle('on', !!(I.reversed || (passInfo(I) && passLead(I).prev))); $('qRev').classList.toggle('hidden', !!I.link);
+  $('qVecAuto').classList.toggle('hidden', passInfo(I) ? passTeams(I).filter(teamPlaced).length < 2 : !(I.manual || I.vecHeading != null || I.capManual != null));
   if ($('qZero')) $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
   $('qPoint').classList.toggle('on', ptOpen || !!(placing && typeof placing === 'object' && placing.kind !== 'move'));
   if (typeof syncPtPop === 'function') try { syncPtPop(); } catch (e) {}
@@ -1198,7 +1448,7 @@ const SHOW_ITEMS = [
   ['ptu', 'PTU et ZMT', '<circle cx="8" cy="12" r="5" fill="#ffd400" stroke="#111" stroke-width="2"/><circle cx="17" cy="12" r="4" fill="none" stroke="#ff8c00" stroke-width="2.4"/><path d="M17 5v14M10.5 12h13" stroke="#ff8c00" stroke-width="1.6"/>', true],
   ['oso', 'Points OSO et point haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
   ['sec', 'Zone de sécurité', '<path d="M3 9l8-5 10 6v8l-9 3-9-5z" fill="#ff8c00" fill-opacity=".45" stroke="#ff8c00" stroke-width="1.4"/>', false],
-  ['reach', 'PTU possibles (équipe liée)', '<circle cx="12" cy="12" r="8" fill="none" stroke="#ffd400" stroke-width="2.2" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2.6" fill="#ffd400" stroke="#111"/>', true],
+  ['reach', 'Zones où le PTU de l\'équipe est possible', '<circle cx="12" cy="12" r="8" fill="none" stroke="#ffd400" stroke-width="2.2" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2.6" fill="#ffd400" stroke="#111"/>', false],
   ['lost', 'Recherche d\'une voile libérée', '<path d="M4 19L20 6" stroke="#000" stroke-width="7" stroke-linecap="round" opacity=".5"/><path d="M4 19L20 6" stroke="#4d8dff" stroke-width="4.5" stroke-linecap="round"/><circle cx="4" cy="19" r="2.6" fill="#fff" stroke="#000"/><circle cx="20" cy="6" r="2.6" fill="#fff" stroke="#000"/>', false],
   ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
   ['sum', 'Sommets et zones délicates', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#b388ff" stroke="#111" stroke-width="2"/>', true],
@@ -1208,20 +1458,20 @@ let showOpen = false;
 function syncShowPop() {
   const pop = $('showPop'), b = $('qShow'); if (!pop || !b) return;
   pop.classList.toggle('hidden', !showOpen); b.classList.toggle('on', showOpen);
-  b.classList.toggle('part', SHOW_ITEMS.some(([k, , , d]) => d && !current.show[k] && (k !== 'reach' || isv().link))); /* quelque chose d'habituellement affiché est masqué */
+  b.classList.toggle('part', SHOW_ITEMS.some(([k, , , d]) => d && !current.show[k] && (k !== 'reach' || (isv().link && teamPlaced(isv()))))); /* quelque chose d'habituellement affiché est masqué */
   syncStepBar(); /* v0.45.1 (photo d'Henri) : le bandeau jaune d'étape passait par-dessus le menu → masqué tant que le menu est ouvert */
   if (!showOpen) return;
   pop.textContent = '';
   { const h = document.createElement('div'); h.className = 'sph'; h.innerHTML = '<b>Affichage</b><button class="spx" title="Fermer">✕</button>'; h.querySelector('button').addEventListener('click', e => { e.stopPropagation(); closeShowPop(); }); pop.appendChild(h); } /* v0.45.1 (Henri) : croix pour refermer, en plus du toucher sur la carte */
-  SHOW_ITEMS.filter(([k]) => k !== 'reach' || isv().link /* v0.50.0 : seulement pour une équipe liée */).forEach(([k, label, svg]) => { const x = document.createElement('button'); x.className = current.show[k] ? 'on' : ''; x.title = (current.show[k] ? 'Masquer : ' : 'Afficher : ') + label;
+  SHOW_ITEMS.filter(([k]) => k !== 'reach' || (isv().link && teamPlaced(isv())) /* v0.50.0 : seulement pour une équipe liée ; v0.51.0 : déjà posée (pendant la pose les pointillés sont toujours là) */).forEach(([k, label, svg]) => { const x = document.createElement('button'); x.className = current.show[k] ? 'on' : ''; x.title = (current.show[k] ? 'Masquer : ' : 'Afficher : ') + label;
     x.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24">${svg}</svg><span></span>`; x.querySelector('span').textContent = label;
     x.addEventListener('click', e => { e.stopPropagation(); current.show[k] = !current.show[k]; persist(); syncShowPop(); redraw(); }); pop.appendChild(x); });
   const r = b.getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - pop.offsetHeight - 8, r.top + r.height / 2 - pop.offsetHeight / 2)))}px`;
 }
 function closeShowPop() { if (showOpen) { showOpen = false; syncShowPop(); } }
 $('qShow').addEventListener('click', () => { showOpen = !showOpen; if (showOpen) closeSheet(); syncShowPop(); });
-$('qRev').addEventListener('click', () => quick(() => { const I = isv(), t = ouvONow(); I.reversed = !I.reversed; rotKeep(t); }));
-$('qVecAuto').addEventListener('click', () => { if (isv().link) { quick(() => { isv().keepH = true; solKey = null; }); return toast('Équipe liée : hauteur d\'ouverture gardée (son vecteur reste imposé par le passage)'); } quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.along = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
+$('qRev').addEventListener('click', () => { const I0 = isv(); if (passInfo(I0)) { const L = passLead(I0); L.prev = !(L.prev || L.reversed); L.reversed = false; L.pauto = L.vecHeading; passAutoUi('Sens du passage inversé'); return; } /* v0.51.0 */ quick(() => { const I = isv(), t = ouvONow(); I.reversed = !I.reversed; rotKeep(t); }); });
+$('qVecAuto').addEventListener('click', () => { if (passInfo()) { /* v0.51.0 (Henri) : dans un passage, « Vecteur automatique » recalcule TOUT le passage (ZMT, PTU, délais, FL et hauteurs d'ouverture gardés) */ passAutoUi('Passage recalculé : toutes les équipes dans leur zone'); return; } quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.along = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 /* v0.18.0 : bouton Vent 0 supprimé (Henri) */ if ($('qZero')) $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qIsv').addEventListener('click', () => toggleTab('isv'));
 $('qBrief').addEventListener('click', () => toggleTab('brief')); /* v0.16.0 : bouton Briefing sous Prépa ISV */
@@ -1328,9 +1578,12 @@ $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.targ
 // ---------- Placement de la ZMT, du PTU et des points ----------
 function placeBanner() { if (window._stepsReady) requestAnimationFrame(syncStepBar);
   if (ptOpen && !placing) { setBanner('Choisis le type de point à droite du ＋ Point.', 'Type de point ?'); return; }
-  setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'OZ' ? 'Touche la carte pour placer la ZMT propre à cette équipe.' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
+  if (placing === 'TZ' || placing === 'TP' || placing === 'TM') { const n = teamNo(isv()); /* v0.51.0 : pose d'une équipe du passage */
+    setBanner(placing === 'TZ' ? `Touche la carte pour poser la ZMT de l'équipe ${n}. Pour prendre la même zone qu'une autre équipe, touche SA ZMT : son PTU est repris avec.` : placing === 'TP' ? `Touche la carte pour poser le PTU de l'équipe ${n}. Pointillé intérieur : possible sans rien bouger ; pointillé extérieur : possible en décalant le passage. Pour déplacer sa ZMT, touche-la.` : `Touche le nouvel emplacement de la ZMT de l'équipe ${n}.`,
+      placing === 'TZ' ? `Pose la ZMT de l'équipe ${n}` : placing === 'TP' ? `Pose le PTU de l'équipe ${n}` : `Déplace la ZMT de l'équipe ${n}`); return; }
+  setBanner(placing === 'Z' ? 'Touche la carte pour placer la zone de posé (ZMT).' : placing === 'P' ? 'Touche la carte pour placer le point d\'entrée PTU.'
     : placing ? (placing.kind === 'move' ? `Touche la carte pour le nouvel emplacement de « ${placing.name} ».` : placing.kind === 'alt' ? 'Touche la carte pour placer la zone de posé alternative.' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Touche la trace au DÉBUT de la zone délicate.' : 'Touche la trace à la FIN de la zone délicate.') : 'Touche la carte pour placer le point libre.') : null,
-    placing === 'Z' ? 'Pose de la ZMT' : placing === 'OZ' ? 'Pose de la ZMT de l\'équipe' : placing === 'P' ? 'Pose du PTU' : placing ? (placing.kind === 'move' ? `Déplacer « ${placing.name} »` : placing.kind === 'alt' ? 'Pose d\'une zone alternative' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Zone délicate : début' : 'Zone délicate : fin') : 'Pose d\'un point libre') : null);
+    placing === 'Z' ? 'Pose de la ZMT' : placing === 'P' ? 'Pose du PTU' : placing ? (placing.kind === 'move' ? `Déplacer « ${placing.name} »` : placing.kind === 'alt' ? 'Pose d\'une zone alternative' : placing.kind === 'zd' ? (placing.stage === 'deb' ? 'Zone délicate : début' : 'Zone délicate : fin') : 'Pose d\'un point libre') : null);
   if (!placing) updateInfo();
 }
 function startPlacing(what) { placing = placing === what ? null : what; stopMeasure(); if (placing) closeSheet(); placeBanner(); fillInputs(); }
@@ -1527,12 +1780,15 @@ map.on('click', e => {
   const sn = snapPlace({ lat: e.latlng.lat, lng: e.latlng.lng }), p = sn.p;
   if (sn.temp) setTempPt(null);
   placing = null; placeBanner();
-  if (what === 'Z') setZmt(p); else if (what === 'OZ') setOwnZmt(p); else if (what === 'P') setPtu(p);
+  if (what === 'Z') setZmt(p); else if (what === 'P') setPtu(p);
+  else if (what === 'TZ') teamZmtAt(p); else if (what === 'TM') teamZmtMove(p);
+  else if (what === 'TP') teamPtuAt(p); /* toucher la ZMT de l'équipe (son marqueur) = la déplacer : voir keep('zmt') */
   else if (what.kind === 'move') { const pt = isv().points.find(x => x.id === what.id); if (pt) { pt.lat = p.lat; pt.lng = p.lng; pt.elev = typeof p.z === 'number' ? Math.round(p.z) : null; if (pt.elev == null) pointElev(pt); persist(); redraw(); toast(`« ${what.name} » repositionné`); } }
   else { ptOpen = false; ptPal = false; if (what.kind === 'zd') addZd(p, what); else if (what.kind === 'free' && sn.temp) addSummit(p); else addPoint(p, what); }
   fillInputs();
 });
 map.on('zoomend', redraw);
+map.on('moveend', () => { try { ptuLabels(); } catch (e) {} }); /* v0.51.0 : le texte des pointillés du PTU suit la partie visible du contour */
 (function delayTouchRotate() {
   const TG = map.touchGestures; if (!TG || !TG._onTouchStart) return;
   const ROT_HOLD_MS = 300, ROT_TOL = 12; // doigts quasi immobiles pendant 0,3 s → la rotation s'active
@@ -1705,13 +1961,33 @@ function renderVol() {
   $('v_capAuto').classList.toggle('on', I.capManual == null && !I.manual); $('v_acAuto').classList.toggle('on', I.vecHeading == null);
   const dSel = $('v_drop'), rSel = $('v_relax');
   if (document.activeElement !== dSel) dSel.innerHTML = `<option value="">Auto : ${esc(pName(Calc.defaultDropIdx(I.team.length)))}</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.dropId ? ' selected' : ''}>${esc(pName(i))}</option>`).join('');
-  if (document.activeElement !== rSel) rSel.innerHTML = `<option value="green"${I.relaxRef === 'green' ? ' selected' : ''}>Début de largage (vert)</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.relaxRef ? ' selected' : ''}>${esc(pName(i))}</option>`).join('') + `<option value="red"${I.relaxRef === 'red' ? ' selected' : ''}>Fin de largage (rouge)</option>`;
+  if (document.activeElement !== rSel && passInfo(I)) { const L = passLead(I), R = L.prelax || { id: L.id, r: 'green' }, T = passTeams(I), o = (X, r, t) => `<option value="${X.id}|${r}"${R.id === X.id && (R.r || 'green') === r ? ' selected' : ''}>${esc(t)}</option>`;
+    rSel.innerHTML = T.map((X, k) => o(X, 'green', `Équipe ${k + 1} · début de largage (vert)`) + X.team.map((p, i) => o(X, p.id, `Équipe ${k + 1} · n° ${i + 1}${p.name ? ' ' + p.name : ''}`)).join('') + o(X, 'red', `Équipe ${k + 1} · fin de largage (rouge)`)).join(''); }
+  else if (document.activeElement !== rSel) rSel.innerHTML = `<option value="green"${I.relaxRef === 'green' ? ' selected' : ''}>Début de largage (vert)</option>` + I.team.map((p, i) => `<option value="${p.id}"${p.id === I.relaxRef ? ' selected' : ''}>${esc(pName(i))}</option>`).join('') + `<option value="red"${I.relaxRef === 'red' ? ' selected' : ''}>Fin de largage (rouge)</option>`;
   $('v_warn').innerHTML = ok ? (sol.warn ? `<b class="warn">⚠️ ${esc(sol.warn)}</b>` : '') : esc(sol && sol.err || '');
 }
 const sgn = (v, plus) => Math.abs(v) < 0.05 ? '0' : `${plus ? '+' : '−'}${fmt1(Math.abs(v))} s`;
+const sg2 = v => (v == null ? '?' : Math.abs(v) < 0.05 ? '0' : `${v > 0 ? '+' : '−'}${fmt1(Math.abs(v))} s`); /* signe pris sur la valeur (créneaux d'un passage : +103 s / +145 s) */
+const hdg10 = h => String(((Math.round(magOf(h) / 10) * 10) % 360 + 360) % 360).padStart(3, '0') + '° M'; /* consigne de cap arrondie à la dizaine */
+const capBrief = s => (passInfo() ? hdg10(s.cap) : hdg(s.cap)); /* v0.51.0 (Henri, point 11) : dans un passage, le cap para de chaque équipe découle de sa position ; la consigne du Briefing et du PDF est arrondie, la valeur exacte reste dans Prépa ISV */
+/* v0.51.0 (Henri) : dans un passage, UN SEUL point de relaxation pour toutes les équipes, à choisir sur n'importe quel vert, para ou
+   rouge de n'importe quelle équipe (L.prelax = { id: équipe, r: 'green' | 'red' | id du para } ; par défaut le vert de la première).
+   Tout est compté en moins / plus par rapport à lui : créneaux de vert donnés en CUMULÉ (slots). null hors passage. */
+function passRelax(X) { const I = X || isv(), PI = passInfo(I); if (!PI) return null; const L = PI.lead, PT = passTimes(I), R = L.prelax || {}, rt = PT.find(p => p.I.id === R.id && p.sol && p.sol.vec && p.sol.ex) || PT[0], s = rt.sol; if (!s || !s.vec || !s.ex) return null;
+  let t = rt.green, pt = s.vec.green, lab = `vert de l'équipe ${rt.n}`;
+  if (R.id === rt.I.id && R.r === 'red') { t = rt.red; pt = s.vec.red; lab = `rouge de l'équipe ${rt.n}`; }
+  else if (R.id === rt.I.id && R.r && R.r !== 'green') { const i = rt.I.team.findIndex(p => p.id === R.r); if (i >= 0 && s.vec.exits[i]) { t = rt.green + s.ex.te[i]; pt = s.vec.exits[i]; lab = `para n° ${i + 1}${rt.I.team[i].name ? ' ' + rt.I.team[i].name : ''} de l'équipe ${rt.n}`; } }
+  const me = PT.find(p => p.I === I) || PT[0];
+  return { t, pt, label: lab, before: me.green - t, after: me.red != null ? me.red - t : null, slots: PT.map(p => ({ n: p.n, I: p.I, sol: p.sol, a: p.green - t, b: p.red != null ? p.red - t : null })) }; }
+function relOf() { const P = passRelax(); return P ? { pt: P.pt, before: P.before, after: P.after, label: P.label, pass: P } : { pt: sol.relax.pt, before: sol.relax.before, after: sol.relax.after, label: null, pass: null }; }
+/* Dessin des sorties d'une équipe : • (marge de début) · intervalle · … · (marge de fin) • — chaque valeur est l'intervalle à cet endroit */
+function sortiesOf(I, html) { const sx = v => `${fmt1(v)}s`, parts = [`(${sx(+I.tGreen)})`].concat(I.team.slice(1).map(p => sx(+p.dt))).concat([`(${sx(+I.tRed)})`]);
+  return html ? `<span style="color:${C_GREEN_DOT}">•</span> ${parts.join(' · ')} <span style="color:${C_RED_DOT}">•</span>` : `• ${parts.join(' · ')} •`; }
+/* … et d'un passage : les équipes à la suite, avec entre CROCHETS le délai entre le rouge d'une équipe et le vert de la suivante */
+function sortiesPass(I, html) { return passTeams(I).map((X, k) => (k ? `[${fmt1(+X.link.delay || 0)}s] ` : '') + sortiesOf(X, html)).join(' '); }
 function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écran et au PDF
   const I = isv(), s = sol, rows = [];
-  rows.push(['Temps de largage (au point de relaxation)', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true]);
+  { const r = relOf(); rows.push(['Créneau de largage (au point de relaxation)', `${sg2(r.before)} / ${sg2(r.after)}`, true]); } /* v0.51.0 (Henri) : « Créneau de largage » partout (plus de « Temps de largage ») */
   rows.push(['Vecteur de largage', `${hdg(s.acHeading)} · ${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`]);
   rows.push(['Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`]);
   rows.push(['Vent au largage', `${hdg(s.windRel.dir)} · ${Math.round(s.windRel.spd * KT)} kt`]);
@@ -1728,7 +2004,7 @@ function volRows() { // [libellé, valeur, mis en évidence] — sert à l'écra
   rows.push(['Marge sur le vent', `${prm.margin} %${F ? '' : ' · SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`]);
   return rows;
 }
-onNum('v_fl', v => { const I = isv(), fl = Math.round(v); if (sol && sol.ok && fl !== +I.fl) { /* v0.42.2 : aussi avec le vecteur automatique */ const r = flKeepTrace(fl); if (r === 'keep') toast('FL changé : trace inchangée, même temps de chute, hauteur d\'ouverture recalculée ; revérifie le vecteur puis les points OSO'); else if (r) toast('FL changé : trace inchangée, revérifie le vecteur puis les points OSO'); } else I.fl = fl; }, 20, 400);
+onNum('v_fl', v => { const I = isv(), fl = Math.round(v); if (passInfo(I)) { I.fl = fl; passMem = {}; solKey = null; return; } /* v0.51.0 : passage → le FL change pour toutes les équipes, rien d'autre ne bouge (contrôle : passAfter) */ if (sol && sol.ok && fl !== +I.fl) { /* v0.42.2 : aussi avec le vecteur automatique */ const r = flKeepTrace(fl); if (r === 'keep') toast('FL changé : trace inchangée, même temps de chute, hauteur d\'ouverture recalculée ; revérifie le vecteur puis les points OSO'); else if (r) toast('FL changé : trace inchangée, revérifie le vecteur puis les points OSO'); } else I.fl = fl; }, 20, 400);
 onNum('v_ac', v => { isv().acMs = v; }, 20, 200);
 onNum('v_acKt', v => { isv().acMs = Math.round(v / KT * 100) / 100; }, 40, 400); /* v0.14.0 : saisie en KIAS, convertie en m/s badin */
 onNum('v_tFall', v => { isv().tFall = v; }, 0, 120);
@@ -1738,7 +2014,9 @@ $('v_hOpen').addEventListener('change', e => {
   /* v0.39.1 : chute libre jusqu'à la CDO (sans l'ouverture) → temps de chute ; l'ouverture terminée se calcule ensuite (Briefing) */
   I.tFall = Calc.tFallFor(drop, sol.tas, Math.max(10, +prm.vff), 0, vzRefNow(), true, Calc.ffK(F, I.ptu, sol.altRel)); changed();
 });
+function passAutoUi(okMsg) { const L = passLead(isv()), r = passAuto(L); solKey = null; persist(); fillInputs(); draw(); if (r.ok && sol && sol.ok) fitFigure(); toast(r.ok ? okMsg : `Impossible : ${r.why}. Rien n'a bougé.`); return r.ok; }
 function setCap(m) { const I = isv();
+  if (passInfo(I)) { /* v0.51.0 : dans un passage, le cap para saisi est celui de la trace la plus longue, au milieu du groupe de la première équipe */ const old = I.pcap; I.pcap = trueOf(n360(m)); I.capManual = null; if (!passAutoUi(`Passage recalé sur le cap para ${hdg(I.pcap)}`)) I.pcap = old; return; }
   /* v0.29.0 (Henri) : le vecteur déplacé à la main est prioritaire — on ne le remet plus en automatique : il tourne autour du PTU
      (même distance) jusqu'à donner le cap para voulu (la trace est droite de l'OUV au PTU, donc tourner l'ensemble autour du PTU
      tourne le cap d'autant ; 4 passes pour la dérive en chute qui change un peu) */
@@ -1762,17 +2040,19 @@ function setCap(m) { const I = isv();
     changed(); return;
   }
   I.capManual = trueOf(n360(m)); I.manual = null; I.along = null; changed(); }
-function setAcH(m) { const I = isv(), t = ouvONow(); I.vecHeading = trueOf(n360(m)); I.reversed = false; rotKeep(t); changed(); }
+function setAcH(m) { const I = isv();
+  if (passInfo(I)) { const sn = passSnap(I); if (passTurn(passLead(I), trueOf(n360(m)))) passAfter('le cap avion', sn); else fillInputs(); return; } /* v0.51.0 : le passage tourne autour de son milieu */
+  const t = ouvONow(); I.vecHeading = trueOf(n360(m)); I.reversed = false; rotKeep(t); changed(); }
 $('v_cap').addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v)) return fillInputs(); setCap(v); });
 $('v_capM').addEventListener('click', () => { if (sol && sol.ok) setCap(magOf(sol.cap) - 1); });
 $('v_capP').addEventListener('click', () => { if (sol && sol.ok) setCap(magOf(sol.cap) + 1); });
-$('v_capAuto').addEventListener('click', () => { const I = isv(); I.capManual = null; I.manual = null; I.along = null; changed(); toast('CAP PARA : le plus loin possible du PTU'); });
+$('v_capAuto').addEventListener('click', () => { const I = isv(); if (passInfo(I)) { I.pcap = null; I.capManual = null; passAutoUi('Passage recalé : cap para le plus loin possible du PTU'); return; } I.capManual = null; I.manual = null; I.along = null; changed(); toast('CAP PARA : le plus loin possible du PTU'); });
 $('v_acH').addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v)) return fillInputs(); setAcH(v); });
 $('v_acM').addEventListener('click', () => { if (sol && sol.ok) setAcH(magOf(sol.acHeading) - 1); });
 $('v_acP').addEventListener('click', () => { if (sol && sol.ok) setAcH(magOf(sol.acHeading) + 1); });
-$('v_acAuto').addEventListener('click', () => { const I = isv(), t = ouvONow(); I.vecHeading = null; I.reversed = false; rotKeep(t); changed(); toast('Vecteur perpendiculaire à la trace, face au vent'); });
+$('v_acAuto').addEventListener('click', () => { const I = isv(); if (passInfo(I)) { I.pauto = I.vecHeading; I.prev = false; passAutoUi('Passage recalé : cap avion perpendiculaire à la trace, face au vent'); return; } const t = ouvONow(); I.vecHeading = null; I.reversed = false; rotKeep(t); changed(); toast('Vecteur perpendiculaire à la trace, face au vent'); });
 $('v_drop').addEventListener('change', e => { isv().dropId = e.target.value || null; e.target.blur(); changed(); });
-$('v_relax').addEventListener('change', e => { isv().relaxRef = e.target.value; e.target.blur(); changed(); });
+$('v_relax').addEventListener('change', e => { const I = isv(); if (passInfo(I)) { const [id, r] = e.target.value.split('|'); passLead(I).prelax = { id, r }; } /* v0.51.0 : un seul point de relaxation pour tout le passage */ else I.relaxRef = e.target.value; e.target.blur(); changed(); });
 
 // ---------- Onglet Briefing (v0.12.0 ; v0.13.0 : ordre et contenu revus par Henri) : lecture seule ----------
 const C_GREEN_DOT = '#1ec83c', C_RED_DOT = '#ff3b30';
@@ -1811,12 +2091,14 @@ function renderBrief() {
   row('ALPHA', av ? `${av.alpha} hPa` : '–');
   row('Prise de cap', s.turn ? `à ${s.turn}` : 'dans l\'axe', true);
   { const ct = cdoRefT(); row('CDO', ct != null ? `${fmt1(ct)} s` : s.openLowered ? `${fmtInt(Math.round(s.hCmd))} m` : `${fmt1(s.tFall)} s`, true); }
-  row('Cap para', hdg(s.cap), true);
+  row('Cap para', capBrief(s), true);
   row('Hauteur d\'arrivée au PTU', `${fmtInt(I.hPtu)} m au-dessus du sol de la ZMT`); /* v0.18.1 : en blanc (Henri) */
   row('PTU', s.hand ? `main ${s.hand}` : 'dans l\'axe', true);
   end(); out.push('</div>');
-  { const PT = passInfo() ? passTimes() : null; if (PT) { sec('Passage commun'); /* v0.50.0 : chronologie depuis le vert de la première équipe */
-    PT.forEach(p => row(`Équipe ${p.n}${p.I === I ? ' (cette ISV)' : ''}`, p.sol && p.sol.ok ? `vert à ${p.green ? '+' + Math.round(p.green) + ' s' : '0 s'} · rouge à +${Math.round(p.red)} s · ${p.I.team.length} para${p.I.team.length > 1 ? 's' : ''} · cap para ${hdg(p.sol.cap)}${p.sol.linkOut ? ' · PTU NON JOIGNABLE' : ''}` : 'pas de solution', p.I === I));
+  { const PR = passRelax(); if (PR) { sec('Passage commun'); /* v0.51.0 : créneaux de vert en cumulé depuis le point de relaxation, sorties enchaînées */
+    row('Point de relaxation du passage', `${fmtPos(PR.pt)} · ${esc(PR.label)}`, true);
+    PR.slots.forEach(p => row(`Équipe ${p.n}${p.I === I ? ' (cette ISV)' : ''} : créneau de largage`, p.sol && p.sol.ex ? `${sg2(p.a)} / ${sg2(p.b)} · ${p.I.team.length} para${p.I.team.length > 1 ? 's' : ''}${p.sol.ok ? ` · cap para ${hdg10(p.sol.cap)}${teamOut(p.sol) ? ' · HORS DE SA ZONE' : ''}` : ' · ZMT et PTU à poser'}` : 'pas de solution', p.I === I));
+    row('Sorties du passage', sortiesPass(I, true));
     end(); } }
   sec('Largage');
   row('FL de largage', `FL${s.fl}`, true);
@@ -1824,13 +2106,12 @@ function renderBrief() {
   row('Hauteur au-dessus de la ZMT', `${fmtInt(s.hRel)} m`);
   row('Hauteur au-dessus du point haut', av && av.max ? `${fmtInt(av.hRel)} m` : 'non calculé');
   row('Cap avion au largage', hdg(s.acHeading), true);
-  row('Point de relaxation', fmtPos(s.relax.pt), true);
-  row('Créneau de largage (au point de relaxation)', `${sgn(s.relax.before, false)} / ${sgn(s.relax.after, true)}`, true);
+  { const r = relOf(); row('Point de relaxation', fmtPos(r.pt) + (r.label ? ` · ${esc(r.label)}` : ''), true);
+    row('Créneau de largage (au point de relaxation)', `${sg2(r.before)} / ${sg2(r.after)}`, true); }
   row('Vecteur de largage', `${fmtInt(s.vec.length)} m · ${fmt1(s.ex.total)} s`);
   row('Vent au largage', `${Math.round(s.windRel.spd * KT)} kt du ${hdg(s.windRel.dir)}`);
   { /* v0.13.1 (Henri) : « (4s) · 3s · 3s · 3s · (10s) », marges de sécurité entre parenthèses */
-    const sx = v => `${fmt1(v)}s`, parts = [`(${sx(+I.tGreen)})`].concat(I.team.slice(1).map(p => sx(+p.dt))).concat([`(${sx(+I.tRed)})`]);
-    row('Sorties', `<span style="color:${C_GREEN_DOT}">•</span> ${parts.join(' · ')} <span style="color:${C_RED_DOT}">•</span>`); }
+    row('Sorties', sortiesOf(I, true)); }
   row('Vitesse de largage', `${fmt1(+I.acMs)} m/s badin (${Math.round(I.acMs * KT)} KIAS) = ${Math.round(s.tas * KT)} kt vraie`);
   row('Vitesse sol de l\'avion', `${Math.round(s.vg * KT)} kt (${Math.round(s.vg)} m/s)`);
   end();
@@ -2305,9 +2586,13 @@ function renderIsvList() {
   } else zs.innerHTML = `<b>${esc(current.name || 'Nouvelle zone')}</b>`;
   current.isvs.forEach(I => {
     const li = document.createElement('li'); li.className = I.id === current.cur ? 'cur' : '';
-    const PI = passInfo(I); if (I.link) li.classList.add('lk');
-    li.innerHTML = `<span class="zn">${I.link ? '↳ ' : ''}${esc(I.name)} <small class="mut">${PI ? `équipe ${PI.idx + 1}/${PI.teams.length}${I.link ? ` · +${Math.round(+I.link.delay || 0)} s` : ''} · ` : ''}${I.team.length} para${I.team.length > 1 ? 's' : ''} · FL${I.fl}</small></span>`;
+    const PI = passInfo(I), pend = !!(I.link && !teamPlaced(I)); if (I.link) li.classList.add('lk'); li.dataset.id = I.id;
+    /* v0.51.0 (Henri) : une équipe pas encore posée dit « ZMT à poser » (ou « PTU à poser »), avec le bouton qui amène sur la carte ;
+       la poignée ≡ change l'ordre des équipes du passage */
+    li.innerHTML = `${PI ? '<span class="zhandle" title="Glisser pour changer l\'ordre des équipes du passage">≡</span>' : ''}<span class="zn">${I.link ? '↳ ' : ''}${esc(I.name)} <small class="mut">${PI ? `équipe ${PI.idx + 1}/${PI.teams.length}${I.link ? ` · +${Math.round(+I.link.delay || 0)} s` : ''} · ` : ''}${I.team.length} para${I.team.length > 1 ? 's' : ''} · FL${I.fl}</small>${pend ? ` <b class="warn">${I.zst === 'ptu' ? 'PTU à poser' : 'ZMT à poser'}</b>` : ''}</span>`;
     li.querySelector('.zn').onclick = () => openIsv(I.id);
+    if (PI) dragReorder(li, li.querySelector('.zhandle'), ids => { const mine = new Set(passTeams(I).map(x => x.id)); passReorder(ids.filter(id => mine.has(id))); });
+    if (pend) { const go = document.createElement('button'); go.className = 'primary tplace'; go.textContent = I.zst === 'ptu' ? 'Poser le PTU' : 'Poser la ZMT'; go.onclick = () => { if (current.cur !== I.id) { current.cur = I.id; resetMarkers(); persist(); } startTeamPlace(); }; li.append(go); }
     const ren = document.createElement('button'); ren.textContent = '✎'; ren.onclick = async () => {
       /* v0.14.0 : un nom saisi arrête le nommage automatique ; bouton pour revenir au nom par défaut (date et heure) */
       const dd = $('dlgDel'); dd.classList.remove('danger');
@@ -2319,12 +2604,18 @@ function renderIsvList() {
     const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => {
       if (current.isvs.length < 2) return toast('Une zone garde au moins une ISV');
       if (!(await ask(`Supprimer l'ISV « ${I.name} » ?`))) return;
-      current.isvs = current.isvs.filter(x => x.id !== I.id); current.isvs.forEach(x => { if (x.link && x.link.to === I.id) delete x.link; }); /* v0.50.0 : ses équipes liées redeviennent des ISV indépendantes */ if (current.cur === I.id) current.cur = current.isvs[0].id; resetMarkers(); changed(true);
+      /* v0.51.0 : les équipes qui avaient repris sa ZMT la gardent (la première d'entre elles la tient désormais) ; si c'était la
+         première équipe d'un passage, la suivante déjà posée prend sa place (sinon les autres redeviennent des ISV indépendantes) */
+      const sh = current.isvs.filter(x => x !== I && x.zsrc === I.id), zI = zmtOf(I); if (sh.length) { const N0 = sh[0]; delete N0.zsrc; if (zI && (I.ozmt || N0.link)) { N0.ozmt = { lat: zI.lat, lng: zI.lng }; N0.ozmtElev = I.ozmt ? I.ozmtElev : current.zmtElev; N0.ozmtElevKey = I.ozmt ? I.ozmtElevKey : current.zmtElevKey; } sh.slice(1).forEach(x => { x.zsrc = N0.id; }); }
+      if (!I.link) { const T = passTeams(I).filter(x => x !== I), N = T.find(teamPlaced); if (N) { const P0 = passSols(I), mine = P0.find(p => p.I === N), g = mine && mine.sol.vec ? mine.sol.vec.green : null, h = P0[0].sol.acHeading, fo = passForced(I); passSetLead(N, I); N.vecHeading = h; if (!fo) N.pauto = h; current.isvs = current.isvs.filter(x => x.id !== I.id); passRename(N, ((/^(.*?) · É\d+$/.exec(I.name) || [])[1]) || I.name); passMem = {}; solKey = null; if (g) { const D = passD(passSols(N)); if (D) passPut(N, g, h, D); } }
+        else { current.isvs = current.isvs.filter(x => x.id !== I.id && !(x.link && x.link.to === I.id && !teamPlaced(x))); current.isvs.forEach(x => { if (x.link && x.link.to === I.id) delete x.link; }); } }
+      else { const L0 = passLead(I); current.isvs = current.isvs.filter(x => x.id !== I.id); if (L0) passRename(L0); }
+      if (!current.isvs.length) current.isvs.push(newIsv()); passMem = {}; if (current.cur === I.id || !current.isvs.some(x => x.id === current.cur)) current.cur = current.isvs[0].id; resetMarkers(); changed(true);
     };
     li.append(ren, del); ul.append(li);
   });
 }
-function openIsv(id) { current.cur = id; current.when = isv().when || current.when; resetMarkers(); placing = null; suspended = null; closeSheet(); persist(); fillInputs(); draw(); if (sol && sol.ok) fitFigure(); ensureWx(false); refreshPtuElev(); toast(`ISV « ${isv().name} »`); }
+function openIsv(id) { current.cur = id; current.when = isv().when || current.when; resetMarkers(); placing = null; suspended = null; closeSheet(); persist(); fillInputs(); draw(); if (sol && (sol.ok || sol.pend)) fitFigure(); ensureWx(false); refreshPtuElev(); toast(`ISV « ${isv().name} »`); }
 $('btnNewIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const I = newIsv(); I.when = current.when; I.nameAuto = true; I.name = isvAutoName(I); current.isvs.push(I); openIsv(I.id); startPlacing(current.zmt ? 'P' : 'Z');
@@ -2333,17 +2624,24 @@ $('btnNewIsv').addEventListener('click', async () => {
 $('btnAddTeam').addEventListener('click', async () => {
   if (!(await askZoneName())) return; const L = passLead(isv()); if (!L) return;
   if (!L.ptu) return toast('Place d\'abord le PTU de la première équipe');
-  const T = passTeams(L), X = newIsv(); X.when = L.when; X.fl = L.fl; X.acMs = L.acMs; X.hPtu = L.hPtu; X.ptu = { lat: L.ptu.lat, lng: L.ptu.lng }; X.ptuElev = L.ptuElev;
+  /* v0.51.0 (Henri) : l'équipe est créée SANS ZMT ni PTU (« ZMT à poser »). Rien n'est calculé pour elle tant qu'ils ne sont pas posés. */
+  const T = passTeams(L), X = newIsv(); X.when = L.when; X.fl = L.fl; X.acMs = L.acMs; X.hPtu = L.hPtu; X.ptu = null; X.zst = 'todo';
   X.link = { to: L.id, delay: dv('linkDelay') }; X.keepH = true; X.nameAuto = false; X.name = `${L.name} · É${T.length + 1}`;
-  current.isvs.splice(current.isvs.indexOf(T[T.length - 1]) + 1, 0, X); openIsv(X.id); toast(`Équipe ${T.length + 1} ajoutée : vert ${X.link.delay} s après le rouge de l'équipe ${T.length}`);
+  current.isvs.splice(current.isvs.indexOf(T[T.length - 1]) + 1, 0, X); current.cur = X.id; resetMarkers(); placing = null; suspended = null; passStepsTouch(); persist(); fillInputs(); draw();
+  toast(`Équipe ${T.length + 1} ajoutée : pose sa ZMT (bouton « Poser la ZMT »)`);
 });
-function setOwnZmt(p) { const I = isv(); if (!I.link) return; current.show.ptu = true; I.ozmt = { lat: p.lat, lng: p.lng }; I.ozmtElev = null; I.ozmtElevKey = null; solKey = null; persist(); refreshZmtElev(I); fillInputs(); draw(); toast('ZMT propre à cette équipe placée'); }
-$('btnOwnZ').addEventListener('click', () => startPlacing('OZ'));
-$('btnOwnZoff').addEventListener('click', () => { const I = isv(); delete I.ozmt; delete I.ozmtElev; delete I.ozmtElevKey; solKey = null; changed(); toast('Cette équipe reprend la ZMT de la zone'); });
+$('btnTeamPlace').addEventListener('click', startTeamPlace);
+$('btnPassShift').addEventListener('click', async () => { const L = passLead(isv()); if (!L) return; const f = passShiftPlan(L);
+  if (!f.ok) return toast('Aucun décalage du passage ne remet toutes les équipes dans leur zone');
+  const ok = passShift(L, f); solKey = null; persist(); fillInputs(); draw(); toast(ok ? `Passage décalé de ${fmtInt(Math.round(f.dist))} m${f.dh ? ` · cap avion ${hdg(L.vecHeading)}` : ''}` : 'Décalage impossible finalement : rien n\'a bougé'); });
+$('btnOpen4').addEventListener('click', () => { const I = isv(); I.keepH = true; passMem = {}; solKey = null; changed(); toast(`Ouverture remise à ${fmt1(+prm.tRef || 4)} s de chute pour cette équipe`); });
 onNum('i_linkDelay', v => { const I = isv(); if (I.link) I.link.delay = v; }, 0, 600);
 $('btnDupIsv').addEventListener('click', async () => {
   if (!(await askZoneName())) return;
   const src = isv(), I = clone(src); I.id = uid('i');
+  /* v0.51.0 : la copie d'une équipe d'un passage est une ISV indépendante (elle garde sa ZMT, son PTU et son vecteur, pas son lien) */
+  if (I.link || I.zsrc || passInfo(src)) { const z = zmtOf(src); delete I.link; delete I.zst; delete I.zsrc; delete I.pauto; delete I.pcap; delete I.prev; delete I.prelax; if (I.steps) delete I.steps.caps;
+    if (z && (!current.zmt || Calc.dist(z, current.zmt) > 1)) { const H = zmtHost(src); I.ozmt = { lat: z.lat, lng: z.lng }; I.ozmtElev = H.o[H.e]; I.ozmtElevKey = H.o[H.k]; } }
   /* v0.26.0 (Henri) : nom par défaut → l'originale devient « …-1 », la copie « …-2 » (puis -3, -4…) ; nom forcé → l'originale garde son nom,
      la copie prend le nom par défaut (date et heure) */
   if (src.nameAuto) { if (!src.autoSuf) src.autoSuf = 1; const base = isvAutoBase(src); I.autoSuf = 1 + Math.max(...current.isvs.filter(x => x.nameAuto && isvAutoBase(x) === base).map(x => x.autoSuf || 0)); src.name = isvAutoName(src); }
@@ -2666,11 +2964,11 @@ function loadJsPdf() {
 function dateStamp() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
 function safeName(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'zone'; }
 function pdfUpBearing() { return sol && sol.ok ? sol.cap : 0; } // le haut de la page = le cap para
-async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seule, sans bandeau, au format donné (PDF briefing) */
-  const pts = figurePoints();
+async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seule, sans bandeau, au format donné (PDF briefing) ; opts.pass (v0.51.0) = carte de tout le passage, nord en haut */
+  const PP = opts && opts.pass ? opts.pass : null, pts = PP ? PP.pts : figurePoints();
   const CRS = L.CRS.EPSG3857;
   const Z0 = 19; // pixels « monde » au zoom 19
-  const th = pdfUpBearing() * Math.PI / 180, cosT = Math.cos(th), sinT = Math.sin(th);
+  const th = (PP ? 0 : pdfUpBearing()) * Math.PI / 180, cosT = Math.cos(th), sinT = Math.sin(th);
   const P = pts.map(p => CRS.latLngToPoint(L.latLng(p.lat, p.lng), Z0));
   const c0 = { x: P.reduce((a, p) => a + p.x, 0) / P.length, y: P.reduce((a, p) => a + p.y, 0) / P.length };
   // Rotation monde → page : le cap « th » pointe vers le haut de la page
@@ -2749,12 +3047,22 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   const I = isv(), line = (pts, color, w, dash) => { if (!pts || pts.length < 2) return; g.save(); g.beginPath(); pts.forEach((ll, i) => { const q = toC(ll); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.strokeStyle = color; g.lineWidth = w * u; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash(dash ? dash.map(d => d * u) : []); g.stroke(); g.restore(); };
   const SH = current.show; /* v0.45.0 : ce qui est masqué par le bouton Affichage l'est aussi dans le PDF */
   if (SH.zrt) current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), '#ff2020', 2.2, [10, 6])); });
+  let av = null; /* point haut et altimétrie : servent aussi au bandeau du bas (piège v0.51.0 : déclaré dans le bloc, il n'existait plus après) */
+  if (PP) { /* v0.51.0 (Henri) : PDF général du passage pour l'équipage — toutes les équipes à égalité : trace, vecteur, ZMT et PTU, segments d'approche et de dégagement, point de relaxation */
+    const cib = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); shadowText(name, c.x + 16 * u, c.y + 18 * u, color, 11); };
+    PP.teams.forEach(o => { if (o.sol.ok) { line(o.sol.trace, 'rgba(0,0,0,.6)', 6.5); line(o.sol.trace, C_TRACE, 3.2); } });
+    const ppm = pxPerM(PP.pts[0]) || 1;
+    PP.segs.forEach(sg => { line(sg.line, 'rgba(0,0,0,.5)', 4.6, [9, 8]); line(sg.line, '#fff', 2.2, [9, 8]); const hd = arrowHead(sg.tip, sg.dir, 13 * u / ppm); line(hd, 'rgba(0,0,0,.5)', 5); line(hd, '#fff', 2.6); });
+    PP.teams.forEach(o => { const v = [o.sol.vec.green, o.sol.vec.red]; line(v, 'rgba(255,255,255,.9)', 9); line(v, '#000', 4.5); o.sol.vec.exits.forEach(e => dot(e, '#000', 3)); dot(v[0], C_START, 8); const c = dot(v[1], C_END, 8), m = toC({ lat: (v[0].lat + v[1].lat) / 2, lng: (v[0].lng + v[1].lng) / 2 }); shadowText(`É${o.n}`, m.x + 14 * u, m.y - 14 * u, '#fff', 14); });
+    PP.zmts.forEach(z => cib(z.ll, C_ZMT, z.name)); PP.ptus.forEach(p => { const c = dot(p.ll, C_PTU, 7); shadowText(p.name, c.x - 12 * u, c.y + 2 * u, C_PTU, 11, 'right'); });
+    { const c = toC(PP.relax.pt); g.save(); g.beginPath(); g.arc(c.x, c.y, 11 * u, 0, 2 * Math.PI); g.lineWidth = 5 * u; g.strokeStyle = '#000'; g.stroke(); g.lineWidth = 2.6 * u; g.strokeStyle = '#00e5ff'; g.stroke(); g.restore(); shadowText('Point de relaxation', c.x - 18 * u, c.y - 18 * u, '#00e5ff', 11, 'right'); }
+  } else {
   if (SH.sec) { const Z = secPolys(); if (Z.length) { g.save(); g.beginPath(); Z.forEach(r => { r.forEach((ll, i) => { const q = toC(ll); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.closePath(); }); g.fillStyle = 'rgba(255,140,0,.24)'; g.fill('nonzero'); g.restore(); } }
   if (SH.relax && sol.circleOuv.R > 0) { g.save(); g.strokeStyle = C_RELAX; g.lineWidth = 2.6 * u; g.lineJoin = 'round'; g.beginPath(); Calc.zonePts(sol.circleOuv, 1).forEach((q, i) => { const c = toC(q); if (i) g.lineTo(c.x, c.y); else g.moveTo(c.x, c.y); }); g.closePath(); g.stroke(); g.restore(); } /* v0.47.0 : contour réel de la zone de relaxation */
   /* v0.39.2 (Henri) : la carte du PDF = celle de l'appli (mêmes couleurs, mêmes étiquettes, pas d'écriture le long du vecteur ni de la trace) */
   const PB = window._stepsReady ? probSet() : { ids: new Set(), ks: new Set() };
   if (SH.lost) { const Z = lostZone(); if (Z) { line([Z.from, Z.near], C_LOST, 1.6, [4, 6]); line(Z.band, 'rgba(0,0,0,.35)', 19); line(Z.band, 'rgba(77,141,255,.75)', 15); } } /* v0.49.0 : bande de recherche d'une voile libérée, sous la trace */
-  passOthers(false).forEach(o => { const s2 = o.sol; line(s2.trace, 'rgba(0,0,0,.35)', 4); line(s2.trace, C_TRACE, 2, [7, 6]); line([s2.vec.green, s2.vec.red], 'rgba(255,255,255,.8)', 6); line([s2.vec.green, s2.vec.red], '#000', 3);
+  passOthers(false).forEach(o => { const s2 = o.sol; if (s2.ok) { line(s2.trace, 'rgba(0,0,0,.35)', 4); line(s2.trace, C_TRACE, 2, [7, 6]); } line([s2.vec.green, s2.vec.red], 'rgba(255,255,255,.8)', 6); line([s2.vec.green, s2.vec.red], '#000', 3);
     dot(s2.vec.green, C_START, 3.2); const c = dot(s2.vec.red, C_END, 3.2); shadowText(`É${o.n}`, c.x + 8 * u, c.y, '#fff', 10); if (o.I.ptu && Calc.dist(o.I.ptu, I.ptu) > 30) { const c2 = dot(o.I.ptu, C_PTU, 4.5); shadowText(`PTU É${o.n}`, c2.x + 9 * u, c2.y, C_PTU, 10); } }); /* v0.50.0 : carte commune du passage */
   if (SH.trace) { line(sol.trace, 'rgba(0,0,0,.6)', 7); line(sol.trace, C_TRACE, 3.6); }
   if (SH.trace && SH.sum) zdSpans().forEach(z => line(traceSlice(sol.trace, z.s0, z.s1), z.stale || PB.ids.has(z.zid) ? 'rgba(255,140,0,.75)' : 'rgba(179,136,255,.75)', 7, [10, 8]));
@@ -2781,8 +3089,9 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   if (SH.vec) { const OP = ouvPts(), OV = OP ? ouvVec() : null; if (OV) { OV.forEach(p => dot(p, C_OUV_END, 4.5)); OP.forEach(p => dot(p, C_TRACE, 4.5)); const c = toC(sol.attachOuv); shadowText(`OUV ${fmtInt(sol.hOpen)}`, c.x - 12 * u, c.y - 16 * u, C_TRACE, 11, 'right'); } } /* v0.46.0 : points d'ouverture roses, OUV = para sur la trace */
   if (SH.lost) { const Z = lostZone(); if (Z) [[Z.near, `${fmt1(Z.vmax)} m/s`], [Z.far, `voile libérée P${Z.i + 1} · ${fmt1(Z.vmin)} m/s`]].forEach(([q, t]) => { const c = dot(q, '#fff', 4); shadowText(t, c.x - 9 * u, c.y, '#fff', 10, 'right'); }); } /* v0.49.0 : noms à gauche, les hauteurs de la trace sont à droite */
   if (SH.oso) { (lowPoints() || []).forEach(p => dot(p, C_GREY, 4.5)); (greyPoints() || []).forEach(p => dot(p, C_LOW, 4.5)); }
-  const av = altiVals();
+  av = altiVals();
   if (SH.oso && av && av.max) { const c = toC(av.max), r = 9 * u; g.save(); g.beginPath(); g.moveTo(c.x, c.y - r); g.lineTo(c.x + r, c.y + r * .8); g.lineTo(c.x - r, c.y + r * .8); g.closePath(); g.fillStyle = '#ffd400'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); }
+  }
   // ---- Flèche du nord (coin haut gauche) ----
   const nx = 85 * u, ny = 95 * u, na = pageAngle(0);
   g.save(); g.fillStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.arc(nx, ny, 40 * u, 0, 2 * Math.PI); g.fill();
@@ -2791,7 +3100,9 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   g.restore();
   shadowText('N', nx + Math.sin(na) * 52 * u, ny - Math.cos(na) * 52 * u, '#fff', 13, 'center');
   /* v0.39.2 (Henri) : petit cartouche des caps en haut à droite, comme dans l'appli (sans l'altimétrie) */
-  if (opts && opts.W) { const l1 = `Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m`, l2 = `Cap para : ${hdg(sol.cap)} / ${fmtKm(sol.length)}`;
+  if (PP) { const l1 = `Cap avion : ${hdg(PP.h)}`; g.save(); g.font = `700 ${13 * u}px -apple-system, Helvetica, Arial, sans-serif`; const bw2 = g.measureText(l1).width + 28 * u, bh = 32 * u, bx = W - bw2 - 18 * u, by2 = 18 * u;
+    g.fillStyle = 'rgba(20,20,20,.88)'; g.beginPath(); if (g.roundRect) g.roundRect(bx, by2, bw2, bh, 10 * u); else g.rect(bx, by2, bw2, bh); g.fill(); g.fillStyle = '#fff'; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(l1, bx + bw2 - 14 * u, by2 + 16 * u); g.restore(); }
+  else if (opts && opts.W) { const l1 = `Cap avion : ${hdg(sol.vec.heading)} / ${fmtInt(sol.vec.length)} m`, l2 = `Cap para : ${capBrief(sol)} / ${fmtKm(sol.length)}`;
     g.save(); g.font = `700 ${13 * u}px -apple-system, Helvetica, Arial, sans-serif`; const bw2 = Math.max(g.measureText(l1).width, g.measureText(l2).width) + 28 * u, bh = 52 * u, bx = W - bw2 - 18 * u, by2 = 18 * u;
     g.fillStyle = 'rgba(20,20,20,.88)'; g.beginPath(); if (g.roundRect) g.roundRect(bx, by2, bw2, bh, 10 * u); else g.rect(bx, by2, bw2, bh); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(l1, bx + bw2 - 14 * u, by2 + 16 * u); g.fillText(l2, bx + bw2 - 14 * u, by2 + 36 * u); g.restore(); }
@@ -2799,7 +3110,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   // ---- Échelle graphique ----
   const by = H - band;
   const tx = (s2, x, y, c, size, bold, align) => { g.save(); g.font = `${bold ? 700 : 500} ${(size || fs) * u}px -apple-system, Helvetica, Arial, sans-serif`; g.fillStyle = c || '#eee'; g.textBaseline = 'middle'; g.textAlign = align || 'left'; g.fillText(s2, x, y); g.restore(); };
-  const mppC = 1 / pxPerM(sol.ouv);
+  const mppC = 1 / pxPerM(PP ? PP.pts[0] : sol.ouv);
   const target = W * 0.18 * mppC, nice = [50, 100, 200, 250, 500, 1000, 2000, 5000, 10000, 20000].reduce((a, b) => (b <= target ? b : a), 50);
   const barW = nice / mppC, sx = 30 * u, sy = by - 28 * u;
   g.save(); g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(sx - 10 * u, sy - 16 * u, barW + 100 * u, 32 * u);
@@ -2813,7 +3124,7 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   tx(`${current.name} — ${I.name}`, col1, l0, '#fff', fs * 1.3, true);
   tx(`Saut du ${fmtWhen(current.when).replace(' ', ' à ')} · ${wxRec && F ? wxRec.model.split(' (')[0] : 'SANS PRÉVISION DE VENT'}${zeroWind ? ' · ESSAI VENT 0' : ''}`, col1, l0 + lh * 1.2, '#bbb');
   tx(`Largage FL${sol.fl} · ${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m · ${I.team.length} para${I.team.length > 1 ? 's' : ''}`, col1, l0 + lh * 2.4, '#fff', fs, true);
-  tx(`Largage au point de relaxation ${sgn(sol.relax.before, false)} / ${sgn(sol.relax.after, true)}`, col1, /* v0.50.1 (Henri) : le point de référence du créneau est nommé partout « point de relaxation » */ l0 + lh * 3.4, '#fff', fs);
+  tx(`Créneau de largage au point de relaxation ${sg2(relOf().before)} / ${sg2(relOf().after)}`, col1, /* v0.50.1 (Henri) : le point de référence du créneau est nommé partout « point de relaxation » */ l0 + lh * 3.4, '#fff', fs);
   tx(`CAP PARA ${hdg(sol.cap)} · trace ${fmtKm(sol.length)}`, col1, l0 + lh * 4.4, C_TRACE, fs, true);
   tx(`Sous voile ${fmtMin(sol.own.tCanopy)} · dérive sous RSE ${fmtInt(sol.rseLen)} m`, col1, l0 + lh * 5.4, '#eee', fs);
   // Mis en évidence. v0.6.1 (Henri) : à droite, en bleu, dans l'ordre : prise de cap, CDO (4 s ou hauteur d'ouverture), cap para, PTU main ;
@@ -2884,14 +3195,14 @@ function briefSections() {
   });
   return out;
 }
-function pdfBriefPage(doc, mapCanvas, mapW) {
+function pdfBriefPage(doc, mapCanvas, mapW, secs0, title0) { /* v0.51.0 : secs0 / title0 = sections et titre fournis (PDF du passage, pour l'équipage) */
   const I = isv(), clean = t => String(t).replace(/[   ]/g, ' ').replace(/−/g, '-').replace(/[⚠️]/g, '').replace(/→/g, '->').replace(/≈/g, '~').replace(/\s+/g, ' ').trim();
   doc.addImage(mapCanvas.toDataURL('image/jpeg', 0.88), 'JPEG', 0, 0, mapW, 210);
-  const secs = briefSections(), x0 = mapW + 3, W = 297 - x0 - 3, kW = W * 0.40, vW = W - kW - 2;
+  const secs = secs0 || briefSections(), x0 = mapW + 3, W = 297 - x0 - 3, kW = W * 0.40, vW = W - kW - 2;
   const draw = (fs, dry) => { /* fs = taille du texte (pt) ; dry = mesurer seulement */
     const lh = fs * 0.36 + 0.35; let y = 6;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 2.5); doc.setTextColor(0);
-    const t1 = doc.splitTextToSize(clean(`${current.name} - ${I.name}`), W); if (!dry) doc.text(t1, x0, y + 3); y += t1.length * (fs + 2.5) * 0.36 + 2.5;
+    const t1 = doc.splitTextToSize(clean(title0 || `${current.name} - ${I.name}`), W); if (!dry) doc.text(t1, x0, y + 3); y += t1.length * (fs + 2.5) * 0.36 + 2.5;
     secs.forEach(sc => {
       const yTop = y; y += 1.2;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 0.5); if (!dry) { doc.setTextColor(sc.para ? 200 : 90, sc.para ? 30 : 100, sc.para ? 30 : 110); doc.text(clean(sc.title).toUpperCase(), x0 + (sc.para ? 1.5 : 0), y + lh * 0.8); }
@@ -2912,7 +3223,7 @@ function pdfBriefPage(doc, mapCanvas, mapW) {
     });
     return y;
   };
-  let fs = 7.5; while (fs > 5.5 && draw(fs, true) > 204) fs -= 0.25;
+  let fs = secs0 ? 9.5 : 7.5; while (fs > 5.5 && draw(fs, true) > 204) fs -= 0.25;
   draw(fs, false);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); doc.setTextColor(120); doc.text(clean(`trace-isv v${VERSION} - ${BASEMAPS[basemap].attr} - vents ${wxRec ? wxRec.model.split(' (')[0] : '-'} via Open-Meteo`), 294, 207.5, { align: 'right' });
   return fs;
@@ -2928,6 +3239,40 @@ $('btnPdf').addEventListener('click', async () => {
     const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     window._pdfFs = pdfBriefPage(doc, canvas, mapW); /* v0.39.0 : une seule page (l'ancien PDF de 3 pages : pdfDataPages, gardé dans le code) */
     fileReady(new File([doc.output('blob')], `${dateStamp()}_Trace_ISV_${safeName(current.name)}_${safeName(isv().name)}.pdf`, { type: 'application/pdf' }), fails ? ` (${fails} morceaux de photo manquants)` : '');
+  } catch (e) { console.error(e); toast('Échec du PDF : ' + (e && e.message ? e.message : 'erreur')); }
+  finally { b.disabled = false; b.textContent = old; }
+});
+/* v0.51.0 (Henri) : PDF GÉNÉRAL DU PASSAGE, pour l'équipage de l'avion — seulement ce qui est commun (pas les briefings des équipes) :
+   carte du passage (vecteurs, trace, ZMT et PTU de chaque équipe, approche et dégagement), axe et cap avion, FL, vitesse, vent au
+   largage, point de relaxation avec ses coordonnées, créneaux de vert en CUMULÉ, délais, dessin des sorties, effectifs.
+   Pas les coordonnées de chaque vert et de chaque rouge (décochées par Henri dans le questionnaire). */
+function passPdfData() { const I = isv(), PI = passInfo(I); if (!PI) return null; const L = PI.lead, P = passSols(L), T = P.filter(p => p.sol && p.sol.vec).map((p, k) => ({ I: p.I, sol: p.sol, n: P.indexOf(p) + 1 })), R = passRelax(L); if (!T.length || !R) return null;
+  const s0 = P[0].sol, h = s0.acHeading, a = Calc.unit(h), mv = (p, d) => Calc.fromLocal(p, { x: a.x * d, y: a.y * d }), g = T[0].sol.vec.green, r = T[T.length - 1].sol.vec.red;
+  const A = Math.max(0, +L.apprNm || 0) * 1852, E = Math.max(0, +L.exitNm || 0) * 1852, segs = []; if (A > 50) segs.push({ line: [mv(g, -A), mv(g, -30)], tip: mv(g, -30), dir: h }); if (E > 50) segs.push({ line: [mv(r, 30), mv(r, E)], tip: mv(r, E), dir: h });
+  const grp = {}; T.forEach(o => { if (!teamPlaced(o.I)) return; const id = zRoot(o.I).id; (grp[id] = grp[id] || { n: [], I: o.I }).n.push(o.n); });
+  const G = Object.values(grp), nm = x => 'É' + x.n.join(', É'), zmts = G.map(x => ({ ll: zmtOf(x.I), name: 'ZMT ' + nm(x), g: x })).filter(z => z.ll), ptus = G.filter(x => x.I.ptu).map(x => ({ ll: x.I.ptu, name: 'PTU ' + nm(x), g: x }));
+  const pts = [g, r]; T.forEach(o => { pts.push(o.sol.vec.green, o.sol.vec.red); if (o.sol.ok) o.sol.trace.forEach(q => pts.push(q)); }); segs.forEach(sg => sg.line.forEach(q => pts.push(q))); zmts.forEach(z => pts.push(z.ll)); ptus.forEach(p => pts.push(p.ll));
+  return { L, P, teams: T, relax: R, h, segs, zmts, ptus, G, pts: pts.map(q => ({ lat: q.lat, lng: q.lng })), len: Calc.dist(g, r), s0, A, E }; }
+function passPdfSecs(D) { const L = D.L, s0 = D.s0, R = D.relax, secs = [], nb = D.P.reduce((n, p) => n + p.I.team.length, 0), last = R.slots[R.slots.length - 1], first = R.slots[0];
+  secs.push({ title: 'Passage', rows: [['Zone', current.id ? current.name : 'Nouvelle zone', false], ['Date et heure', fmtWhenY(current.when), false], ['Météo', wxRec ? `${wxRec.model.split(' (')[0]}, prévision du ${fmtFetched(wxRec.fetched)}` : 'aucune prévision : calcul sans vent', false],
+    ['Équipes', `${D.P.length} équipes · ${nb} paras`, true], ['FL de largage', `FL${s0.fl}`, true], ['Cap avion (axe du passage)', hdg(D.h), true],
+    ['Vitesse de largage', `${fmt1(+L.acMs)} m/s badin (${Math.round(L.acMs * KT)} KIAS) = ${Math.round(s0.tas * KT)} kt vraie`, false], ['Vitesse sol de l\'avion', `${Math.round(s0.vg * KT)} kt (${Math.round(s0.vg)} m/s)`, false],
+    ['Vent au largage', `${Math.round(s0.windRel.spd * KT)} kt du ${hdg(s0.windRel.dir)}`, false], ['Passage', `${fmtInt(Math.round(D.len))} m du premier vert au dernier rouge${last.b != null ? ` · ${fmt1(last.b - first.a)} s` : ''}`, false],
+    ['Approche et dégagement', `${fmt1(+L.apprNm || 0)} NM avant le premier vert · ${fmt1(+L.exitNm || 0)} NM après le dernier rouge`, false]] });
+  secs.push({ title: 'Point de relaxation', rows: [['Point de relaxation', `${R.label}`, true], ['Coordonnées', fmtPos(R.pt), true]] });
+  secs.push({ title: 'Créneaux de vert (cumulés)', para: true, rows: R.slots.map(p => [`Équipe ${p.n} · ${p.I.team.length} para${p.I.team.length > 1 ? 's' : ''}`, p.sol && p.sol.ex ? `vert ${sg2(p.a)}  →  rouge ${sg2(p.b)}` : 'pas de solution', true]) });
+  if (D.P.length > 1) secs.push({ title: 'Délais entre équipes', rows: D.P.slice(1).map((p, k) => [`Rouge de l'équipe ${k + 1} → vert de l'équipe ${k + 2}`, `${fmt1(+p.I.link.delay || 0)} s`, false]) });
+  secs.push({ title: 'Sorties (intervalles)', rows: [['(marge) · intervalle entre paras · (marge) [délai entre équipes]', sortiesPass(L, false), false]] });
+  secs.push({ title: 'ZMT et PTU', rows: D.G.map(x => { const z = zmtOf(x.I); return [`Équipe${x.n.length > 1 ? 's' : ''} ${x.n.join(', ')}`, `ZMT ${z ? fmtPos(z) : '-'} · PTU ${x.I.ptu ? fmtPos(x.I.ptu) : '-'} (${fmtInt(x.I.hPtu)} m)`, false]; }).concat(D.P.filter(p => !teamPlaced(p.I)).map(p => [`Équipe ${D.P.indexOf(p) + 1}`, 'ZMT et PTU à poser', false])) });
+  return secs; }
+$('btnPassPdf').addEventListener('click', async () => {
+  compute(); const D = passPdfData(); if (!D) return toast('Pas encore de passage à plusieurs équipes');
+  const b = $('btnPassPdf'); b.disabled = true; const old = b.textContent; b.textContent = 'Préparation du PDF…';
+  try { await loadJsPdf(); const mapW = 172, PXMM = 3508 / 297;
+    const { canvas, fails } = await renderPdfCanvas({ W: Math.round(mapW * PXMM), H: 2480, u: 3.508, pass: D });
+    const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    pdfBriefPage(doc, canvas, mapW, passPdfSecs(D), `${current.name} - Passage : ${D.P.length} équipes (briefing équipage)`);
+    fileReady(new File([doc.output('blob')], `${dateStamp()}_Passage_equipage_${safeName(current.name)}_${safeName(D.L.name)}.pdf`, { type: 'application/pdf' }), fails ? ` (${fails} morceaux de photo manquants)` : '');
   } catch (e) { console.error(e); toast('Échec du PDF : ' + (e && e.message ? e.message : 'erreur')); }
   finally { b.disabled = false; b.textContent = old; }
 });
@@ -3080,7 +3425,7 @@ function stepProblems(kind) {
 /* v0.29.0 (Henri) : sommet / zone délicate sans zone de posé avant elle → elle et son point d'alerte en ORANGE (comme « à revérifier ») */
 function probSet() { const L = (sol && sol.ok) ? stepProblems('S').concat(stepProblems('zd')) : []; return { ids: new Set(L.map(x => x.id)), ks: new Set(L.map(x => x.k)) }; }
 /* v0.35.8 (Henri) : étape « caps » validée toute seule quand les DEUX caps sont à la dizaine (plus de boucle « arrondir » → trace bougée → revérifier → arrondir) */
-function capsRound() { if (!sol || !sol.ok) return false; const r = h => Math.round(magOf(h)) % 10 === 0; return r(sol.cap) && r(sol.acHeading); }
+function capsRound() { if (!sol || !sol.ok) return false; const r = h => Math.round(magOf(h)) % 10 === 0; return passInfo() ? r(sol.acHeading) : r(sol.cap) && r(sol.acHeading); } /* v0.51.0 : dans un passage, seul le cap avion s'arrondit */
 function stepRefreshBefore(id) { /* les étapes « trace » faites avant id acceptent la trace actuelle (elle n'a bougé que par l'action de l'étape id) */
   const st = STEPS.find(x => x.id === id), sig = traceSig(), I = isv(); if (!st) return;
   STEPS.slice(0, STEPS.indexOf(st)).forEach(x => { const r = (I.steps || {})[x.id]; if (x.tr && r && r.s === 'done') r.sig = sig; }); }
@@ -3147,7 +3492,7 @@ function openLowInfo() {
 }
 function applyOpenLow() {
   const q = openLowInfo(); if (!q) return; const I = isv(), g0 = traceGrid(), s0 = traceSig();
-  if (I.link) { I.keepH = false; solKey = null; compute(); } /* équipe liée : seul le mode change, le vecteur reste imposé */
+  if (passMoving(I)) { I.keepH = false; passMem = {}; solKey = null; compute(); } /* équipe d'un passage : seul le mode change, le vecteur reste imposé */
   else { I.keepH = false; I.along = { cap: q.cap }; I.manual = q.m; I.capManual = null; I.cdoRef = null; solKey = null; manualFit(); }
   I.steps = I.steps || {}; ['vec', 'oso'].forEach(id => { I.steps[id] = { s: 'done', sig: traceSig(), force: 1 }; }); rebaseSum(s0, g0);
   stepFocus = 'vec'; persist(); closeSheet(); changed(); syncSteps(); redraw();
@@ -3165,6 +3510,12 @@ function applyFlMin4() {
   toast(`FL${String(fl).padStart(3, '0')} appliqué : revérifie le vecteur de largage puis les points OSO`);
 }
 function roundCaps() {
+  if (passInfo()) { /* v0.51.0 (Henri) : jamais d'arrondi d'office — c'est cette étape, faite à la main, qui arrondit le cap avion du passage */
+    const L = passLead(isv()), s0 = passSols(L)[0].sol; if (!s0 || !s0.vec) return; const h = s0.acHeading, ca = ((Math.round(magOf(h) / 10) * 10) % 360 + 360) % 360;
+    ask(`Arrondir le cap avion du passage à la dizaine ? ${hdg(h)} → ${String(ca).padStart(3, '0')}° M. Le passage tourne autour de son milieu et rentre juste ce qu'il faut pour que toutes les équipes restent dans leur zone.`, undefined, null, 'Arrondir').then(ok => { if (!ok) return;
+      const r = passRound(L); solKey = null; if (r.ok) stepRefreshBefore('caps'); persist(); fillInputs(); redraw();
+      toast(r.ok ? `Cap avion du passage ${hdg(r.h)}${r.dist > 1 ? ` · passage rentré de ${fmtInt(Math.round(r.dist))} m` : ''}` : 'Impossible d\'arrondir : à la dizaine près, aucune position ne garde toutes les équipes dans leur zone'); });
+    return; }
   if (!sol || !sol.ok) return; const cp = Math.round(magOf(sol.cap) / 10) * 10 % 360;
   ask(`Arrondir à la dizaine ? Cap para ${hdg(sol.cap)} → ${String(cp).padStart(3, '0')}° M, puis cap avion arrondi aussi. Tu pourras ensuite forcer une autre valeur dans Prépa ISV › Données de vol.`, undefined, null, 'Arrondir').then(ok => {
     if (!ok) return; setCap(cp); compute(); if (sol && sol.ok) { const ca = Math.round(magOf(sol.acHeading) / 10) * 10 % 360; setAcH(ca); }
@@ -3182,8 +3533,14 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'zmt', z: 1, t: 'Point ZMT', d: 'Pose la zone de posé (ZMT).', auto: () => !!(current.id && current.zmt), go: () => startPlacing('Z') },
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },
   { id: 'team', t: 'Équipe', d: 'Vérifie la composition et la configuration de l\'équipe.', go: () => goSec('isv', 'Équipe') },
+  /* v0.51.0 (Henri) : passage à plusieurs équipes — pour chaque équipe : Équipe, ZMT, PTU ; une fois toutes les équipes posées :
+     Vecteur puis « Arrondir » le cap avion du passage ; ensuite seulement les étapes de trace de chaque équipe.
+     lk = équipe suivante seulement ; pa = toute équipe d'un passage ; p = étape gardée par la première équipe (commune au passage) */
+  { id: 'tzmt', lk: 1, t: 'ZMT de l\'équipe', d: 'Pose la ZMT de cette équipe. Pour prendre la même zone qu\'une autre équipe, touche SA ZMT : son PTU est repris avec, et le passage est recalé.', auto: () => isv().zst !== 'todo', go: () => startTeamPlace(), goL: 'Poser' },
+  { id: 'tptu', lk: 1, t: 'PTU de l\'équipe', d: 'Pose le PTU de cette équipe. Pointillé intérieur : possible sans rien bouger. Pointillé extérieur : possible en décalant le passage. Sa trace apparaît.', auto: () => teamPlaced(isv()), go: () => startTeamPlace(), goL: 'Poser' },
+  { id: 'pall', pa: 1, t: 'Toutes les équipes du passage posées', d: 'Chaque équipe du passage doit avoir sa ZMT et son PTU avant de vérifier le vecteur et d\'arrondir le cap avion.', auto: () => passTeams().every(teamPlaced), go: () => { const X = passTeams().find(x => !teamPlaced(x)); if (X) { if (current.cur !== X.id) openIsv(X.id); setTimeout(startTeamPlace, 60); } }, goL: 'Poser' },
   { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
-  { id: 'caps', t: 'Cap para et cap avion', tr: 1, auto: capsRound, d: 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.', go: roundCaps, goL: 'Arrondir' },
+  { id: 'caps', p: 1, t: () => (passInfo() ? 'Cap avion du passage' : 'Cap para et cap avion'), tr: 1, auto: capsRound, d: () => (passInfo() ? 'Arrondis le cap avion à la dizaine pour simplifier les consignes : le passage tourne autour de son milieu et rentre juste ce qu\'il faut pour que toutes les équipes restent dans leur zone. Ce n\'est jamais fait d\'office : « Passer » le laisse tel quel. Les caps para découlent de la position de chaque équipe ; ils sont donnés arrondis dans le Briefing.' : 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.'), go: roundCaps, goL: 'Arrondir' },
   { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
@@ -3193,8 +3550,12 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'cl', t: 'Point court et point long', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).court) && isv().points.some(q => q.kind === 'alt' && altPos(q).long),
     d: 'Pose une zone alternative en amont de la ZMT (COURT) et une en aval, au-delà du PTU (LONG) : elles se nomment toutes seules.', go: placeAlt, goL: 'Poser' },
 ];
+const stepT = st => (typeof st.t === 'function' ? st.t() : st.t), stepD = st => (typeof st.d === 'function' ? st.d() : st.d);
+const stepHost = st => (st.z ? current : (st.p && passInfo() ? passLead(isv()) : isv())); /* v0.51.0 : étape commune au passage → gardée par la première équipe */
+/* Étapes qui valent pour l'ISV ouverte : une équipe suivante n'a pas « Point ZMT » ni « PTU » de la zone mais les siens */
+function stepList() { const I = isv(), P = passInfo(I); return STEPS.filter(st => (st.lk ? !!I.link : st.pa ? !!P : !(I.link && (st.id === 'zmt' || st.id === 'ptu')))); }
 function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange : faite mais la trace a bougé), 'todo' */
-  const H = st.z ? current : isv(), r = (H.steps || {})[st.id]; /* étapes de la zone (documents, ZMT) gardées par la zone, les autres par l'ISV */
+  const H = stepHost(st), r = (H.steps || {})[st.id]; /* étapes de la zone (documents, ZMT) gardées par la zone, les autres par l'ISV */
   if (r && r.s === 'skip' && !r.force) return 'skip';
   if (st.pts && st.auto && !st.auto()) return 'todo'; /* v0.42.2, voir ci-dessous */
   if (r && r.force) return 'recheck'; /* v0.38.0 : revérification demandée (ex. FL changé pour 4 s de chute) */
@@ -3207,20 +3568,20 @@ function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange :
   if (r && r.s === 'done') return st.tr && r.sig && r.sig !== traceSig() ? 'recheck' : 'done';
   return 'todo';
 }
-function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st && st.z ? current : isv(); H.steps = H.steps || {}; if (s) H.steps[id] = { s, sig: traceSig() }; else delete H.steps[id];
+function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st ? stepHost(st) : isv(); H.steps = H.steps || {}; if (s) H.steps[id] = { s, sig: traceSig() }; else delete H.steps[id];
   /* valider une étape = accepter la trace telle qu'elle est : les étapes faites avant ne se rouvrent pas pour ce qu'on vient de faire (ex. caps arrondis) */
   if (s === 'done') stepRefreshBefore(id);
   persist(); syncSteps(); }
 const STEP_ICON = { done: '✓', skip: '⏭', recheck: '⚠', todo: '○' };
 var stepFocus = null; /* étape remise à faire par ↺ : le bandeau la montre en priorité tant qu'elle n'est ni faite ni passée */
 function syncSteps() {
-  const I = isv(), states = STEPS.map(stepState), n = STEPS.length, fi = STEPS.findIndex(x => x.id === stepFocus), open = s => s === 'todo' || s === 'recheck';
+  const I = isv(), SL = stepList(), states = SL.map(stepState), n = SL.length, fi = SL.findIndex(x => x.id === stepFocus), open = s => s === 'todo' || s === 'recheck';
   if (fi < 0 || !open(states[fi])) stepFocus = null;
   const i = stepFocus ? fi : states.findIndex(open);
   /* liste en tête de Prépa ISV */
   const ul = $('stepList');
-  if (ul) { ul.innerHTML = ''; STEPS.forEach((st, k) => { const s = states[k], li = document.createElement('li'); li.className = 'st ' + s;
-      li.innerHTML = `<span class="si">${STEP_ICON[s]}</span><span class="sn">${k + 1}. ${esc(st.t)}${s === 'recheck' ? ' <small>à revérifier</small>' : s === 'skip' ? ' <small>passée</small>' : ''}</span>`;
+  if (ul) { ul.innerHTML = ''; SL.forEach((st, k) => { const s = states[k], li = document.createElement('li'); li.className = 'st ' + s;
+      li.innerHTML = `<span class="si">${STEP_ICON[s]}</span><span class="sn">${k + 1}. ${esc(stepT(st))}${s === 'recheck' ? ' <small>à revérifier</small>' : s === 'skip' ? ' <small>passée</small>' : ''}</span>`;
       li.querySelector('.sn').onclick = () => { if (st.go) { closeSheet(); st.go(); } };
       const b = document.createElement('button'); const can = !st.auto && !st.chk;
       if (s === 'done' && can || s === 'skip') { b.textContent = '↺'; b.title = 'Remettre à faire'; b.onclick = () => { stepSet(st.id, null); stepFocus = st.id; closeSheet(); syncSteps(); }; } /* v0.37.0 (Henri) : ↺ = remettre à faire ET retour à la carte, bandeau sur CETTE étape */
@@ -3230,10 +3591,10 @@ function syncSteps() {
   /* bandeau */
   const bar = $('stepBar'); if (!bar) return;
   if (i < 0) { bar.classList.add('hidden'); syncStepBar(); return; }
-  const st = STEPS[i], s = states[i], pr = st.chk ? stepProblems(st.chk) : [];
+  const st = SL[i], s = states[i], pr = st.chk ? stepProblems(st.chk) : [];
   /* v0.35.7 (Henri : bandeaux trop gros) : explication derrière un bouton ⓘ (bulle au-dessus du bandeau, ✕ pour fermer) ; seul un contrôle en défaut reste écrit */
-  bar.innerHTML = `<div class="sh">Étape ${i + 1}/${n} · ${esc(st.t)}${s === 'recheck' ? ' <span class="rc">à revérifier</span>' : ''} <button class="sinfo" title="Explication">i</button></div><div class="sb"></div>`; /* v0.35.11 (Henri) : plus la liste des défauts dans le bandeau (les points en défaut sont orange sur la carte) ; elle reste dans la bulle ⓘ */
-  bar.querySelector('.sinfo').onclick = () => !$('stepInfo').classList.contains('hidden') ? hideStepInfo() : showStepInfo( /* v0.35.13 (Henri) : réappui sur ⓘ = fermer */(s === 'recheck' ? 'À revérifier : la trace a bougé depuis que cette étape a été faite. ' : '') + st.d + (pr.length ? ' En défaut (orange sur la carte) : ' + pr.map(x => x.txt).join(' ; ') : ''));
+  bar.innerHTML = `<div class="sh">Étape ${i + 1}/${n} · ${esc(stepT(st))}${s === 'recheck' ? ' <span class="rc">à revérifier</span>' : ''} <button class="sinfo" title="Explication">i</button></div><div class="sb"></div>`; /* v0.35.11 (Henri) : plus la liste des défauts dans le bandeau (les points en défaut sont orange sur la carte) ; elle reste dans la bulle ⓘ */
+  bar.querySelector('.sinfo').onclick = () => !$('stepInfo').classList.contains('hidden') ? hideStepInfo() : showStepInfo( /* v0.35.13 (Henri) : réappui sur ⓘ = fermer */(s === 'recheck' ? 'À revérifier : la trace a bougé depuis que cette étape a été faite. ' : '') + stepD(st) + (pr.length ? ' En défaut (orange sur la carte) : ' + pr.map(x => x.txt).join(' ; ') : ''));
   if (stepInfoFor !== st.id) hideStepInfo(); stepInfoFor = st.id;
   const sb = bar.querySelector('.sb'), btn = (t, f, c) => { const b = document.createElement('button'); b.textContent = t; if (c) b.className = c; b.onclick = f; sb.append(b); };
   if (pr.length) { btn('Reculer le point d\'alerte', () => miniBack(pr[0].k)); btn('Poser une zone', placeAlt); }
@@ -3267,8 +3628,8 @@ new MutationObserver(syncStepBar).observe($('sheet'), { attributes: true, attrib
 window.addEventListener('resize', () => setTimeout(syncStepBar, 300));
 new MutationObserver(syncStepBar).observe($('cutBox'), { attributes: true, attributeFilter: ['class'] });
 /* Briefing : étapes non faites en tête */
-function briefSteps() { const el = $('briefSteps'); if (!el) return; const L = STEPS.map((st, k) => ({ st, k, s: stepState(st) })).filter(x => x.s !== 'done');
-  el.innerHTML = L.length ? `<h3>Étapes non faites</h3><ul class="steps">${L.map(x => `<li class="st ${x.s}"><span class="si">${STEP_ICON[x.s]}</span>${x.k + 1}. ${esc(x.st.t)}${x.s === 'recheck' ? ' <small>à revérifier</small>' : x.s === 'skip' ? ' <small>passée</small>' : ''}</li>`).join('')}</ul>` : ''; }
+function briefSteps() { const el = $('briefSteps'); if (!el) return; const L = stepList().map((st, k) => ({ st, k, s: stepState(st) })).filter(x => x.s !== 'done');
+  el.innerHTML = L.length ? `<h3>Étapes non faites</h3><ul class="steps">${L.map(x => `<li class="st ${x.s}"><span class="si">${STEP_ICON[x.s]}</span>${x.k + 1}. ${esc(stepT(x.st))}${x.s === 'recheck' ? ' <small>à revérifier</small>' : x.s === 'skip' ? ' <small>passée</small>' : ''}</li>`).join('')}</ul>` : ''; }
 syncOffline();
 $('stepInfoX').addEventListener('click', hideStepInfo); $('bannerInfoX').addEventListener('click', hideBannerInfo);
 $('guideBar').checked = guideOn(); $('guideBar').addEventListener('change', e => { store.set('isv.guideBar', e.target.checked); redraw(); syncStepBar(); });
