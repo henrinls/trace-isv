@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.51.4';
+const VERSION = '0.51.5';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -69,6 +69,10 @@ function wxUrl(lats, lngs, date, src, minimal, lite) {
 const wxKey = (zid, date) => `isv.wx.${zid || 'tmp'}.${date}`;
 const wxMem = {};
 function wxCached(zid, date) { const k = wxKey(zid, date); return wxMem[k] || (wxMem[k] = store.get(k, null)); }
+/* v0.51.5 (Henri, 25/11) : une ISV importée (export d'ISV ou de zones) garde les VENTS DE L'EXPORT (wxf, porté par la première équipe du
+   passage) : rien ne se retélécharge ni ne se recalcule tout seul. « Recalculer avec la prévision actuelle » (fenêtre de l'heure) les libère. */
+function wxFrozen(date) { const I = isv(); if (!I) return null; const L = passLead(I) || I; return L.wxf && L.wxf.date === date && L.wxf.time ? L.wxf : null; }
+function wxFor(date) { return wxFrozen(date) || wxCached(current.id, date); }
 function wxWanted() { const I = isv(); return { center: I.ptu || zmtOf(I) || { lat: current.center.lat, lng: current.center.lng }, halfKm: Math.max(GRID_KM, current.gridKm || 0) }; }
 function wxFits(rec) { if (!rec || !rec.center) return false; const w = wxWanted(); return Calc.dist(rec.center, w.center) < 5000 && rec.halfKm >= w.halfKm - 0.5; }
 async function wxFetch(z, date) {
@@ -303,7 +307,7 @@ function elev0(X) {
   const I = X || isv(), ze = zmtElev(I); if (ze != null) return ze;
   if (zmtOf(I)) refreshZmtElev(I);
   if (!zmtOf(I) && typeof I.ptuElev === 'number') return I.ptuElev;
-  const rec = wxCached(current.id, current.when.slice(0, 10)); if (rec && rec.nodes && rec.nodes[4]) return Math.round(rec.nodes[4].elev);
+  const rec = wxFor(current.when.slice(0, 10)); if (rec && rec.nodes && rec.nodes[4]) return Math.round(rec.nodes[4].elev);
   return 0;
 }
 
@@ -724,7 +728,7 @@ async function passReorder(ids) { const L = passLead(isv()), T = passTeams(L), N
   solKey = null; persist(); fillInputs(); draw(); }
 function compute() {
   const I = isv();
-  wxRec = wxCached(current.id, current.when.slice(0, 10));
+  wxRec = wxFor(current.when.slice(0, 10));
   F = fieldOf(wxRec, current.when);
   if (I.link && !passLead(I)) { delete I.link; } /* la première équipe a été supprimée : l'ISV redevient indépendante */
   let inp = null, e0 = elev0();
@@ -1526,7 +1530,8 @@ $('j_hour').innerHTML = hourOpts; $('t_hour').innerHTML = hourOpts;
 function syncJump() {
   $('qWhen').innerHTML = `${fmtWhen(current.when).replace(' ', '<br>')}<br>FL${sol && sol.ok ? sol.fl : isv().fl}`;
   $('j_date').value = current.when.slice(0, 10); $('j_hour').value = current.when.slice(11, 13);
-  $('wxInfo').innerHTML = wxStatus(wxCached(current.id, current.when.slice(0, 10)), current.when);
+  const fz = wxFrozen(current.when.slice(0, 10)); $('wxInfo').innerHTML = (fz ? '<b>Vents de l\'export, gardés tels quels (rien ne se retélécharge).</b> ' : '') + wxStatus(wxFor(current.when.slice(0, 10)), current.when);
+  $('j_wxNow').classList.toggle('hidden', !fz);
 }
 const fmtFetched = ts => { const d = new Date(ts); return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} à ${pad2(d.getHours())}h${pad2(d.getMinutes())}`; };
 const wxFailed = {}; // jour → dernier téléchargement raté
@@ -1538,6 +1543,8 @@ function wxStatus(rec, when) {
 let wxBusy = false;
 async function ensureWx(force, date) {
   date = date || current.when.slice(0, 10);
+  const fz = wxFrozen(date); if (fz && !force) return fz; /* v0.51.5 : vents de l'export gardés */
+  if (force) { const L = passLead(isv()) || isv(); if (L.wxf) { delete L.wxf; persist(); } }
   const have = wxCached(current.id, date);
   if (have && !force && wxFits(have) && Date.now() - have.fetched < 3600e3 && have.rh !== undefined) return have; // prévision d'avant l'humidité (rh absent) : retéléchargée
   if (have && !force && !wxFits(have) && navigator.onLine === false) return have;
@@ -1553,6 +1560,8 @@ $('jumpOk').addEventListener('click', () => { $('jumpBox').classList.add('hidden
 $('j_minus').addEventListener('click', () => setWhen(shiftWhen(current.when, -1)));
 $('j_plus').addEventListener('click', () => setWhen(shiftWhen(current.when, 1)));
 $('j_now').addEventListener('click', () => { setWhen(nowWhen()); ensureWx(true); });
+$('j_wxNow').addEventListener('click', async () => { if (!(await ask('Abandonner les vents de l\'export et recalculer avec la prévision actuelle ? Le vecteur et la trace peuvent bouger.', undefined, null, 'Recalculer'))) return;
+  await ensureWx(true); passMem = {}; solKey = null; compute(); syncJump(); redraw(); toast('Recalculé avec la prévision actuelle'); });
 $('j_date').addEventListener('change', e => { if (e.target.value) setWhen(e.target.value + current.when.slice(10)); });
 $('j_hour').addEventListener('change', e => setWhen(current.when.slice(0, 11) + e.target.value + ':00'));
 
@@ -1595,7 +1604,7 @@ function renderWinds() {
   }
   /* v0.8.0 : par défaut à la verticale de la ZMT (demande d'Henri), visible dès la ZMT posée, avant le PTU */
   const z = zmtOf();
-  const rec = wxCached(current.id, date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = elev0();
+  const rec = wxFor(date), Fx = fieldOf(rec, tWhen), pt = z || wxWanted().center, e0 = elev0();
   $('t_date').value = date; $('t_hour').value = tWhen.slice(11, 13);
   $('t_info').innerHTML = wxStatus(rec, tWhen) + ` · à la verticale ${z ? 'de la ZMT' : isv().ptu ? 'du PTU' : 'du centre'} · hauteurs au-dessus du sol ${z ? 'de la ZMT ' : ''}(${fmtInt(e0)} m)`;
   const tb = $('windsTable').querySelector('tbody'); tb.innerHTML = '';
@@ -1606,7 +1615,7 @@ function renderWinds() {
     tb.append(tr);
   });
 }
-async function setTWhen(w) { tWhen = w; renderWinds(); if (windPt) { const p0 = windPt; await ensurePick(w.slice(0, 10)); if (windPt === p0) renderWinds(); return; } const d = w.slice(0, 10), have = wxCached(current.id, d); if (!have || Date.now() - have.fetched > 3600e3 || have.rh === undefined) { await ensureWx(false, d); renderWinds(); } }
+async function setTWhen(w) { tWhen = w; renderWinds(); if (windPt) { const p0 = windPt; await ensurePick(w.slice(0, 10)); if (windPt === p0) renderWinds(); return; } const d = w.slice(0, 10), have = wxFor(d); if (wxFrozen(d)) { renderWinds(); return; } if (!have || Date.now() - have.fetched > 3600e3 || have.rh === undefined) { await ensureWx(false, d); renderWinds(); } }
 $('qWinds').addEventListener('click', () => { const b = $('windsBox'); if (!b.classList.contains('hidden')) { b.classList.add('hidden'); syncQuick(); WindPick.sync(); return; } WindPick.reset(); b.classList.remove('hidden'); syncQuick(); setTWhen(current.when); });
 WindPick.init({ map, isOpen: () => !$('windsBox').classList.contains('hidden'),
   open: () => { $('windsBox').classList.remove('hidden'); syncQuick(); setTWhen(tWhen || current.when); },
@@ -3367,7 +3376,9 @@ async function exportKind(kind) {
   if (n === null) return;
   const who = String(n).trim(); store.set('isv.author', who);
   const obj = { app: 'trace-isv', kind, v: 1, exported: new Date().toISOString(), author: who };
-  if (kind === 'zones') obj.zones = zones; else obj.profile = prm;
+  if (kind === 'zones') { obj.zones = zones; /* v0.51.5 : vents joints (ceux de chaque ISV : figés, sinon ceux de sa zone pour sa date) */
+    obj.wx = {}; zones.forEach(z => (z.isvs || []).forEach(i => { if (i.link) return; const d = String(i.when || z.when || '').slice(0, 10); if (!d || i.wxf) return; const r = wxCached(z.id, d); if (r && r.time) obj.wx[z.id + '|' + d] = r; })); }
+  else obj.profile = prm;
   await shareJson(obj, `${dateStamp()}_Trace_ISV_${kind === 'zones' ? 'Zones' : 'Parametres'}${who ? '_' + safeName(who) : ''}.json`);
 }
 async function readJsonFile(input) {
@@ -3386,8 +3397,8 @@ $('btnImportProf').addEventListener('click', () => { $('importProfFile').value =
 $('btnExportIsv').addEventListener('click', async () => { persist(); const I = isv(), T = passTeams(I);
   const n = await ask('Ton prénom (il sera dans le nom du fichier, pour savoir de qui il vient) :', store.get('isv.author', '')); if (n === null) return;
   const who = String(n).trim(); store.set('isv.author', who); const base = ((/^(.*?) · É\d+$/.exec(T[0].name) || [])[1]) || T[0].name;
-  const obj = { app: 'trace-isv', kind: 'isvs', v: 1, exported: new Date().toISOString(), author: who, zone: { name: current.name, zmt: current.zmt || null, zmtElev: current.zmtElev, zmtElevKey: current.zmtElevKey }, isvs: clone(T) };
-  const fn = s => String(s || '').replace(/[\/\\:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim(); /* v0.51.4 (Henri) : « <zone>_<nom de l'ISV>[ (équipe multiple)].json » */
+  const obj = { app: 'trace-isv', kind: 'isvs', v: 1, exported: new Date().toISOString(), author: who, wx: wxFor((T[0].when || current.when).slice(0, 10)) || null, zone: { name: current.name, zmt: current.zmt || null, zmtElev: current.zmtElev, zmtElevKey: current.zmtElevKey }, isvs: clone(T) };
+  const fn = s => String(s || '').replace(/:/g, 'h').replace(/[\/\\*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim(); /* v0.51.4 (Henri) : « <zone>_<nom de l'ISV>[ (équipe multiple)].json » */
   await shareJson(obj, `${fn(current.name || 'zone')}_${fn(base)}${T.length > 1 ? ' (équipe multiple)' : ''}.json`); });
 $('btnImportIsv').addEventListener('click', () => { $('importIsvFile').value = ''; $('importIsvFile').click(); });
 $('importIsvFile').addEventListener('change', async e => {
@@ -3400,6 +3411,7 @@ $('importIsvFile').addEventListener('change', async e => {
     (o.team || []).forEach(p => { if (!prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; });
     if (!o.ozmt && !o.zsrc && Z && (!current.zmt || Calc.dist(current.zmt, Z.zmt) > 30)) { o.ozmt = { lat: Z.zmt.lat, lng: Z.zmt.lng }; o.ozmtElev = Z.zmtElev; o.ozmtElevKey = Z.zmtElevKey; } });
   if (!current.zmt && Z) X.forEach(o => { if (o.ozmt && Calc.dist(o.ozmt, Z.zmt) <= 30 && !current.zmt) { current.zmt = { lat: Z.zmt.lat, lng: Z.zmt.lng }; current.zmtElev = Z.zmtElev; current.zmtElevKey = Z.zmtElevKey; } if (o.ozmt && current.zmt && Calc.dist(o.ozmt, current.zmt) <= 30) { delete o.ozmt; delete o.ozmtElev; delete o.ozmtElevKey; } });
+  { const L0 = X.find(o => !o.link) || X[0]; if (d.wx && d.wx.time) L0.wxf = d.wx; } /* v0.51.5 : vents de l'export gardés */
   current.isvs.push(...X); current.cur = X[0].id; passMem = {}; solKey = null; resetMarkers(); placing = null; persist(); fillInputs(); draw(); if (sol && (sol.ok || sol.pend)) fitFigure(); refreshPtuElev();
   toast(`${X.length > 1 ? `${X.length} ISV importées (passage complet)` : 'ISV importée'}${fromWho(d)} dans « ${current.name || 'la zone ouverte'} »`); });
 $('importZonesFile').addEventListener('change', async e => {
@@ -3411,6 +3423,7 @@ $('importZonesFile').addEventListener('change', async e => {
     if (!z.id) z.id = 'z' + Date.now() + Math.random().toString(36).slice(2, 6);
     if (zones.some(x => x.id === z.id)) { kept++; return; }
     z.isvs.forEach(i => i.team.forEach(p => { if (!prm.canopies.some(c => c.id === p.canopy)) p.canopy = prm.canopies[0].id; }));
+    z.isvs.forEach(i => { if (i.link || i.wxf) return; const r = d.wx && d.wx[z.id + '|' + String(i.when || z.when || '').slice(0, 10)]; if (r && r.time) i.wxf = r; }); /* v0.51.5 : vents de l'export gardés */
     zones.push(z); added++;
   });
   store.set('isv.zones', zones); fillInputs(); redraw();
