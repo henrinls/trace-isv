@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.51.3">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.51.4">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.51.3">
+<link rel="stylesheet" href="style.css?v=0.51.4">
 </head>
 <body>
 <div id="map"></div>
@@ -148,6 +148,9 @@
     <ul id="isvList"></ul>
     <div class="row grid2"><button id="btnNewIsv">＋ Nouvelle ISV</button><button id="btnDupIsv">⧉ Dupliquer l'ISV ouverte</button></div>
     <div class="row"><button id="btnAddTeam" class="wide">＋ Équipe suivante sur le même passage</button></div>
+    <div class="row grid2"><button id="btnExportIsv">⬆︎ Exporter l'ISV</button><button id="btnImportIsv">⬇︎ Importer des ISV</button></div>
+    <input type="file" id="importIsvFile" accept=".json,application/json" class="hidden">
+    <p class="hint">Exporter l'ISV ouverte ; si elle est liée à d'autres équipes du même passage, toutes les équipes liées partent dans le fichier. Importer ajoute les ISV du fichier à la zone ouverte (un passage revient entier, ses équipes toujours liées), sans rien modifier ni effacer.</p>
     <h3>Avion : approche et dégagement</h3>
     <div class="grid2">
       <div><label>Approche avant le premier vert (NM)</label><input id="i_apprNm" inputmode="decimal"></div>
@@ -157,6 +160,7 @@
     <div id="linkBox" class="hidden">
       <h3>Passage commun</h3>
       <p class="calc" id="linkInfo"></p>
+      <div class="grid2"><div><label>Nom de l'équipe (facultatif)</label><input id="i_teamName" placeholder="ex. Alpha"></div><div></div></div>
       <div class="grid2" id="linkDelayRow"><div><label>Délai après le rouge de l'équipe précédente (s)</label><input id="i_linkDelay" inputmode="numeric"></div><div></div></div>
       <p class="hint" id="teamZInfo"></p>
       <div class="row"><button id="btnTeamPlace" class="wide">📍 Poser la ZMT</button></div>
@@ -275,6 +279,7 @@
     <div class="grid2">
       <div><label>Marge au-dessus d'un sommet ou d'une fin de zone délicate (m)</label><input id="p_sumMargin" inputmode="numeric"></div>
       <div><label>Trace considérée comme déplacée au-delà de (m)</label><input id="p_routeTol" inputmode="numeric"></div>
+      <div><label>Zone de posé après une zone délicate : à moins de (km) de sa fin</label><input id="p_zdAfterKm" inputmode="decimal"></div><div></div>
     </div>
     <p class="hint">« La trace a bougé, revérifie… » (bandeaux jaunes, sommets, zones délicates) n'apparaît que si la route au sol s'est vraiment écartée de plus de cette distance. Une trace raccourcie par le haut (ouverture abaissée), des hauteurs qui changent (ZMT déplacée) ou un point de la trace en plus ou en moins sur la même route ne comptent pas.</p>
     <p class="hint">Un sommet S posé depuis la coupe se place sur le point le plus haut du terrain dans un cercle autour de l'endroit choisi sur la trace (rayon = longueur du vecteur de largage). Le point de la trace avant le sommet ou le début de la zone délicate prend « -MINI » : la hauteur alti minimale pour passer avec cette marge.</p>
@@ -373,18 +378,18 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.51.3"></script>
-<script src="vendor/leaflet-rotate.js?v=0.51.3"></script>
-<script src="vendor/mgrs.min.js?v=0.51.3"></script>
-<script src="geo.js?v=0.51.3"></script>
-<script src="clubs.js?v=0.51.3"></script>
-<script src="wmm.js?v=0.51.3"></script>
-<script src="calc.js?v=0.51.3"></script>
-<script src="pass.js?v=0.51.3"></script>
-<script src="windpick.js?v=0.51.3"></script>
-<script src="pdfview.js?v=0.51.3"></script>
-<script src="lpmove.js?v=0.51.3"></script>
-<script src="app.js?v=0.51.3"></script>
-<script src="photo.js?v=0.51.3"></script>
+<script src="vendor/leaflet.js?v=0.51.4"></script>
+<script src="vendor/leaflet-rotate.js?v=0.51.4"></script>
+<script src="vendor/mgrs.min.js?v=0.51.4"></script>
+<script src="geo.js?v=0.51.4"></script>
+<script src="clubs.js?v=0.51.4"></script>
+<script src="wmm.js?v=0.51.4"></script>
+<script src="calc.js?v=0.51.4"></script>
+<script src="pass.js?v=0.51.4"></script>
+<script src="windpick.js?v=0.51.4"></script>
+<script src="pdfview.js?v=0.51.4"></script>
+<script src="lpmove.js?v=0.51.4"></script>
+<script src="app.js?v=0.51.4"></script>
+<script src="photo.js?v=0.51.4"></script>
 </body>
 </html>
