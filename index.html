@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.51.5">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.52.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.51.5">
+<link rel="stylesheet" href="style.css?v=0.52.0">
 </head>
 <body>
 <div id="map"></div>
@@ -22,7 +22,7 @@
     <button id="btnParams" class="pill" title="Paramètres">⚙ Paramètres</button>
     <button id="btnZones" class="pill" title="Zones et ISV">☰ <span id="zoneName">Nouvelle zone</span><small id="isvName"></small></button>
   </div>
-  <div class="spacer"></div>
+  <div class="spacer"><div id="insignes" class="hidden"><img id="insGapImg" alt="GAP"><img id="insStatImg" alt="STAT"></div></div>
   <div class="rightcol">
     <div class="rbtns">
       <button id="btnNorth" class="round" title="Nord en haut"><span id="compassNeedle">▲<small>N</small></span></button>
@@ -105,10 +105,10 @@
     <div class="row seg segbm">
       <button id="bmEsri">🛰 Satellite</button>
       <button id="bmIgn">✈︎ IGN France</button>
-      <button id="bmPhoto">📷 Photo calée</button>
+      <button id="bmPhoto">🗺 Carte géoréf.</button>
     </div>
-    <p class="hint">IGN : photos aériennes officielles, souvent plus nettes et plus récentes, mais seulement en France. Photo calée : ta propre photo (ou image) de la zone, posée sur la carte ; autour d'elle, le dernier fond choisi. Le hors-ligne et le PDF utilisent le fond choisi.</p>
-    <p class="hint warnline" id="photoWarn">⚠️ Photo calée : uniquement une photo prise <b>à la verticale</b> (drone ou avion, appareil pointé droit vers le sol). Une photo oblique ne peut pas se caler sur la carte.</p>
+    <p class="hint">IGN : photos aériennes officielles, souvent plus nettes et plus récentes, mais seulement en France. Carte géoréférencée : ta propre carte, photo ou image de la zone, calée à la main sur la carte (la lecture directe des cartes GeoTIFF déjà géoréférencées arrive dans une prochaine version) ; autour d'elle, le dernier fond choisi. Le hors-ligne et le PDF utilisent le fond choisi.</p>
+    <p class="hint warnline" id="photoWarn">⚠️ Carte géoréférencée à partir d'une photo : uniquement une photo prise <b>à la verticale</b> (drone ou avion, appareil pointé droit vers le sol). Une photo oblique ne peut pas se caler sur la carte.</p>
     <input type="file" id="photoFile" accept="image/*" class="hidden">
     <div id="photoCtl" class="hidden">
       <div class="row grid2"><button id="photoRecal" class="wide">🎯 Recaler</button><button id="btnPhoto" class="wide">📷 Remplacer la photo</button></div>
@@ -117,11 +117,18 @@
     </div>
     <p class="hint">Calage en 4 appuis : un point sur la photo, le même sur la carte, puis un 2e point loin du premier. La photo reste sur ce téléphone (pas dans l'export).</p>
 
-    <h3>ZRT (zones d'exclusion aérienne)</h3>
-    <div class="row"><button id="btnZrt" class="wide">⬇︎ Importer un tracé (KML, KMZ ou GPX)</button></div>
-    <input type="file" id="zrtFile" accept=".kml,.kmz,.gpx,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml" class="hidden">
+    <h3>ZRT et zones de danger (couches importées)</h3>
+    <div class="row"><button id="btnZrt" class="wide">⬇︎ Importer des fichiers (KML, KMZ, GPX ou GeoJSON)</button></div>
+    <input type="file" id="zrtFile" multiple accept=".kml,.kmz,.gpx,.geojson,.json,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/gpx+xml,application/geo+json,application/json" class="hidden">
     <ul id="zrtList"></ul>
-    <p class="hint">Affichage seulement : les ZRT ne changent rien au calcul. Une image se cale avec « Photo calée » dans « Fond de carte » ci-dessus.</p>
+    <p class="hint">Aucun, un ou plusieurs fichiers ; à l'import, tu choisis le type (ZRT en rouge, zone de danger en orange, autre en violet). Chaque fichier s'affiche ou se masque dans le bouton Affichage. Affichage seulement : rien ne change dans le calcul.</p>
+
+    <h3>Lignes électriques (indicatif)</h3>
+    <p class="calc" id="pwInfo"></p>
+    <div class="row grid2"><button id="btnPwGet">🔄 Télécharger maintenant</button><button id="btnPwDel" class="danger">🗑 Retirer</button></div>
+    <div class="row grid2"><button id="btnPwExp">⬆︎ Exporter (GeoJSON)</button><button id="btnPwImp">⬇︎ Importer (GeoJSON)</button></div>
+    <input type="file" id="pwFile" accept=".geojson,.json,application/geo+json,application/json" class="hidden">
+    <p class="hint">Source : OpenStreetMap (© contributeurs OpenStreetMap, ODbL), sans garantie d'exhaustivité ni de précision : une ligne absente d'OpenStreetMap est absente ici. Avec Internet, l'appli les télécharge toute seule autour de la ZMT (rayon réglable dans Param › Internet). Masquées par défaut : bouton Affichage. Pour la version autonome : « Exporter », clé USB, puis « Importer ».</p>
 
     <h3>Carte des altitudes topographiques</h3>
     <p class="hint">Import Internet automatique.</p>
@@ -136,6 +143,11 @@
     </div>
     <input type="file" id="importZonesFile" accept=".json,application/json" class="hidden">
     <div class="row"><button id="btnWipe" class="wide danger">🗑 Effacer toutes les zones</button></div>
+
+    <h3>Archive automatique des préparations</h3>
+    <p class="calc" id="archInfo"></p>
+    <div class="row grid2"><button id="btnArchDir">📁 Choisir le dossier</button><button id="btnArchNow">💾 Archiver maintenant</button></div>
+    <p class="hint">Un fichier par préparation (une ISV, ou tout un passage), au même format que « Exporter l'ISV » (réimportable), mis à jour tout seul à chaque modification. Seul Edge (ou Chrome) sur ordinateur sait écrire dans un dossier ; ailleurs (Firefox, téléphone), « Archiver maintenant » télécharge le fichier.</p>
     <p class="hint">Exporter crée un fichier avec toutes tes zones et leurs ISV. Importer ajoute les zones d'un tel fichier aux tiennes, sans jamais en modifier ni en effacer.</p>
   </div>
 
@@ -248,7 +260,13 @@
     <!-- v0.31.0 : onglet réorganisé par paragraphes (demande d'Henri) -->
     <h3>Internet</h3>
     <label class="chk"><input type="checkbox" id="p_offline"> <b>Mode autonome : ne rien chercher sur Internet</b></label>
-    <p class="hint">Coché : l'appli ne télécharge plus rien (vents, altitudes, fonds de carte, recherche de lieux) ; elle travaille avec ce qui est déjà sur le téléphone et ce que tu importes. Décoché : elle va chercher sur Internet ce dont elle a besoin.</p>
+    <p class="hint">Coché : l'appli ne télécharge plus rien (vents, altitudes, fonds de carte, recherche de lieux, lignes électriques) ; elle travaille avec ce qui est déjà sur le téléphone et ce que tu importes. Décoché : elle va chercher sur Internet ce dont elle a besoin.</p>
+    <p class="hint" id="saNote"></p>
+    <div class="row" id="saRow"><button id="btnStandalone" class="wide">📦 Créer l'appli standalone (fichier HTML)</button></div>
+    <p class="hint" id="saHint">Crée un seul fichier HTML qui contient toute l'appli, toujours en mode autonome (sans Internet), pour un poste Intradef ou un PC autonome : enregistre-le, passe-le par clé USB, ouvre-le avec <b>Edge</b>. À chaque nouvelle version de l'appli, recrée-le. Les préparations restent dans le navigateur du poste, pas dans le fichier.</p>
+    <div class="grid2">
+      <div><label>Lignes électriques : rayon autour de la ZMT (km)</label><input id="p_plKm" inputmode="numeric"></div><div></div>
+    </div>
 
     <div class="grid2">
       <div><label>Hors-ligne d'une zone : rayon autour de la ZMT (km)</label><input id="p_offKm" inputmode="numeric"></div><div></div>
@@ -312,6 +330,14 @@
       <div><label>Délai entre deux équipes d'un même passage (s)</label><input id="d_linkDelay" inputmode="numeric"></div>
     </div>
     <p class="hint">Ces valeurs servent à créer une nouvelle ISV ou un nouveau para ; les changer ne modifie pas les ISV qui existent déjà. Le temps de chute d'une nouvelle ISV est le temps de chute en HAHO (paragraphe Chute et ouverture). L'ouvreur de sécurité se règle ensuite para par para (Prépa ISV › Équipe) : il place le point d'ouverture OSO de chaque para, donc son point de posé OSO.</p>
+
+    <div id="insBox" class="hidden">
+    <h3>Insignes (version autonome)</h3>
+    <div class="row grid2"><button id="btnInsGap">Insigne du GAP</button><button id="btnInsStat">Insigne de la STAT</button></div>
+    <div class="row"><button id="btnInsDel" class="wide danger">🗑 Retirer les insignes</button></div>
+    <input type="file" id="insFile" accept="image/*" class="hidden">
+    <p class="hint">Affichés en haut de l'écran, seulement dans la version autonome. Ils restent sur ce poste.</p>
+    </div>
 
     <h3>Sauvegarde des paramètres</h3>
     <div class="row grid2">
@@ -378,19 +404,21 @@
 </div>
 
 <div id="toast" class="hidden"></div>
+<div id="archBar" class="hidden"><span>📁 Archive en pause</span><button id="archAllow">Autoriser</button></div>
 
-<script src="vendor/leaflet.js?v=0.51.5"></script>
-<script src="vendor/leaflet-rotate.js?v=0.51.5"></script>
-<script src="vendor/mgrs.min.js?v=0.51.5"></script>
-<script src="geo.js?v=0.51.5"></script>
-<script src="clubs.js?v=0.51.5"></script>
-<script src="wmm.js?v=0.51.5"></script>
-<script src="calc.js?v=0.51.5"></script>
-<script src="pass.js?v=0.51.5"></script>
-<script src="windpick.js?v=0.51.5"></script>
-<script src="pdfview.js?v=0.51.5"></script>
-<script src="lpmove.js?v=0.51.5"></script>
-<script src="app.js?v=0.51.5"></script>
-<script src="photo.js?v=0.51.5"></script>
+<script src="vendor/leaflet.js?v=0.52.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.52.0"></script>
+<script src="vendor/mgrs.min.js?v=0.52.0"></script>
+<script src="geo.js?v=0.52.0"></script>
+<script src="clubs.js?v=0.52.0"></script>
+<script src="wmm.js?v=0.52.0"></script>
+<script src="calc.js?v=0.52.0"></script>
+<script src="pass.js?v=0.52.0"></script>
+<script src="windpick.js?v=0.52.0"></script>
+<script src="pdfview.js?v=0.52.0"></script>
+<script src="lpmove.js?v=0.52.0"></script>
+<script src="app.js?v=0.52.0"></script>
+<script src="photo.js?v=0.52.0"></script>
+<script src="offline.js?v=0.52.0"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.51.5';
+const VERSION = '0.52.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -24,7 +24,7 @@ const isDark = c => c === '#000000';
 /* Vx, Vz et vitesse de chute : vraies à 1 000 m en atmosphère standard, pour une MTE de 150 kg. La MTE est celle du PARA
    (lui + parachute + charge), saisie dans l'équipe, 150 kg par défaut : ce n'est pas une caractéristique de la voile (v0.4.1). */
 const MTE_DEF = 150;
-const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 0.5, zdAfterKm: 1, osoFt: 1900, offKm: 200, tRef: 4,
+const DEFAULT_PARAMS = { canopies: [{ id: 'ph', name: 'Phantom', vx: 9, vz: 2, hM: 1000, mteM: 150, hOpenM: 1000, mteOpenM: 150, lossM: 100 }], margin: 20, openLoss: 100, vff: 50, sumMargin: 300, courtKm: 5, osoKm: 0.5, zdAfterKm: 1, plKm: 15, osoFt: 1900, offKm: 200, tRef: 4,
   def: { hPtu: 300, nParas: 4, mte: 150, dt: 3, tGreen: 4, tRed: 10, fl: 295, acMs: 65, secLong: 1000, secLat: 500, apprNm: 5, exitNm: 3, linkDelay: 60 }, apprV: 1, routeTol: 50, lostVmin: 4, lostVmax: 10 }; /* lostVmin / lostVmax (v0.49.0) : vitesses de chute d'une voile libérée, pour sa zone de recherche */ /* def (v0.45.0, Henri) : valeurs par défaut d'une nouvelle ISV / d'un nouveau para, réglables dans Param › Valeurs par défaut */ /* tRef (v0.37.0, Henri) : temps de chute de référence « 4 s », valeur arbitraire → réglable */ /* v0.32.0 : rayon du hors-ligne d'une zone (km) */ /* v0.30.0 : hauteur de déclenchement de l'ouvreur de sécurité (ft au-dessus du point haut), réglable */ /* v0.28.0 : point court à moins de 5 km de la ZMT */ /* v0.24.0 : marge au-dessus d'un sommet S (m) */
 const n360 = h => ((h % 360) + 360) % 360;
 const pad2 = n => String(n).padStart(2, '0');
@@ -157,7 +157,7 @@ function upgrade(z) {
   z.isvs.forEach(x => { if (x.link && x.zst === undefined) { const L = z.isvs.find(q => q.id === x.link.to && !q.link); x.zst = x.ptu ? 'ok' : 'todo'; if (L && L.ptu && x.ptu && !x.ozmt && Math.abs(L.ptu.lat - x.ptu.lat) < 1e-5 && Math.abs(L.ptu.lng - x.ptu.lng) < 1e-5) x.zsrc = L.id; } });
   if (!z.isvs.some(i => i.id === z.cur)) z.cur = z.isvs[0].id;
   z.zrt = Array.isArray(z.zrt) ? z.zrt : [];
-  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, reach: false, alt: true, sum: true, free: true, zrt: true }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
+  z.show = Object.assign({ relax: true, label: true, trace: true, vec: true, appr: true, ptu: true, oso: true, sec: false, lost: false, reach: false, alt: true, sum: true, free: true, zrt: true, power: false }, /* v0.45.0 : bouton Affichage */ typeof z.show === 'object' && z.show ? z.show : {});
   if (!z.reachV) { z.show.reach = false; z.reachV = 1; } /* v0.51.0 : les pointillés du PTU s'affichent pendant la pose, puis seulement par l'interrupteur */
   if (typeof z.when !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:00$/.test(z.when)) z.when = nowWhen(); // date et heure du saut
   /* v0.14.0 : chaque ISV a sa date et son heure (current.when = copie de celle de l'ISV ouverte) */
@@ -167,7 +167,7 @@ function upgrade(z) {
 }
 let prm = store.get('isv.profile', null) || {};
 if (prm.osoV === undefined) { if (+prm.osoKm === 2) prm.osoKm = 0.5; prm.osoV = 1; } /* v0.51.4 (Henri) : OSO à moins de 500 m des points jaunes par défaut (ancienne valeur par défaut 2 km reprise) */
-delete prm.keepPct; /* v0.51.1 (Henri) : règle d'abaissement d'office de l'ouverture supprimée, réglage retiré */
+delete prm.keepPct; if (window.ISV_STANDALONE) prm.offline = true; /* v0.52.0 : la version standalone (fichier HTML) est toujours en mode autonome */ /* v0.51.1 (Henri) : règle d'abaissement d'office de l'ouverture supprimée, réglage retiré */
 /* v0.45.1 (Henri) : approche 5 NM et dégagement 3 NM par défaut ; les 3 / 1 de la v0.45.0 jamais modifiés sont repris (paramètres et ISV) */
 if (prm.apprV === undefined && prm.def && +prm.def.apprNm === 3 && +prm.def.exitNm === 1) { prm.def.apprNm = 5; prm.def.exitNm = 3; }
 Object.keys(DEFAULT_PARAMS).forEach(k => { if (prm[k] === undefined) prm[k] = clone(DEFAULT_PARAMS[k]); });
@@ -183,7 +183,7 @@ prm.canopies.forEach(c => { if (!isFinite(+c.hM)) c.hM = 1000; if (!(+c.mteM > 0
 function openLossNow() { const I = isv(), v = I.team.map(p => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0], r = Calc.canOpenRef(c); return r == null ? null : r * Math.sqrt((+p.mte > 0 ? +p.mte : MTE_DEF) / Calc.MTE_REF); }).filter(x => x != null); return v.length ? Math.max(...v) : +prm.openLoss || 0; } /* la plus forte perte de l'équipe (choix validé par Henri : sécurité), MTE de chaque para comprise */ /* v0.31.0 : anciennes voiles = mesure de référence (1 000 m, 150 kg) */
 { const f0 = window.fetch.bind(window), TILE = /^(server\.arcgisonline\.com|data\.geopf\.fr|s3\.amazonaws\.com)$/;
   window.fetch = (u, o) => { /* v0.31.0 : mode autonome — rien vers Internet ; les tuiles passent au service worker qui ne sert que son cache */
-    try { const url = new URL(typeof u === 'string' ? u : u.url, location.href); if (prm.offline && url.origin !== location.origin && !TILE.test(url.hostname)) return Promise.reject(new Error('Mode autonome : pas d\'Internet')); } catch (e) {}
+    try { const url = new URL(typeof u === 'string' ? u : u.url, location.href); if (prm.offline && url.origin !== location.origin && (window.ISV_STANDALONE ? /^https?:$/.test(url.protocol) : !TILE.test(url.hostname))) return Promise.reject(new Error('Mode autonome : pas d\'Internet')); } catch (e) {} /* v0.52.0 : version standalone, aucune requête Internet, tuiles comprises */
     return f0(u, o); }; }
 saveProfile();
 function newZone(center) { return upgrade({ id: null, name: 'Nouvelle zone', center: center || { lat: 46.6, lng: 2.4 }, zoom: center ? 12 : 6 }); }
@@ -194,7 +194,7 @@ let stepRaf = 0;
 function persist() {
   if (window._stepsReady && !stepRaf) stepRaf = requestAnimationFrame(() => { stepRaf = 0; syncSteps(); }); /* v0.28.0 : étapes à jour après chaque changement */
   current.center = map.getCenter(); current.zoom = map.getZoom(); current.updated = Date.now();
-  store.set('isv.current', current);
+  store.set('isv.current', current); if (window.onPersist) try { window.onPersist(); } catch (e) { console.error(e); } /* v0.52.0 : archive automatique */
   if (current.id) {
     const i = zones.findIndex(z => z.id === current.id);
     if (i >= 0) { zones[i] = clone(current); store.set('isv.zones', zones); }
@@ -320,6 +320,7 @@ let baseLayer = null, tileFails = 0;
 function setBasemap(k, msg) {
   basemap = BASEMAPS[k] ? k : 'esri'; store.set('isv.basemap', basemap);
   if (baseLayer) map.removeLayer(baseLayer);
+  if (window.ISV_STANDALONE) { baseLayer = null; $('map').style.background = '#5b6168'; return; } /* v0.52.0 : version standalone, pas de fond Internet (carte géoréférencée importée seulement) */
   const B = BASEMAPS[basemap]; tileFails = 0;
   baseLayer = L.tileLayer(B.url, { maxNativeZoom: B.maxNative, maxZoom: 22, crossOrigin: 'anonymous', attribution: B.attr }).addTo(map);
   baseLayer.on('tileerror', () => { if (++tileFails === 12 && basemap === 'ign') toast('Photos IGN indisponibles ici (hors France ou pas de réseau) : repasse sur « Satellite »'); });
@@ -1177,7 +1178,8 @@ function draw(light) {
   if (!light && typeof Photo !== 'undefined') Photo.sync(); /* v0.9.0 : manquait (photo calée pas suivie au changement de zone) */
   const I = isv(), SH = current.show; fig.clearLayers(); /* SH (v0.45.0) : ce que le bouton Affichage laisse voir */
   // ZRT : affichage seulement
-  if (SH.zrt) current.zrt.forEach(z => { if (z.show === false) return; z.lines.forEach(ln => L.polyline(ln.p, { color: '#ff2020', weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
+  if (window.drawPower) drawPower(fig, !!SH.power); /* v0.52.0 : lignes électriques (masquées par défaut) */
+  current.zrt.forEach(z => { if (z.show === false) return; const kc = layerKind(z).c; z.lines.forEach(ln => L.polyline(ln.p, { color: kc, fillColor: kc, weight: 2, opacity: .9, dashArray: '10 6', fill: !!ln.c, fillOpacity: .06, interactive: false }).addTo(fig)); });
   // ZMT et PTU
   keep('zmt', SH.ptu ? zmtOf(I) : null, zmtIcon, 300, ll => { const H = zmtHost(I); H.o[H.p] = ll; /* v0.51.0 : la ZMT est portée par l'équipe qui la tient (elle peut être partagée) */ passMem = {}; solKey = null; dragRecalc(); }, () => { solKey = null; persist(); refreshZmtElev(I); fillInputs(); redraw(); },
     () => { if (placing === 'TP' && I.ozmt) { placing = 'TM'; placeBanner(); redraw(); } });
@@ -1447,7 +1449,7 @@ function changed(fit) { persist(); fillInputs(); draw(); if (fit && sol && sol.o
 const PASS_WATCH = { v_fl: 'le FL', v_ac: 'la vitesse', v_acKt: 'la vitesse', i_linkDelay: 'le délai', i_tGreen: 'la marge de début', i_tRed: 'la marge de fin' }; /* v0.51.0 : saisies après lesquelles on vérifie que chaque équipe du passage reste dans sa zone */
 function onNum(id, fn, min, max) { $(id).addEventListener('change', e => { const v = numIn(e.target); if (isNaN(v) || (min != null && v < min) || (max != null && v > max)) { toast('Valeur refusée'); fillInputs(); return; } const sn = PASS_WATCH[id] && passInfo() ? passSnap() : null; fn(v); changed(); if (sn) passAfter(PASS_WATCH[id], sn); }); }
 function fillInputs() {
-  passNames(); { const e = document.getElementById('i_teamName'); if (e && document.activeElement !== e) e.value = isv().teamName || ''; }
+  passNames(); if (window.offlineFill) try { offlineFill(); } catch (e) { console.error(e); } { const e = document.getElementById('i_teamName'); if (e && document.activeElement !== e) e.value = isv().teamName || ''; }
   compute(); // les champs affichent toujours le dernier calcul
   const I = isv();
   $('zoneName').textContent = current.id ? current.name : 'Nouvelle zone'; $('isvName').textContent = ' · ' + I.name;
@@ -1466,7 +1468,7 @@ function fillInputs() {
   $('zmtInfo').textContent = current.zmt ? fmtPos(current.zmt) : 'Pas encore placée.';
   $('ptuInfo').textContent = I.ptu ? fmtPos(I.ptu) : 'Pas encore placé.';
   $('btnPlaceZ').classList.toggle('on', placing === 'Z'); $('btnPlaceP').classList.toggle('on', placing === 'P');
-  setVal('p_margin', prm.margin); setVal('p_routeTol', prm.routeTol); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_zdAfterKm', prm.zdAfterKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_offKm', prm.offKm);
+  setVal('p_margin', prm.margin); setVal('p_routeTol', prm.routeTol); setVal('p_plKm', prm.plKm); setVal('p_vff', prm.vff); setVal('p_sumMargin', prm.sumMargin); setVal('p_courtKm', prm.courtKm); setVal('p_osoKm', prm.osoKm); setVal('p_zdAfterKm', prm.zdAfterKm); setVal('p_osoFt', prm.osoFt); setVal('p_tRef', prm.tRef); setVal('p_lostVmin', prm.lostVmin); setVal('p_lostVmax', prm.lostVmax); setVal('p_offKm', prm.offKm);
   setVal('a_long', I.secLong); setVal('a_lat', I.secLat);
   syncQuick(); syncJump();
   const open = !$('sheet').classList.contains('hidden');
@@ -1501,7 +1503,7 @@ const SHOW_ITEMS = [
   ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
   ['sum', 'Sommets et zones délicates', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#b388ff" stroke="#111" stroke-width="2"/>', true],
   ['free', 'Points libres', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#fff" stroke="#111" stroke-width="2"/>', true],
-  ['zrt', 'ZRT', '<path d="M4 6h16v12H4z" fill="#ff2020" fill-opacity=".1" stroke="#ff2020" stroke-width="2" stroke-dasharray="5 3"/>', true]];
+  ['power', 'Lignes électriques (indicatif)', '<path d="M3 18C8 10 16 10 21 18" fill="none" stroke="#000" stroke-width="4.5" opacity=".5"/><path d="M3 18C8 10 16 10 21 18" fill="none" stroke="#ffc400" stroke-width="2.4"/><path d="M12 4l-3 7h4l-2 7" fill="none" stroke="#ffc400" stroke-width="1.8"/>', false]]; /* v0.52.0 : le bouton « ZRT » global est remplacé par un bouton par couche importée */
 let showOpen = false;
 function syncShowPop() {
   const pop = $('showPop'), b = $('qShow'); if (!pop || !b) return;
@@ -1514,6 +1516,9 @@ function syncShowPop() {
   SHOW_ITEMS.filter(([k]) => k !== 'reach' || (isv().link && teamPlaced(isv())) /* v0.50.0 : seulement pour une équipe liée ; v0.51.0 : déjà posée (pendant la pose les pointillés sont toujours là) */).forEach(([k, label, svg]) => { const x = document.createElement('button'); x.className = current.show[k] ? 'on' : ''; x.title = (current.show[k] ? 'Masquer : ' : 'Afficher : ') + label;
     x.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24">${svg}</svg><span></span>`; x.querySelector('span').textContent = label;
     x.addEventListener('click', e => { e.stopPropagation(); current.show[k] = !current.show[k]; persist(); syncShowPop(); redraw(); }); pop.appendChild(x); });
+  current.zrt.forEach(z => { const on = z.show !== false, kc = layerKind(z).c, x = document.createElement('button'); x.className = on ? 'on' : ''; const label = `${layerKind(z).t} : ${z.name}`; x.title = (on ? 'Masquer : ' : 'Afficher : ') + label;
+    x.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24"><path d="M4 6h16v12H4z" fill="${kc}" fill-opacity=".12" stroke="${kc}" stroke-width="2" stroke-dasharray="5 3"/></svg><span></span>`; x.querySelector('span').textContent = label;
+    x.addEventListener('click', e => { e.stopPropagation(); z.show = !on; persist(); syncShowPop(); redraw(); fillInputs(); }); pop.appendChild(x); }); /* v0.52.0 (Henri) : un bouton par fichier importé */
   const r = b.getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - pop.offsetHeight - 8, r.top + r.height / 2 - pop.offsetHeight / 2)))}px`;
 }
 function closeShowPop() { if (showOpen) { showOpen = false; syncShowPop(); } }
@@ -2595,12 +2600,12 @@ $('btnAddCan').addEventListener('click', async () => { const n = await ask('Nom 
 /* v0.31.0 (Henri) : mode autonome — plus aucune requête vers Internet (sauf les tuiles déjà gardées sur le téléphone, servies par le
    service worker sans réseau). L'appli elle-même se met à jour comme avant (même site). */
 $('p_offline').addEventListener('change', e => { prm.offline = !!e.target.checked; saveProfile(); syncOffline(); toast(prm.offline ? 'Mode autonome : l\'appli ne va plus sur Internet' : 'Internet réactivé'); changed(); });
-function syncOffline() { $('p_offline').checked = !!prm.offline; try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ offline: !!prm.offline }); } catch (e) {} }
+function syncOffline() { $('p_offline').checked = !!prm.offline; $('p_offline').disabled = !!window.ISV_STANDALONE; try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ offline: !!prm.offline }); } catch (e) {} }
 const onPrm = (id, key, min, max) => onNum(id, v => { prm[key] = v; saveProfile(); }, min, max);
 /* v0.45.0 (Henri) : Param › Valeurs par défaut — [clé, mini, maxi] ; champs d_<clé> ; l'ouvreur de sécurité garde sa clé prm.osoFt */
 const DEF_FIELDS = [['hPtu', 0, 5000], ['nParas', 1, 60], ['mte', 30, 400], ['dt', 0, 120], ['tGreen', 0, 120], ['tRed', 0, 120], ['fl', 30, 450], ['acMs', 20, 200], ['secLong', 0, 20000], ['secLat', 0, 10000], ['apprNm', 0, 50], ['exitNm', 0, 50], ['linkDelay', 0, 600]];
 DEF_FIELDS.forEach(([k, mn, mx]) => onNum('d_' + k, v => { prm.def[k] = k === 'nParas' ? Math.round(v) : v; saveProfile(); }, mn, mx));
-onPrm('p_routeTol', 'routeTol', 1, 5000); onPrm('p_zdAfterKm', 'zdAfterKm', 0, 50); onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
+onPrm('p_routeTol', 'routeTol', 1, 5000); onPrm('p_plKm', 'plKm', 1, 60); onPrm('p_zdAfterKm', 'zdAfterKm', 0, 50); onPrm('p_lostVmin', 'lostVmin', 0.5, 60); onPrm('p_lostVmax', 'lostVmax', 0.5, 60); onPrm('p_margin', 'margin', 0, 80); onPrm('p_vff', 'vff', 20, 100); onPrm('p_sumMargin', 'sumMargin', 0, 2000); onPrm('p_courtKm', 'courtKm', 0, 100); onPrm('p_osoKm', 'osoKm', 0, 100); onPrm('p_osoFt', 'osoFt', 0, 20000); onPrm('p_tRef', 'tRef', 1, 60); onPrm('p_offKm', 'offKm', 1, 500);
 
 // ---------- Zones et ISV ----------
 function resetMarkers() { Object.keys(mk).forEach(k => { handles.removeLayer(mk[k]); delete mk[k]; }); solKey = ''; }
@@ -2813,6 +2818,14 @@ async function unzipFirst(buf, ext) { // lit le premier fichier d'un .kmz (zip) 
   }
   throw new Error('kml absent');
 }
+/* v0.52.0 (Henri) : couches importées (ZRT, zones de danger, autre) : aucune, une ou plusieurs ; chacune s'affiche ou se masque dans Affichage */
+const LAYER_KINDS = { zrt: { t: 'ZRT', c: '#ff2020' }, danger: { t: 'Zone de danger', c: '#ff8c00' }, autre: { t: 'Autre', c: '#b388ff' } };
+const layerKind = z => LAYER_KINDS[z.kind] || LAYER_KINDS.zrt;
+function parseGeoJsonLines(txt) { const js = JSON.parse(txt), out = [], r5 = v => Math.round(v * 1e5) / 1e5;
+  const ring = (c, closed) => { const p = (c || []).filter(a => Array.isArray(a) && isFinite(a[0]) && isFinite(a[1])).map(a => [r5(a[1]), r5(a[0])]); if (p.length > 1) { if (closed) p.closed = true; out.push(p); } };
+  const geom = g => { if (!g) return; const t = g.type, c = g.coordinates; if (t === 'LineString') ring(c); else if (t === 'MultiLineString') c.forEach(l => ring(l)); else if (t === 'Polygon') c.forEach(r => ring(r, true)); else if (t === 'MultiPolygon') c.forEach(pg => pg.forEach(r => ring(r, true))); else if (t === 'GeometryCollection') (g.geometries || []).forEach(geom); };
+  if (js.type === 'FeatureCollection') (js.features || []).forEach(f => geom(f && f.geometry)); else if (js.type === 'Feature') geom(js.geometry); else geom(js);
+  return out; }
 function parseTraces(txt) {
   const doc = new DOMParser().parseFromString(txt, 'text/xml'), lines = [], r5 = v => Math.round(v * 1e5) / 1e5;
   const all = tag => [...doc.getElementsByTagName('*')].filter(e => e.localName === tag);
@@ -2828,25 +2841,26 @@ function parseTraces(txt) {
 }
 $('btnZrt').addEventListener('click', async () => { if (!(await askZoneName())) return; $('zrtFile').value = ''; $('zrtFile').click(); });
 $('zrtFile').addEventListener('change', async e => {
-  const f = e.target.files && e.target.files[0]; if (!f) return;
-  try {
+  const F = [...(e.target.files || [])]; if (!F.length) return;
+  const kind = await choose(`${F.length > 1 ? `${F.length} fichiers` : `« ${F[0].name} »`} : quel type de couche ?`, [['autre', 'Autre'], ['danger', 'Zone de danger'], ['zrt', 'ZRT']]); if (!kind) return;
+  const added = [], bad = [];
+  for (const f of F) { try {
     const txt = /\.kmz$/i.test(f.name) ? await unzipFirst(await f.arrayBuffer(), '.kml') : await f.text();
-    const raw = parseTraces(txt); if (!raw.length) return toast('Aucun tracé trouvé dans ce fichier');
+    const raw = /\.(geo)?json$/i.test(f.name) || /^\s*\{/.test(txt) ? parseGeoJsonLines(txt) : parseTraces(txt); if (!raw.length) { bad.push(f.name); continue; }
     let n = 0; raw.forEach(l => { n += l.length; });
-    if (n > 20000) return toast('Fichier trop lourd (plus de 20 000 points)');
-    const z = { id: uid('r'), name: f.name.replace(/\.(kml|kmz|gpx)$/i, ''), show: true, lines: raw.map(l => ({ c: !!l.closed, p: Array.from(l) })) };
-    current.zrt.push(z);
-    persist(); fillInputs(); redraw();
-    map.fitBounds(L.latLngBounds([].concat(...z.lines.map(l => l.p))), { padding: [30, 30] });
-    toast(`ZRT « ${z.name} » : ${raw.length} tracé(s)`);
-  } catch (er) { console.error(er); toast('Fichier illisible (KML, KMZ ou GPX attendu)'); }
+    if (n > 50000) { bad.push(f.name + ' (trop lourd)'); continue; }
+    const z = { id: uid('r'), kind, name: f.name.replace(/\.(kml|kmz|gpx|geojson|json)$/i, ''), show: true, lines: raw.map(l => ({ c: !!l.closed, p: Array.from(l) })) };
+    current.zrt.push(z); added.push(z);
+  } catch (er) { console.error(er); bad.push(f.name); } }
+  if (added.length) { persist(); fillInputs(); redraw(); map.fitBounds(L.latLngBounds([].concat(...added.map(z => [].concat(...z.lines.map(l => l.p))))), { padding: [30, 30] }); }
+  toast(`${added.length ? `${LAYER_KINDS[kind].t} : ${added.length} fichier(s) importé(s)` : 'Rien d\'importé'}${bad.length ? ` · illisible : ${bad.join(', ')}` : ''}`);
 });
 function renderZrt() {
   const ul = $('zrtList'); ul.innerHTML = '';
   current.zrt.forEach(z => {
-    const li = document.createElement('li'); li.innerHTML = `<span class="zn">${esc(z.name)}</span>`;
+    const li = document.createElement('li'); li.innerHTML = `<span class="zn"><b style="color:${layerKind(z).c}">${esc(layerKind(z).t)}</b> · ${esc(z.name)}</span>`;
     const eye = document.createElement('button'); eye.textContent = z.show === false ? '🚫' : '👁'; eye.onclick = () => { z.show = z.show === false; persist(); fillInputs(); redraw(); };
-    const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => { if (!(await ask(`Retirer la ZRT « ${z.name} » ?`))) return; current.zrt = current.zrt.filter(x => x.id !== z.id); persist(); fillInputs(); redraw(); };
+    const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => { if (!(await ask(`Retirer la couche « ${z.name} » ?`))) return; current.zrt = current.zrt.filter(x => x.id !== z.id); persist(); fillInputs(); redraw(); };
     li.append(eye, del); ul.append(li);
   });
 }
@@ -3011,10 +3025,12 @@ $('btnTxt').addEventListener('click', () => {
 
 // ---------- Export PDF ----------
 let jsPdfLoading = null;
+/* v0.52.0 : dans la version standalone, les bibliothèques chargées à la demande sont dans la page (script type="text/plain" id="sa:<chemin>") */
+function saSrc(p) { const e = document.getElementById('sa:' + p); return e ? URL.createObjectURL(new Blob([e.textContent], { type: 'text/javascript' })) : p; }
 function loadJsPdf() {
   if (window.jspdf) return Promise.resolve();
   if (!jsPdfLoading) jsPdfLoading = new Promise((res, rej) => {
-    const s = document.createElement('script'); s.src = 'vendor/jspdf.umd.min.js'; s.onload = res; s.onerror = rej; document.head.append(s);
+    const s = document.createElement('script'); s.src = saSrc('vendor/jspdf.umd.min.js'); s.onload = res; s.onerror = rej; document.head.append(s);
   });
   return jsPdfLoading;
 }
@@ -3103,7 +3119,8 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
   // ---- ZRT, cercle de relaxation, trace, vecteur, points ----
   const I = isv(), line = (pts, color, w, dash) => { if (!pts || pts.length < 2) return; g.save(); g.beginPath(); pts.forEach((ll, i) => { const q = toC(ll); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.strokeStyle = color; g.lineWidth = w * u; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash(dash ? dash.map(d => d * u) : []); g.stroke(); g.restore(); };
   const SH = current.show; /* v0.45.0 : ce qui est masqué par le bouton Affichage l'est aussi dans le PDF */
-  if (SH.zrt) current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), '#ff2020', 2.2, [10, 6])); });
+  if (SH.power && window.powerLines) powerLines().forEach(l => { const q = l.p.map(a => ({ lat: a[0], lng: a[1] })); line(q, 'rgba(0,0,0,.45)', l.k === 'minor' ? 3 : 4.4); line(q, '#ffc400', l.k === 'minor' ? 1.4 : 2.2); }); /* v0.52.0 */
+  current.zrt.forEach(z => { if (z.show !== false) z.lines.forEach(ln => line(ln.p.map(a => ({ lat: a[0], lng: a[1] })), layerKind(z).c, 2.2, [10, 6])); });
   let av = null; /* point haut et altimétrie : servent aussi au bandeau du bas (piège v0.51.0 : déclaré dans le bloc, il n'existait plus après) */
   if (PP) { /* v0.51.0 (Henri) : PDF général du passage pour l'équipage — toutes les équipes à égalité : trace, vecteur, ZMT et PTU, segments d'approche et de dégagement, point de relaxation */
     const cib = (ll, color, name) => { const c = toC(ll), r = 8 * u; g.save(); g.strokeStyle = '#000'; g.lineWidth = 5 * u; g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.moveTo(c.x - 1.7 * r, c.y); g.lineTo(c.x + 1.7 * r, c.y); g.moveTo(c.x, c.y - 1.7 * r); g.lineTo(c.x, c.y + 1.7 * r); g.stroke(); g.strokeStyle = color; g.lineWidth = 2.4 * u; g.stroke(); g.restore(); shadowText(name, c.x + 16 * u, c.y + 18 * u, color, 11); };
@@ -3394,12 +3411,15 @@ $('btnImportProf').addEventListener('click', () => { $('importProfFile').value =
 /* v0.51.4 (Henri) : export / import d'UNE ISV depuis Prépa ISV ; une équipe d'un passage emporte TOUT le passage (équipes liées). À l'import :
    nouveaux identifiants (liens entre équipes refaits), ajout dans la zone ouverte ; une équipe qui utilisait la ZMT de sa zone d'origine
    la garde comme ZMT propre si la zone ouverte n'a pas la même (à 30 m près) : rien ne bouge. */
+/* v0.52.0 : objet et nom de fichier de l'export d'une ISV (passage entier), communs à l'export et à l'archive automatique */
+const fileSafe = s => String(s || '').replace(/:/g, 'h').replace(/[\/\\*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+function isvBase(T) { return ((/^(.*?) · É\d+$/.exec(T[0].name) || [])[1]) || T[0].name; }
+function isvExportName(T) { return `${fileSafe(current.name || 'zone')}_${fileSafe(isvBase(T))}${T.length > 1 ? ' (équipe multiple)' : ''}.json`; }
+function isvExportObj(T, who) { return { app: 'trace-isv', kind: 'isvs', v: 1, exported: new Date().toISOString(), author: who || '', wx: wxFor((T[0].when || current.when).slice(0, 10)) || null, zone: { name: current.name, zmt: current.zmt || null, zmtElev: current.zmtElev, zmtElevKey: current.zmtElevKey }, isvs: clone(T) }; }
 $('btnExportIsv').addEventListener('click', async () => { persist(); const I = isv(), T = passTeams(I);
   const n = await ask('Ton prénom (il sera dans le nom du fichier, pour savoir de qui il vient) :', store.get('isv.author', '')); if (n === null) return;
-  const who = String(n).trim(); store.set('isv.author', who); const base = ((/^(.*?) · É\d+$/.exec(T[0].name) || [])[1]) || T[0].name;
-  const obj = { app: 'trace-isv', kind: 'isvs', v: 1, exported: new Date().toISOString(), author: who, wx: wxFor((T[0].when || current.when).slice(0, 10)) || null, zone: { name: current.name, zmt: current.zmt || null, zmtElev: current.zmtElev, zmtElevKey: current.zmtElevKey }, isvs: clone(T) };
-  const fn = s => String(s || '').replace(/:/g, 'h').replace(/[\/\\*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim(); /* v0.51.4 (Henri) : « <zone>_<nom de l'ISV>[ (équipe multiple)].json » */
-  await shareJson(obj, `${fn(current.name || 'zone')}_${fn(base)}${T.length > 1 ? ' (équipe multiple)' : ''}.json`); });
+  const who = String(n).trim(); store.set('isv.author', who);
+  await shareJson(isvExportObj(T, who), isvExportName(T)); });
 $('btnImportIsv').addEventListener('click', () => { $('importIsvFile').value = ''; $('importIsvFile').click(); });
 $('importIsvFile').addEventListener('change', async e => {
   const d = await readJsonFile(e.target); if (!d) return;
@@ -3624,9 +3644,9 @@ function roundCaps() {
 function fitVec() { if (!sol || !sol.ok) return; const pts = [sol.vec.green, sol.vec.red]; (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p)); closeSheet(); fitBox(pts); }
 const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après les caps, zones intermédiaires juste avant court/long */
   { id: 'zone', z: 1, t: 'Créer la zone', d: 'Crée la zone (☰ › ＋ Nouvelle zone) : ses documents et sa ZMT lui appartiennent.', auto: () => !!current.id, go: () => { closeSheet(); $('btnNewZone').click(); } },
-  { id: 'fond', z: 1, t: 'Fond de carte', d: 'Choisis le fond de carte : satellite, IGN France ou photo calée.', go: () => goSec('zones', 'Fond de carte') },
+  { id: 'fond', z: 1, t: 'Fond de carte', d: 'Choisis le fond de carte : satellite, IGN France ou carte géoréférencée.', go: () => goSec('zones', 'Fond de carte') },
   { id: 'alti', z: 1, t: 'Carte des altitudes', d: 'Import Internet automatique.', go: () => goSec('zones', 'Carte des altitudes') },
-  { id: 'zrt', z: 1, t: 'ZRT', d: 'Importe la ZRT (KML, KMZ ou GPX). Pas de fichier : passe.', auto: () => current.zrt.length > 0, go: () => goSec('zones', 'ZRT') },
+  { id: 'zrt', z: 1, t: 'ZRT et zones de danger', d: 'Importe les ZRT et les zones de danger (KML, KMZ, GPX ou GeoJSON ; un ou plusieurs fichiers). Pas de fichier : passe.', auto: () => current.zrt.length > 0, go: () => goSec('zones', 'ZRT') },
   { id: 'wx', z: 1, t: 'Données météo (vents)', d: 'Import Internet automatique : vérifie la date et l\'heure du saut.', auto: () => !!wxRec, go: () => goSec('zones', 'Données météo') },
   { id: 'zmt', z: 1, t: 'Point ZMT', d: 'Pose la zone de posé (ZMT).', auto: () => !!(current.id && current.zmt), go: () => startPlacing('Z') },
   { id: 'ptu', t: 'Point d\'entrée PTU', d: 'Pose le PTU : la trace apparaît.', auto: () => !!isv().ptu, go: () => startPlacing('P') },

@@ -364,3 +364,8 @@ h3.hgchk{display:flex;align-items:center;gap:8px}.gchk{display:inline-flex;align
 #chBtns.hidden{display:none}
 .ptulab{pointer-events:none}.ptulab span{position:absolute;white-space:nowrap;font:700 12px/1 -apple-system,system-ui,sans-serif;color:#ffd400;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;transform-origin:center}
 #isvList li .tplace{flex:none;padding:6px 10px;font-size:13px}#isvList li .zhandle{flex:none}
+
+/* v0.52.0 : insignes (version autonome), barre d'archive en pause */
+#top .spacer{display:flex;justify-content:center}#insignes{display:flex;gap:8px;pointer-events:none}#insignes img{height:46px;width:auto;max-width:60px;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,.8))}#insignes img:not([src]),#insignes img[src=""]{display:none}
+#archBar{position:fixed;left:10px;bottom:calc(64px + env(safe-area-inset-bottom));z-index:1200;background:rgba(20,20,20,.92);color:#fff;border:1px solid #ffd400;border-radius:10px;padding:6px 8px;display:flex;gap:8px;align-items:center;font-size:13px}#archBar button{background:#ffd400;color:#111;border:0;border-radius:8px;padding:6px 10px;font-weight:700}
+#top .spacer{min-width:0;overflow:hidden}@media (max-width:700px){#insignes img{height:30px;max-width:34px}#insignes{gap:4px}}

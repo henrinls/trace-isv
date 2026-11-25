@@ -5,8 +5,8 @@
 (function (root) {
   let lib = null, box = null, zoom = 1, cur = null;
   const load = () => lib || (lib = new Promise((res, rej) => {
-    const s = document.createElement('script'); s.src = 'vendor/pdfjs/pdf.min.js';
-    s.onload = () => { const L = root.pdfjsLib; if (!L) return rej(new Error('pdf.js')); L.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; res(L); };
+    const s = document.createElement('script'); s.src = (typeof saSrc === 'function' ? saSrc : p => p)('vendor/pdfjs/pdf.min.js');
+    s.onload = () => { const L = root.pdfjsLib; if (!L) return rej(new Error('pdf.js')); L.GlobalWorkerOptions.workerSrc = (typeof saSrc === 'function' ? saSrc : p => p)('vendor/pdfjs/pdf.worker.min.js'); res(L); };
     s.onerror = () => { lib = null; rej(new Error('pdf.js')); }; document.head.append(s);
   }));
   function css() {
