@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.2';
+const VERSION = '0.52.3';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1496,14 +1496,14 @@ const SHOW_ITEMS = [
   ['vec', 'Vecteur de largage', '<path d="M5 19L19 5" stroke="#fff" stroke-width="6"/><path d="M5 19L19 5" stroke="#000" stroke-width="3"/><circle cx="5" cy="19" r="4" fill="#1ec83c" stroke="#111"/><circle cx="19" cy="5" r="4" fill="#ff2020" stroke="#111"/>', true],
   ['appr', 'Approche et dégagement', '<path d="M3 20L15 8" stroke="#fff" stroke-width="2.4" stroke-dasharray="4 3"/><path d="M12 6h7v7" fill="none" stroke="#fff" stroke-width="2.4"/>', true],
   ['ptu', 'PTU et ZMT', '<circle cx="8" cy="12" r="5" fill="#ffd400" stroke="#111" stroke-width="2"/><circle cx="17" cy="12" r="4" fill="none" stroke="#ff8c00" stroke-width="2.4"/><path d="M17 5v14M10.5 12h13" stroke="#ff8c00" stroke-width="1.6"/>', true],
-  ['oso', 'Points OSO et point haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
+  ['oso', 'Points OSO et haut', '<circle cx="6" cy="16" r="4" fill="#9a9a9a" stroke="#000" stroke-width="1.5"/><circle cx="15" cy="17" r="4" fill="#ffe600" stroke="#000" stroke-width="1.5"/><path d="M17 3l5 9H12z" fill="#ffd400" stroke="#000" stroke-width="1.2"/>', true],
   ['sec', 'Zone de sécurité', '<path d="M3 9l8-5 10 6v8l-9 3-9-5z" fill="#ff8c00" fill-opacity=".45" stroke="#ff8c00" stroke-width="1.4"/>', false],
-  ['reach', 'Zones où le PTU de l\'équipe est possible', '<circle cx="12" cy="12" r="8" fill="none" stroke="#ffd400" stroke-width="2.2" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2.6" fill="#ffd400" stroke="#111"/>', false],
-  ['lost', 'Recherche d\'une voile libérée', '<path d="M4 19L20 6" stroke="#000" stroke-width="7" stroke-linecap="round" opacity=".5"/><path d="M4 19L20 6" stroke="#4d8dff" stroke-width="4.5" stroke-linecap="round"/><circle cx="4" cy="19" r="2.6" fill="#fff" stroke="#000"/><circle cx="20" cy="6" r="2.6" fill="#fff" stroke="#000"/>', false],
-  ['alt', 'Zones de posé alternatives', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
-  ['sum', 'Sommets et zones délicates', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#b388ff" stroke="#111" stroke-width="2"/>', true],
+  ['reach', 'Zones PTU possible', '<circle cx="12" cy="12" r="8" fill="none" stroke="#ffd400" stroke-width="2.2" stroke-dasharray="4 3"/><circle cx="12" cy="12" r="2.6" fill="#ffd400" stroke="#111"/>', false],
+  ['lost', 'Voile libérée', '<path d="M4 19L20 6" stroke="#000" stroke-width="7" stroke-linecap="round" opacity=".5"/><path d="M4 19L20 6" stroke="#4d8dff" stroke-width="4.5" stroke-linecap="round"/><circle cx="4" cy="19" r="2.6" fill="#fff" stroke="#000"/><circle cx="20" cy="6" r="2.6" fill="#fff" stroke="#000"/>', false],
+  ['alt', 'Zones de posé', '<circle cx="12" cy="12" r="6" fill="none" stroke="#000" stroke-width="4.5"/><circle cx="12" cy="12" r="6" fill="none" stroke="#ff2020" stroke-width="2.6"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#ff2020" stroke-width="2.2"/>', true],
+  ['sum', 'Sommets, zones délicates', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#b388ff" stroke="#111" stroke-width="2"/>', true],
   ['free', 'Points libres', '<rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#fff" stroke="#111" stroke-width="2"/>', true],
-  ['power', 'Lignes électriques (indicatif)', '<path d="M3 18C8 10 16 10 21 18" fill="none" stroke="#000" stroke-width="4.5" opacity=".5"/><path d="M3 18C8 10 16 10 21 18" fill="none" stroke="#ffc400" stroke-width="2.4"/><path d="M12 4l-3 7h4l-2 7" fill="none" stroke="#ffc400" stroke-width="1.8"/>', false]]; /* v0.52.0 : le bouton « ZRT » global est remplacé par un bouton par couche importée */
+  ['power', 'Lignes électriques', '<path d="M3 18C8 10 16 10 21 18" fill="none" stroke="#000" stroke-width="4.5" opacity=".5"/><path d="M3 18C8 10 16 10 21 18" fill="none" stroke="#ffc400" stroke-width="2.4"/><path d="M12 4l-3 7h4l-2 7" fill="none" stroke="#ffc400" stroke-width="1.8"/>', false]]; /* v0.52.0 : le bouton « ZRT » global est remplacé par un bouton par couche importée */
 let showOpen = false;
 function syncShowPop() {
   const pop = $('showPop'), b = $('qShow'); if (!pop || !b) return;
@@ -1519,7 +1519,7 @@ function syncShowPop() {
   current.zrt.forEach(z => { const on = z.show !== false, kc = layerKind(z).c, x = document.createElement('button'); x.className = on ? 'on' : ''; const label = `${layerKind(z).t} : ${z.name}`; x.title = (on ? 'Masquer : ' : 'Afficher : ') + label;
     x.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24"><path d="M4 6h16v12H4z" fill="${kc}" fill-opacity=".12" stroke="${kc}" stroke-width="2" stroke-dasharray="5 3"/></svg><span></span>`; x.querySelector('span').textContent = label;
     x.addEventListener('click', e => { e.stopPropagation(); z.show = !on; persist(); syncShowPop(); redraw(); fillInputs(); }); pop.appendChild(x); }); /* v0.52.0 (Henri) : un bouton par fichier importé */
-  const r = b.getBoundingClientRect(); pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - pop.offsetHeight - 8, r.top + r.height / 2 - pop.offsetHeight / 2)))}px`;
+  const r = b.getBoundingClientRect(); pop.style.maxWidth = `${Math.round(innerWidth - r.right - 12)}px`; pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - pop.offsetHeight - 8, r.top + r.height / 2 - pop.offsetHeight / 2)))}px`;
 }
 function closeShowPop() { if (showOpen) { showOpen = false; syncShowPop(); } }
 $('qShow').addEventListener('click', () => { showOpen = !showOpen; if (showOpen) closeSheet(); syncShowPop(); });
