@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.52.0">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.52.1">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.52.0">
+<link rel="stylesheet" href="style.css?v=0.52.1">
 </head>
 <body>
 <div id="map"></div>
@@ -128,7 +128,7 @@
     <div class="row grid2"><button id="btnPwGet">🔄 Télécharger maintenant</button><button id="btnPwDel" class="danger">🗑 Retirer</button></div>
     <div class="row grid2"><button id="btnPwExp">⬆︎ Exporter (GeoJSON)</button><button id="btnPwImp">⬇︎ Importer (GeoJSON)</button></div>
     <input type="file" id="pwFile" accept=".geojson,.json,application/geo+json,application/json" class="hidden">
-    <p class="hint">Source : OpenStreetMap (© contributeurs OpenStreetMap, ODbL), sans garantie d'exhaustivité ni de précision : une ligne absente d'OpenStreetMap est absente ici. Avec Internet, l'appli les télécharge toute seule autour de la ZMT (rayon réglable dans Param › Internet). Masquées par défaut : bouton Affichage. Pour la version autonome : « Exporter », clé USB, puis « Importer ».</p>
+    <p class="hint">Source : OpenStreetMap (© contributeurs OpenStreetMap, ODbL), sans garantie d'exhaustivité ni de précision : une ligne absente d'OpenStreetMap est absente ici. Avec Internet, l'appli les télécharge toute seule autour de la ZMT et le long de la trace, points OSO compris (distances réglables dans Param › Internet) ; quand la trace bouge, seules les parties nouvelles sont téléchargées. Masquées par défaut : bouton Affichage. Pour la version autonome : « Exporter », clé USB, puis « Importer ».</p>
 
     <h3>Carte des altitudes topographiques</h3>
     <p class="hint">Import Internet automatique.</p>
@@ -265,7 +265,8 @@
     <div class="row" id="saRow"><button id="btnStandalone" class="wide">📦 Créer l'appli standalone (fichier HTML)</button></div>
     <p class="hint" id="saHint">Crée un seul fichier HTML qui contient toute l'appli, toujours en mode autonome (sans Internet), pour un poste Intradef ou un PC autonome : enregistre-le, passe-le par clé USB, ouvre-le avec <b>Edge</b>. À chaque nouvelle version de l'appli, recrée-le. Les préparations restent dans le navigateur du poste, pas dans le fichier.</p>
     <div class="grid2">
-      <div><label>Lignes électriques : rayon autour de la ZMT (km)</label><input id="p_plKm" inputmode="numeric"></div><div></div>
+      <div><label>Lignes électriques : rayon autour de la ZMT (km)</label><input id="p_plKm" inputmode="numeric"></div>
+      <div><label>Lignes électriques : de part et d'autre de la trace (km)</label><input id="p_plTraceKm" inputmode="decimal"></div>
     </div>
 
     <div class="grid2">
@@ -406,19 +407,19 @@
 <div id="toast" class="hidden"></div>
 <div id="archBar" class="hidden"><span>📁 Archive en pause</span><button id="archAllow">Autoriser</button></div>
 
-<script src="vendor/leaflet.js?v=0.52.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.52.0"></script>
-<script src="vendor/mgrs.min.js?v=0.52.0"></script>
-<script src="geo.js?v=0.52.0"></script>
-<script src="clubs.js?v=0.52.0"></script>
-<script src="wmm.js?v=0.52.0"></script>
-<script src="calc.js?v=0.52.0"></script>
-<script src="pass.js?v=0.52.0"></script>
-<script src="windpick.js?v=0.52.0"></script>
-<script src="pdfview.js?v=0.52.0"></script>
-<script src="lpmove.js?v=0.52.0"></script>
-<script src="app.js?v=0.52.0"></script>
-<script src="photo.js?v=0.52.0"></script>
-<script src="offline.js?v=0.52.0"></script>
+<script src="vendor/leaflet.js?v=0.52.1"></script>
+<script src="vendor/leaflet-rotate.js?v=0.52.1"></script>
+<script src="vendor/mgrs.min.js?v=0.52.1"></script>
+<script src="geo.js?v=0.52.1"></script>
+<script src="clubs.js?v=0.52.1"></script>
+<script src="wmm.js?v=0.52.1"></script>
+<script src="calc.js?v=0.52.1"></script>
+<script src="pass.js?v=0.52.1"></script>
+<script src="windpick.js?v=0.52.1"></script>
+<script src="pdfview.js?v=0.52.1"></script>
+<script src="lpmove.js?v=0.52.1"></script>
+<script src="app.js?v=0.52.1"></script>
+<script src="photo.js?v=0.52.1"></script>
+<script src="offline.js?v=0.52.1"></script>
 </body>
 </html>

@@ -23,34 +23,46 @@
   let attrOn = false;
   window.drawPower = (layer, on) => { const Ls = on ? powerLines() : []; Ls.forEach(l => { L.polyline(l.p, { renderer, color: '#000', weight: l.k === 'minor' ? 3.4 : 4.6, opacity: 0.45, interactive: false }).addTo(layer); L.polyline(l.p, { renderer, color: '#ffc400', weight: l.k === 'minor' ? 1.5 : 2.4, opacity: 0.95, interactive: false }).addTo(layer); });
     const want = Ls.length > 0; if (want !== attrOn && map.attributionControl) { attrOn = want; const t = 'Lignes électriques © contributeurs OpenStreetMap'; if (want) map.attributionControl.addAttribution(t); else map.attributionControl.removeAttribution(t); } };
+  /* v0.52.1 (Henri) : carré de prm.plKm autour de la ZMT ET couloir de prm.plTraceKm de part et d'autre de la trace (et autour des points
+     OSO), pour choisir les zones de posé alternatives tout du long. Seules les parties pas encore couvertes sont téléchargées. */
+  const boxOf = (pts, m) => { let s = 90, w = 180, n = -90, e = -180; pts.forEach(p => { s = Math.min(s, p.lat); n = Math.max(n, p.lat); w = Math.min(w, p.lng); e = Math.max(e, p.lng); });
+    const dLat = m / 111320, dLng = m / (111320 * Math.cos(((s + n) / 2) * Math.PI / 180)); return [s - dLat, w - dLng, n + dLat, e + dLng]; };
+  const inside = (b, c) => b[0] >= c[0] - 1e-4 && b[1] >= c[1] - 1e-4 && b[2] <= c[2] + 1e-4 && b[3] <= c[3] + 1e-4;
+  function pwNeeded() { const z = zmtOf(); if (!z) return []; const out = [boxOf([z], Math.max(1, +prm.plKm || 15) * 1000)], W = Math.max(0.2, +prm.plTraceKm || 3) * 1000;
+    const traces = []; try { const P = passInfo() ? passSols() : [{ sol }]; P.forEach(p => { if (p.sol && p.sol.ok && p.sol.trace) traces.push(p.sol.trace); }); } catch (e) {}
+    traces.forEach(T => { let chunk = [T[0]], d = 0; for (let i = 1; i < T.length; i++) { d += Calc.dist(T[i - 1], T[i]); chunk.push(T[i]); if (d >= 8000 || i === T.length - 1) { out.push(boxOf(chunk, W)); chunk = [T[i]]; d = 0; } } });
+    try { (greyPoints() || []).forEach(y => out.push(boxOf([y], W))); } catch (e) {}
+    return out; }
   async function powerAuto(force) {
     if (SA || prm.offline) { if (force) toast('Mode autonome : pas de téléchargement. Importe un fichier GeoJSON.'); return; }
     const z = zmtOf(); if (!z) { if (force) toast('Pose d\'abord la ZMT de la zone'); return; }
-    const km = Math.max(1, +prm.plKm || 15), k = pwKey(); pwData(); if (PW.v === undefined && !force) return; /* lecture en cours : relancé à la fin */
-    const have = PW.v; if (!force && have && (have.src === 'import' || (have.center && Calc.dist(have.center, z) < 1000 && have.km >= km))) return;
-    const tk = `${k}|${z.lat.toFixed(3)},${z.lng.toFixed(3)}|${km}`; if ((!force && PW.tried[tk]) || PW.busy) return; PW.tried[tk] = 1; PW.busy = true; pwFill();
+    const k = pwKey(); pwData(); if (PW.v === undefined && !force) return; /* lecture en cours : relancé à la fin */
+    let have = PW.v; if (have && have.src === 'import' && !force) return; if (force || (have && have.src === 'import')) have = null;
+    const cover = have ? (have.cover || (have.center ? [boxOf([have.center], (have.km || 15) * 1000)] : [])) : [];
+    const miss = pwNeeded().filter(b => !cover.some(c => inside(b, c))); if (!miss.length) { if (force) toast('Lignes électriques déjà à jour pour la ZMT et la trace'); return; }
+    const tk = k + '|' + miss.map(b => b.map(v => v.toFixed(3)).join(',')).join(';'); if ((!force && PW.tried[tk]) || PW.busy) return; PW.tried[tk] = 1; PW.busy = true; pwFill();
     try {
-      const dLat = km * 1000 / 111320, dLng = dLat / Math.cos(z.lat * Math.PI / 180), b = [z.lat - dLat, z.lng - dLng, z.lat + dLat, z.lng + dLng].map(v => v.toFixed(5)).join(',');
-      const q = `[out:json][timeout:90];way["power"~"^(line|minor_line)$"](${b});out tags geom;`;
+      const q = `[out:json][timeout:120];(${miss.map(b => `way["power"~"^(line|minor_line)$"](${b.map(v => v.toFixed(5)).join(',')});`).join('')});out tags geom;`;
       const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
       if (!r.ok) throw new Error('HTTP ' + r.status); const js = await r.json(), r5 = x => Math.round(x * 1e5) / 1e5;
-      const lines = (js.elements || []).filter(e => e.type === 'way' && Array.isArray(e.geometry) && e.geometry.length > 1).map(e => ({ k: e.tags && e.tags.power === 'minor_line' ? 'minor' : 'line', v: (e.tags && e.tags.voltage) || '', p: e.geometry.map(g => [r5(g.lat), r5(g.lon)]) }));
-      const v = { src: 'osm', name: 'OpenStreetMap', fetched: Date.now(), center: { lat: z.lat, lng: z.lng }, km, lines };
+      const got = (js.elements || []).filter(e => e.type === 'way' && Array.isArray(e.geometry) && e.geometry.length > 1).map(e => ({ id: e.id, k: e.tags && e.tags.power === 'minor_line' ? 'minor' : 'line', v: (e.tags && e.tags.voltage) || '', p: e.geometry.map(g => [r5(g.lat), r5(g.lon)]) }));
+      const ids = new Set(), lines = []; (have ? have.lines : []).concat(got).forEach(l => { if (l.id != null) { if (ids.has(l.id)) return; ids.add(l.id); } lines.push(l); });
+      const v = { src: 'osm', name: 'OpenStreetMap', fetched: Date.now(), center: { lat: z.lat, lng: z.lng }, km: Math.max(1, +prm.plKm || 15), wkm: Math.max(0.2, +prm.plTraceKm || 3), cover: cover.concat(miss), lines };
       await IDB.set(k, v); if (PW.key === k) PW.v = v; if (current.show.power) redraw();
-      if (force) toast(`Lignes électriques : ${lines.length} tronçon(s) dans un rayon de ${km} km`);
+      if (force) toast(`Lignes électriques : ${lines.length} tronçon(s), ZMT et trace`);
     } catch (er) { console.warn('Lignes électriques', er); if (force) toast('Lignes électriques : téléchargement impossible (réseau ?)'); }
     finally { PW.busy = false; pwFill(); }
   }
   window.powerAuto = powerAuto;
   function pwFill() { const el = document.getElementById('pwInfo'); if (!el) return; const v = PW.key === pwKey() ? PW.v : undefined;
     el.textContent = PW.busy ? 'Téléchargement des lignes électriques…' : v === undefined ? '' : !v ? 'Aucune ligne électrique pour cette zone.' :
-      `${v.lines.length} tronçon(s) · ${v.src === 'import' ? `importées (« ${v.name} »)` : `OpenStreetMap, téléchargées le ${hm(v.fetched)}, ${v.km} km autour de la ZMT`}${current.show.power ? '' : ' · masquées (bouton Affichage)'}`;
+      `${v.lines.length} tronçon(s) · ${v.src === 'import' ? `importées (« ${v.name} »)` : `OpenStreetMap, mises à jour le ${hm(v.fetched)} : ${v.km} km autour de la ZMT et ${v.wkm || 3} km de part et d'autre de la trace`}${current.show.power ? '' : ' · masquées (bouton Affichage)'}`;
     $('btnPwGet').classList.toggle('hidden', SA || !!prm.offline); }
   $('btnPwGet').addEventListener('click', () => powerAuto(true));
   $('btnPwDel').addEventListener('click', async () => { if (!pwData()) return toast('Aucune ligne électrique pour cette zone'); if (!(await ask('Retirer les lignes électriques de cette zone ?'))) return;
     const k = pwKey(); await IDB.del(k); PW.v = null; PW.tried = {}; PW.tried[`${k}|${(zmtOf() || { lat: 0 }).lat.toFixed(3)}`] = 1; pwFill(); redraw(); });
   $('btnPwExp').addEventListener('click', async () => { const v = pwData(); if (!v || !v.lines.length) return toast('Aucune ligne électrique pour cette zone');
-    const fc = { type: 'FeatureCollection', name: `Lignes électriques ${current.name || ''}`.trim(), attribution: '© contributeurs OpenStreetMap (ODbL)', trace_isv: { kind: 'power', center: v.center, km: v.km, fetched: v.fetched },
+    const fc = { type: 'FeatureCollection', name: `Lignes électriques ${current.name || ''}`.trim(), attribution: '© contributeurs OpenStreetMap (ODbL)', trace_isv: { kind: 'power', center: v.center, km: v.km, wkm: v.wkm, cover: v.cover, fetched: v.fetched },
       features: v.lines.map(l => ({ type: 'Feature', properties: Object.assign({ power: l.k === 'minor' ? 'minor_line' : 'line' }, l.v ? { voltage: l.v } : {}), geometry: { type: 'LineString', coordinates: l.p.map(a => [a[1], a[0]]) } })) };
     await shareJson(fc, `${fileSafe(current.name || 'zone')}_lignes_electriques.geojson`); });
   $('btnPwImp').addEventListener('click', async () => { if (!(await askZoneName())) return; $('pwFile').value = ''; $('pwFile').click(); });
@@ -58,7 +70,7 @@
     try { const txt = await f.text(), js = JSON.parse(txt), raw = parseGeoJsonLines(txt); if (!raw.length) return toast('Aucune ligne dans ce fichier');
       const feats = js.type === 'FeatureCollection' ? js.features || [] : [], meta = js.trace_isv || {};
       const lines = raw.map((p, i) => { const pr = (feats[i] && feats[i].properties) || {}; return { k: pr.power === 'minor_line' ? 'minor' : 'line', v: pr.voltage || '', p: Array.from(p) }; });
-      const v = { src: 'import', name: f.name, fetched: meta.fetched || Date.now(), center: meta.center || null, km: meta.km || null, lines }, k = pwKey();
+      const v = { src: 'import', name: f.name, fetched: meta.fetched || Date.now(), center: meta.center || null, km: meta.km || null, wkm: meta.wkm || null, cover: meta.cover || null, lines }, k = pwKey();
       await IDB.set(k, v); PW.key = k; PW.v = v; pwFill(); redraw();
       toast(`Lignes électriques importées : ${lines.length} tronçon(s)${current.show.power ? '' : ' · affiche-les avec le bouton Affichage'}`);
     } catch (er) { console.error(er); toast('Fichier illisible (GeoJSON attendu)'); } });
