@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.3';
+const VERSION = '0.52.4';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -3643,6 +3643,8 @@ function roundCaps() {
     toast(sol && sol.ok ? `Cap para ${hdg(sol.cap)} · cap avion ${hdg(sol.acHeading)}` : '');
   });
 }
+/* v0.52.4 (Henri) : « Poser » de l'étape Points OSO : zoom seulement sur les points OSO jaunes (greyPoints, dessinés en C_LOW), sans le vecteur */
+function fitOso() { const pts = greyPoints() || lowPoints() || []; if (!pts.length) return fitVec(); closeSheet(); fitBox(pts); }
 function fitVec() { if (!sol || !sol.ok) return; const pts = [sol.vec.green, sol.vec.red]; (lowPoints() || []).forEach(p => pts.push(p)); (greyPoints() || []).forEach(p => pts.push(p)); closeSheet(); fitBox(pts); }
 const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après les caps, zones intermédiaires juste avant court/long */
   { id: 'zone', z: 1, t: 'Créer la zone', d: 'Crée la zone (☰ › ＋ Nouvelle zone) : ses documents et sa ZMT lui appartiennent.', auto: () => !!current.id, go: () => { closeSheet(); $('btnNewZone').click(); } },
@@ -3661,7 +3663,7 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'pall', pa: 1, t: 'Toutes les équipes du passage posées', d: 'Chaque équipe du passage doit avoir sa ZMT et son PTU avant de vérifier le vecteur et d\'arrondir le cap avion.', auto: () => passTeams().every(teamPlaced), go: () => { const X = passTeams().find(x => !teamPlaced(x)); if (X) { if (current.cur !== X.id) openIsv(X.id); setTimeout(startTeamPlace, 60); } }, goL: 'Poser' },
   { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', p: 1, t: () => (passInfo() ? 'Cap avion du passage' : 'Cap para et cap avion'), tr: 1, auto: capsRound, d: () => (passInfo() ? 'Arrondis le cap avion à la dizaine pour simplifier les consignes : le passage tourne autour de son milieu et rentre juste ce qu\'il faut pour que toutes les équipes restent dans leur zone. Ce n\'est jamais fait d\'office : « Passer » le laisse tel quel. Les caps para découlent de la position de chaque équipe ; ils sont donnés arrondis dans le Briefing.' : 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.'), go: roundCaps, goL: 'Arrondir' },
-  { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitVec(); placeAlt(); }, goL: 'Poser' },
+  { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
   { id: 'zd', t: 'Zones délicates', tr: 1, d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
