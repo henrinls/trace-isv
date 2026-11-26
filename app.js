@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.5';
+const VERSION = '0.52.6';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -3665,7 +3665,7 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'pall', pa: 1, t: 'Toutes les équipes du passage posées', d: 'Chaque équipe du passage doit avoir sa ZMT et son PTU avant de vérifier le vecteur et d\'arrondir le cap avion.', auto: () => passTeams().every(teamPlaced), go: () => { const X = passTeams().find(x => !teamPlaced(x)); if (X) { if (current.cur !== X.id) openIsv(X.id); setTimeout(startTeamPlace, 60); } }, goL: 'Poser' },
   { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', p: 1, t: () => (passInfo() ? 'Cap avion du passage' : 'Cap para et cap avion'), tr: 1, auto: capsRound, d: () => (passInfo() ? 'Arrondis le cap avion à la dizaine pour simplifier les consignes : le passage tourne autour de son milieu et rentre juste ce qu\'il faut pour que toutes les équipes restent dans leur zone. Ce n\'est jamais fait d\'office : « Passer » le laisse tel quel. Les caps para découlent de la position de chaque équipe ; ils sont donnés arrondis dans le Briefing.' : 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.'), go: roundCaps, goL: 'Arrondir' },
-  { id: 'oso', t: 'Points OSO', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
+  { id: 'oso', t: 'Points OSO', tr: 1, noRt: 1, need: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), /* v0.52.6 (Henri) : plus validée toute seule (on pose souvent 2 points OSO) : « Fait » à la main ; need = contrôle permanent */ d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
   { id: 'zd', t: 'Zones délicates', tr: 1, d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
@@ -3682,6 +3682,7 @@ function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange :
   const H = stepHost(st), r = (H.steps || {})[st.id]; /* étapes de la zone (documents, ZMT) gardées par la zone, les autres par l'ISV */
   if (r && r.s === 'skip' && !r.force) return 'skip';
   if (st.pts && st.auto && !st.auto()) return 'todo'; /* v0.42.2, voir ci-dessous */
+  if (st.need && !st.need()) return 'todo'; /* v0.52.6 (Henri) : faite à la main, mais redevient « à faire » dès qu'aucun point ne remplit la condition (supprimé, vecteur bougé) */
   if (r && r.force) return 'recheck'; /* v0.38.0 : revérification demandée (ex. FL changé pour 4 s de chute) */
   if (r && r.s === 'skip') return 'skip';
   /* v0.42.2 (Henri) : étapes qui dépendent de points posés (OSO, court/long) : si le point n'existe plus (supprimé, ou plus à la bonne
@@ -3689,7 +3690,7 @@ function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange :
   if (st.pts && st.auto && !st.auto()) return 'todo';
   if (st.auto && st.auto()) return r && r.force ? 'recheck' : 'done';
   if (st.chk) { if (st.tr && (!sol || !sol.ok)) return 'todo'; return stepProblems(st.chk).length ? 'todo' : 'done'; }
-  if (r && r.s === 'done') return st.tr && r.sig && !sigSame(r.sig, traceSig()) ? 'recheck' : 'done';
+  if (r && r.s === 'done') return st.tr && !st.noRt && r.sig && !sigSame(r.sig, traceSig()) ? 'recheck' : 'done'; /* noRt : pas de « à revérifier » quand la trace bouge (le contrôle need suffit) */
   return 'todo';
 }
 function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st ? stepHost(st) : isv(); H.steps = H.steps || {}; if (s) H.steps[id] = { s, sig: traceSig() }; else delete H.steps[id];
