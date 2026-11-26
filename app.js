@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.8';
+const VERSION = '0.52.9';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -506,7 +506,7 @@ function teamSolve(X, prev, n, L) {
   if (s.ok) { s.flMin4 = null; s.linkOut = teamOut(s); if (s.linkOut) s.warn = passWarn(n); }
   passMem[X.id] = { key, sol: s, m: r.m, target }; return s;
 }
-const passWarn = n => `Équipe ${tl(n)} : des points roses sont hors de sa zone de relaxation, le PTU ne peut pas être rejoint depuis là. Décale le passage (bouton « Décaler le passage »), change le délai ou déplace sa ZMT et son PTU.`;
+const passWarn = n => `Équipe ${tl(n)} : des points d'ouverture sont hors de sa zone de relaxation, le PTU ne peut pas être rejoint depuis là. Décale le passage (bouton « Décaler le passage »), change le délai ou déplace sa ZMT et son PTU.`;
 function passSols(X) { const T = passTeams(X || isv()), L = T[0]; let prev = null;
   return T.map((Y, k) => { if (Y.link) { Y.fl = L.fl; Y.acMs = L.acMs; Y.when = L.when; } zSync(Y); prev = teamSolve(Y, prev, k + 1, L);
     if (!k && T.length > 1 && prev.ok) { prev.flMin4 = null; prev.linkOut = teamOut(prev); if (prev.linkOut && !/^Équipe 1 :/.test(prev.warn || '')) prev.warn = passWarn(1); } /* la première équipe d'un passage obéit à la même règle */
@@ -595,7 +595,7 @@ function linkEnd() { const I = isv(), g = linkDg; linkDg = null; if (!g) return;
    garde le changement, l'avertissement reste affiché sur l'équipe. */
 async function passAfter(what, snap) { const I = isv(), L = passLead(I); solKey = null; persist(); fillInputs(); draw();
   if (!L || !passInfo(L)) return; const out = passOuts(passSols(L)), was = (snap && snap.out) || []; if (!out.some(n => !was.includes(n))) return;
-  const f = passShiftPlan(L), who = out.length > 1 ? `Équipes ${out.map(tl).join(', ')} : des points roses sortent de leur zone de relaxation.` : `Équipe ${tl(out[0])} : des points roses sortent de sa zone de relaxation.`;
+  const f = passShiftPlan(L), who = out.length > 1 ? `Équipes ${out.map(tl).join(', ')} : des points d'ouverture sortent de leur zone de relaxation.` : `Équipe ${tl(out[0])} : des points d'ouverture sortent de sa zone de relaxation.`;
   const r = await choose(`${who} ${f.ok ? `Décaler le passage de ${fmtInt(Math.round(f.dist))} m${f.dh ? `, cap avion tourné de ${Math.abs(f.dh)}° (${hdg(f.h)})` : ''} les fait rentrer.` : 'Aucun décalage du passage ne les fait rentrer.'}`,
     [snap ? ['undo', `Annuler ${what}`] : null, f.ok ? ['shift', 'Décaler'] : null].filter(Boolean));
   if (r === 'shift') { const ok = passShift(L, f); toast(ok ? `Passage décalé${f.dh ? ` · cap avion ${hdg(L.vecHeading)}` : ''}` : 'Décalage impossible finalement : rien n\'a bougé'); }
@@ -637,7 +637,7 @@ async function teamPtuAt(p) { const I = isv(), L = passLead(I), n = teamNo(I), s
   if (!me || !me.ok) return back((me && me.err) || 'Calcul impossible avec ce PTU');
   if (!teamOut(me)) { passStepsTouch(); return teamDone(`PTU de l'équipe ${tl(n)} posé : rien n'a bougé`); }
   const f = passShiftPlan(L);
-  if (!f.ok) return back('Impossible ici : même en décalant le passage, les points roses ne rentrent pas dans leur zone. Touche ailleurs.');
+  if (!f.ok) return back('Impossible ici : même en décalant le passage, les points d\'ouverture ne rentrent pas dans leur zone. Touche ailleurs.');
   draw();
   const r = await choose(`Ce PTU n'est possible qu'en décalant le passage de ${fmtInt(Math.round(f.dist))} m${f.dh ? `, cap avion tourné de ${Math.abs(f.dh)}° (${hdg(f.h)})` : ''} : les équipes déjà posées restent dans leur zone.`, [['keep', 'Ne rien bouger'], ['shift', 'Décaler']]);
   if (r !== 'shift') return back('PTU non pris : touche ailleurs');
@@ -815,7 +815,7 @@ let vecHit = null;
 function manualFit() { const I = isv(); compute(); if (I.link || passInfo(I)) return; /* v0.50.0 : équipe liée, point de largage imposé par le passage ; v0.51.0 : dans un passage rien ne bouge tout seul, première équipe comprise */ for (let k = 0; k < 6 && I.manual && sol && sol.ok && sol.manualFix; k++) { I.manual = sol.manualFix; compute(); } }
 async function askOpenMode() {
   $('dlgDel').classList.remove('danger');
-  const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; les points roses restent dans la zone de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, la zone est recalculée) ?', undefined, 'Changer', 'Garder');
+  const r = await ask('Hauteur d\'ouverture : la GARDER (le para s\'ouvre au-dessus de la trace et rattrape aux oreilles ; les points d\'ouverture restent dans la zone de relaxation) ou la CHANGER (elle devient celle de la trace à cet endroit, la zone est recalculée) ?', undefined, 'Changer', 'Garder');
   $('dlgDel').classList.add('danger');
   return r === 'DELETE' ? 'change' : r === true ? 'keep' : null;
 }
@@ -3684,9 +3684,9 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'tzmt', lk: 1, t: 'ZMT de l\'équipe', d: 'Pose la ZMT de cette équipe. Pour prendre la même zone qu\'une autre équipe, touche SA ZMT : son PTU est repris avec, et le passage est recalé.', auto: () => isv().zst !== 'todo', go: () => startTeamPlace(), goL: 'Poser' },
   { id: 'tptu', lk: 1, t: 'PTU de l\'équipe', d: 'Pose le PTU de cette équipe. Pointillé intérieur : possible sans rien bouger. Pointillé extérieur : possible en décalant le passage. Sa trace apparaît.', auto: () => teamPlaced(isv()), go: () => startTeamPlace(), goL: 'Poser' },
   { id: 'pall', pa: 1, t: 'Toutes les équipes du passage posées', d: 'Chaque équipe du passage doit avoir sa ZMT et son PTU avant de vérifier le vecteur et d\'arrondir le cap avion.', auto: () => passTeams().every(teamPlaced), go: () => { const X = passTeams().find(x => !teamPlaced(x)); if (X) { if (current.cur !== X.id) openIsv(X.id); setTimeout(startTeamPlace, 60); } }, goL: 'Poser' },
-  { id: 'vec', t: 'Vecteur de largage', tr: 1, mv: 'vec', /* v0.52.7 (Henri) : à revérifier seulement si le vecteur a bougé */ d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
+  { id: 'vec', t: 'Vecteur de largage', tr: 1, mv: 'vec', /* v0.52.7 (Henri) : à revérifier seulement si le vecteur a bougé */ d: 'Vérifie sa position avec les points d\'ouverture (OUV = para sur la trace), les points d\'ouverture OSO et les points de posé OSO (point haut). Les points d\'ouverture doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', p: 1, t: () => (passInfo() ? 'Cap avion du passage' : 'Cap para et cap avion'), tr: 1, auto: capsRound, d: () => (passInfo() ? 'Arrondis le cap avion à la dizaine pour simplifier les consignes : le passage tourne autour de son milieu et rentre juste ce qu\'il faut pour que toutes les équipes restent dans leur zone. Ce n\'est jamais fait d\'office : « Passer » le laisse tel quel. Les caps para découlent de la position de chaque équipe ; ils sont donnés arrondis dans le Briefing.' : 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.'), go: roundCaps, goL: 'Arrondir' },
-  { id: 'oso', t: 'Points OSO', tr: 1, noRt: 1, need: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), /* v0.52.6 (Henri) : plus validée toute seule (on pose souvent 2 points OSO) : « Fait » à la main ; need = contrôle permanent */ d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
+  { id: 'oso', t: 'Points OSO', tr: 1, noRt: 1, need: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), /* v0.52.6 (Henri) : plus validée toute seule (on pose souvent 2 points OSO) : « Fait » à la main ; need = contrôle permanent */ d: 'Pose au moins une zone de posé alternative près des points de posé OSO (point haut) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, mv: 'S', /* v0.52.7 : seulement si la trace a bougé entre un point d'alerte et son sommet */ d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
   { id: 'zd', t: 'Zones délicates', tr: 1, mv: 'zd', /* v0.52.7 : seulement si la trace a bougé entre le point d'alerte et la fin d'une zone délicate */ d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
