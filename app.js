@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.6';
+const VERSION = '0.52.8';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1107,7 +1107,19 @@ function sigSame(a, b) { if (a === b) return true; if (!a || !b) return false; c
   const P = s => s.split(';').map(x => { const [lat, lng] = x.split(',').map(Number); return { lat, lng, h: 0 }; }), A = P(ra), B = P(rb);
   const v = B.every(p => Calc.nearestOn(A, p).d <= tol); if (sigMem.size > 500) sigMem.clear(); sigMem.set(k, v); return v; }
 const C_WARN = '#ff8c00'; /* v0.23.0 : sommet S pas revérifié depuis que la trace a bougé (et son point de passage) → orange */
-function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig) return false; const s = traceSig(); return !!s && !sigSame(q.sig, s); }
+/* v0.52.7 (Henri, 26/11) : un sommet S ou une zone délicate n'est « à revérifier » que si la trace a bougé de plus de prm.routeTol (50 m)
+   SUR SA PORTION : du point d'alerte au sommet, ou du point d'alerte de la zone délicate à la fin de la zone. Ailleurs, rien. */
+const locMem = new Map();
+function sStale(q) { if ((q.auto !== 'S' && q.kind !== 'zd') || !q.sig || !sol || !sol.ok) return false; const s = traceSig(); if (!s || sigSame(q.sig, s)) return false;
+  const T = sol.trace, R = (isv().rts || {})[q.sig]; if (!R) return true;
+  let s0, s1; const vS = k => Calc.nearestOn(T, T[k]).s;
+  if (q.kind === 'zd') { const z = zdPairs().find(z => z.d.zid === q.zid); if (!z || !z.f) return false; const a = sOf(T, z.d), b = sOf(T, z.f), deb = a <= b ? z.d : z.f; s0 = vS(sumVertex(T, deb).k); s1 = Math.max(a, b); }
+  else { s0 = vS(sumVertex(T, q).k); s1 = sOf(T, q); }
+  if (s1 < s0) [s0, s1] = [s1, s0];
+  const tol = Math.max(1, +prm.routeTol || 50), key = q.sig + '|' + s + '|' + q.id + '|' + Math.round(s0) + '|' + Math.round(s1) + '|' + tol; if (locMem.has(key)) return locMem.get(key);
+  const old = R.split(';').map(x => { const [lat, lng] = x.split(',').map(Number); return { lat, lng, h: 0 }; });
+  let bad = false; for (let x = s0; x <= s1 + 0.1 && !bad; x += Math.max(10, Math.min(50, (s1 - s0) / 200 || 50))) { const p = Calc.pointAt(T, Math.min(x, s1)); if (Calc.nearestOn(old, p).d > tol) bad = true; }
+  if (locMem.size > 500) locMem.clear(); locMem.set(key, bad); return bad; }
 function syncSumWarn() {
   const sig = traceSig(), I = isv(), S = I.points.filter(q => q.auto === 'S' || q.kind === 'zd');
   if (sig) S.forEach(q => { if (!q.sig) q.sig = sig; });
@@ -1115,11 +1127,14 @@ function syncSumWarn() {
      changement de FL, vecteur rentré…), les sommets S et zones délicates qui étaient à jour le restent */
   if (sig && I.sumSig && I.sumSig !== sig && I.sumRoute && sameRoute(I.sumRoute)) { S.forEach(q => { if (q.sig === I.sumSig) q.sig = sig; }); I.sumSig = sig; I.sumRoute = traceGrid(); }
   if (sig && S.every(q => sigSame(q.sig, sig))) { I.sumSig = sig; I.sumRoute = traceGrid(); }
-  const st = S.filter(q => !sigSame(q.sig, sig)), hasS = st.some(q => q.auto === 'S'), hasZ = st.some(q => q.kind === 'zd'); /* v0.42.1 (Henri) : nommer aussi les zones délicates */
-  $('sumWarn').querySelector('span').textContent = '⚠️ La trace a bougé : revérifie ' + (hasS && hasZ ? 'les sommets S et les zones délicates' : hasZ ? 'les zones délicates' : 'les sommets S') + ' avec une coupe.';
-  $('sumWarn').classList.toggle('hidden', !sig || !st.length);
+  /* v0.52.7 (Henri, 26/11) : le bandeau orange dit seulement « La trace a bougé » (route au sol écartée de plus de prm.routeTol depuis le
+     dernier OK) ; ce sont les bandeaux jaunes des étapes qui disent quoi revérifier. OK = bandeau lu (ne valide aucune étape). */
+  let SLm = []; try { SLm = stepList(); } catch (e) { SLm = []; } /* appelé avant la déclaration de STEPS au chargement (TDZ) */
+  const moved = !!sig && !(I.trkAck && sigSame(I.trkAck, sig)) && SLm.some(st => st.mv && (stepHost(st).steps || {})[st.id] && (stepHost(st).steps || {})[st.id].s === 'done' && stepMoved(st, stepHost(st).steps[st.id])); /* seulement si une étape faite est à revérifier parce qu'il a VRAIMENT bougé quelque chose */
+  $('sumWarn').querySelector('span').textContent = '⚠️ La trace a bougé';
+  $('sumWarn').classList.toggle('hidden', !moved);
 }
-$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().points.forEach(q => { if (q.auto === 'S' || q.kind === 'zd') q.sig = sig; }); persist(); syncSumWarn(); redraw(); });
+$('sumOk').addEventListener('click', () => { const sig = traceSig(); isv().trkAck = sig; persist(); syncSumWarn(); redraw(); });
 const miniTag = (M, i) => M[i] != null ? `-MINI${M[i]}` : '';
 const ptElevAsked = new Set();
 /* v0.28.0 (Henri) : zone alternative nommée toute seule selon sa position (nom gardé tant qu'il n'est pas forcé, pt.nameAuto) :
@@ -1551,7 +1566,10 @@ async function ensureWx(force, date) {
   const fz = wxFrozen(date); if (fz && !force) return fz; /* v0.51.5 : vents de l'export gardés */
   if (force) { const L = passLead(isv()) || isv(); if (L.wxf) { delete L.wxf; persist(); } }
   const have = wxCached(current.id, date);
-  if (have && !force && wxFits(have) && Date.now() - have.fetched < 3600e3 && have.rh !== undefined) return have; // prévision d'avant l'humidité (rh absent) : retéléchargée
+  /* v0.52.8 (Henri, 26/11) : une ISV est calculée avec les vents choisis et NE BOUGE PLUS toute seule : plus de retéléchargement
+     automatique (avant : au bout d'1 h, au retour sur l'appli, au retour du réseau, à chaque PTU posé…). Nouvelle prévision seulement
+     sur demande (« Maintenant », « Recalculer avec la prévision actuelle ») ou pour une date jamais téléchargée. NE PAS remettre de durée de vie. */
+  if (have && !force && wxFits(have)) return have;
   if (have && !force && !wxFits(have) && navigator.onLine === false) return have;
   if (!force && !isv().ptu && !current.zmt) return have; // rien à calculer tant qu'aucun point n'est placé
   if (wxBusy) return have; wxBusy = true; $('wxInfo').innerHTML = 'Téléchargement de la prévision…';
@@ -1559,7 +1577,7 @@ async function ensureWx(force, date) {
   catch (e) { wxFailed[date] = true; toast(have ? 'Pas de réseau : prévision gardée, téléchargée le ' + fmtFetched(have.fetched) : 'Prévision impossible à télécharger (réseau ?)'); return have; }
   finally { wxBusy = false; fillInputs(); redraw(); }
 }
-function setWhen(w) { current.when = w; const I = isv(); passTeams(I).forEach(x => { x.when = w; if (x.nameAuto) x.name = isvAutoName(x); }); { const L0 = passLead(I); if (L0) passRename(L0, isvAutoName(L0)); } /* v0.50.0 : date et heure communes au passage */ I.when = w; if (I.nameAuto) I.name = isvAutoName(I); persist(); fillInputs(); redraw(); ensureWx(false); }
+function setWhen(w) { current.when = w; setTimeout(() => { try { syncTUse(); } catch (e) { } }, 0); const I = isv(); passTeams(I).forEach(x => { x.when = w; if (x.nameAuto) x.name = isvAutoName(x); }); { const L0 = passLead(I); if (L0) passRename(L0, isvAutoName(L0)); } /* v0.50.0 : date et heure communes au passage */ I.when = w; if (I.nameAuto) I.name = isvAutoName(I); persist(); fillInputs(); redraw(); ensureWx(false); }
 $('qWhen').addEventListener('click', () => { $('jumpBox').classList.toggle('hidden'); syncJump(); });
 $('jumpOk').addEventListener('click', () => { $('jumpBox').classList.add('hidden'); });
 $('j_minus').addEventListener('click', () => setWhen(shiftWhen(current.when, -1)));
@@ -1620,7 +1638,7 @@ function renderWinds() {
     tb.append(tr);
   });
 }
-async function setTWhen(w) { tWhen = w; renderWinds(); if (windPt) { const p0 = windPt; await ensurePick(w.slice(0, 10)); if (windPt === p0) renderWinds(); return; } const d = w.slice(0, 10), have = wxFor(d); if (wxFrozen(d)) { renderWinds(); return; } if (!have || Date.now() - have.fetched > 3600e3 || have.rh === undefined) { await ensureWx(false, d); renderWinds(); } }
+async function setTWhen(w) { tWhen = w; syncTUse(); renderWinds(); if (windPt) { const p0 = windPt; await ensurePick(w.slice(0, 10)); if (windPt === p0) renderWinds(); return; } const d = w.slice(0, 10), have = wxFor(d); if (wxFrozen(d)) { renderWinds(); return; } if (!have) { await ensureWx(false, d); renderWinds(); } } /* v0.52.8 : pas de retéléchargement automatique (voir ensureWx) */
 $('qWinds').addEventListener('click', () => { const b = $('windsBox'); if (!b.classList.contains('hidden')) { b.classList.add('hidden'); syncQuick(); WindPick.sync(); return; } WindPick.reset(); b.classList.remove('hidden'); syncQuick(); setTWhen(current.when); });
 WindPick.init({ map, isOpen: () => !$('windsBox').classList.contains('hidden'),
   open: () => { $('windsBox').classList.remove('hidden'); syncQuick(); setTWhen(tWhen || current.when); },
@@ -1630,6 +1648,9 @@ $('t_close').addEventListener('click', () => { $('windsBox').classList.add('hidd
 $('t_minus').addEventListener('click', () => setTWhen(shiftWhen(tWhen, -1)));
 $('t_plus').addEventListener('click', () => setTWhen(shiftWhen(tWhen, 1)));
 $('t_now').addEventListener('click', () => setTWhen(nowWhen()));
+/* v0.52.8 (Henri, 26/11) : choisir dans le tableau des vents la date et l'heure du CALCUL (bouton vert du haut, trace) */
+function syncTUse() { const b = $('t_use'); if (b) b.classList.toggle('hidden', !tWhen || tWhen === current.when); }
+$('t_use').addEventListener('click', async () => { setWhen(tWhen); syncTUse(); await ensureWx(false); passMem = {}; solKey = null; compute(); fillInputs(); redraw(); syncJump(); toast(`Calcul à la date et l'heure du tableau : ${tWhen.slice(8, 10)}/${tWhen.slice(5, 7)} ${tWhen.slice(11, 13)}h`); });
 $('t_date').addEventListener('change', e => { if (e.target.value) setTWhen(e.target.value + tWhen.slice(10)); });
 $('t_hour').addEventListener('change', e => setTWhen(tWhen.slice(0, 11) + e.target.value + ':00'));
 
@@ -3663,14 +3684,14 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'tzmt', lk: 1, t: 'ZMT de l\'équipe', d: 'Pose la ZMT de cette équipe. Pour prendre la même zone qu\'une autre équipe, touche SA ZMT : son PTU est repris avec, et le passage est recalé.', auto: () => isv().zst !== 'todo', go: () => startTeamPlace(), goL: 'Poser' },
   { id: 'tptu', lk: 1, t: 'PTU de l\'équipe', d: 'Pose le PTU de cette équipe. Pointillé intérieur : possible sans rien bouger. Pointillé extérieur : possible en décalant le passage. Sa trace apparaît.', auto: () => teamPlaced(isv()), go: () => startTeamPlace(), goL: 'Poser' },
   { id: 'pall', pa: 1, t: 'Toutes les équipes du passage posées', d: 'Chaque équipe du passage doit avoir sa ZMT et son PTU avant de vérifier le vecteur et d\'arrondir le cap avion.', auto: () => passTeams().every(teamPlaced), go: () => { const X = passTeams().find(x => !teamPlaced(x)); if (X) { if (current.cur !== X.id) openIsv(X.id); setTimeout(startTeamPlace, 60); } }, goL: 'Poser' },
-  { id: 'vec', t: 'Vecteur de largage', tr: 1, d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
+  { id: 'vec', t: 'Vecteur de largage', tr: 1, mv: 'vec', /* v0.52.7 (Henri) : à revérifier seulement si le vecteur a bougé */ d: 'Vérifie sa position avec les points d\'ouverture (roses, OUV = para sur la trace), d\'ouverture OSO (gris) et de posé OSO (jaunes, à la hauteur du point haut). Les points roses doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', p: 1, t: () => (passInfo() ? 'Cap avion du passage' : 'Cap para et cap avion'), tr: 1, auto: capsRound, d: () => (passInfo() ? 'Arrondis le cap avion à la dizaine pour simplifier les consignes : le passage tourne autour de son milieu et rentre juste ce qu\'il faut pour que toutes les équipes restent dans leur zone. Ce n\'est jamais fait d\'office : « Passer » le laisse tel quel. Les caps para découlent de la position de chaque équipe ; ils sont donnés arrondis dans le Briefing.' : 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.'), go: roundCaps, goL: 'Arrondir' },
   { id: 'oso', t: 'Points OSO', tr: 1, noRt: 1, need: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), /* v0.52.6 (Henri) : plus validée toute seule (on pose souvent 2 points OSO) : « Fait » à la main ; need = contrôle permanent */ d: 'Pose au moins une zone de posé alternative près des points de posé OSO (jaunes) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
-  { id: 'cut', t: 'Coupe et sommets', tr: 1, d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
+  { id: 'cut', t: 'Coupe et sommets', tr: 1, mv: 'S', /* v0.52.7 : seulement si la trace a bougé entre un point d'alerte et son sommet */ d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
   { id: 'sumz', t: 'Zone de posé avant chaque sommet', tr: 1, chk: 'S', d: 'Entre chaque point d\'alerte et son sommet, il faut une zone de posé : recule le point d\'alerte (appui sur le point -MINI) ou pose une zone alternative.' },
-  { id: 'zd', t: 'Zones délicates', tr: 1, d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
+  { id: 'zd', t: 'Zones délicates', tr: 1, mv: 'zd', /* v0.52.7 : seulement si la trace a bougé entre le point d'alerte et la fin d'une zone délicate */ d: 'Définis les zones délicates : ＋ Point, 3e bouton, début puis fin sur la trace.', go: () => { openPtPop(); placing = { kind: 'zd', stage: 'deb' }; placeBanner(); syncPtPop(); }, goL: 'Poser' },
   { id: 'zdz', t: 'Zones de posé avant et après chaque zone délicate', tr: 1, chk: 'zd', d: () => `Pour chaque zone délicate, il faut une zone de posé entre le point d'alerte et le début de la zone, et une autre après la fin de la zone, à moins de ${fmt1(+prm.zdAfterKm || 0)} km de cette fin.` },
-  { id: 'inter', t: 'Zones de posé intermédiaires', tr: 1, d: 'Parcours la trace et pose autant de zones de posé alternatives que nécessaire : elles se nomment INT toutes seules.', go: placeAlt, goL: 'Poser' },
+  { id: 'inter', t: 'Zones de posé intermédiaires', tr: 1, noRt: 1, /* v0.52.7 (Henri) : pas de bandeau quand la trace bouge */ d: 'Parcours la trace et pose autant de zones de posé alternatives que nécessaire : elles se nomment INT toutes seules.', go: placeAlt, goL: 'Poser' },
   { id: 'cl', t: 'Point court et point long', tr: 1, pts: 1, auto: () => isv().points.some(q => q.kind === 'alt' && altPos(q).court) && isv().points.some(q => q.kind === 'alt' && altPos(q).long),
     d: 'Pose une zone alternative en amont de la ZMT (COURT) et une en aval, au-delà du PTU (LONG) : elles se nomment toutes seules.', go: placeAlt, goL: 'Poser' },
 ];
@@ -3690,10 +3711,19 @@ function stepState(st) { /* 'done' (vert), 'skip' (passée), 'recheck' (orange :
   if (st.pts && st.auto && !st.auto()) return 'todo';
   if (st.auto && st.auto()) return r && r.force ? 'recheck' : 'done';
   if (st.chk) { if (st.tr && (!sol || !sol.ok)) return 'todo'; return stepProblems(st.chk).length ? 'todo' : 'done'; }
+  if (r && r.s === 'done' && st.mv) return stepMoved(st, r) ? 'recheck' : 'done';
   if (r && r.s === 'done') return st.tr && !st.noRt && r.sig && !sigSame(r.sig, traceSig()) ? 'recheck' : 'done'; /* noRt : pas de « à revérifier » quand la trace bouge (le contrôle need suffit) */
   return 'todo';
 }
+/* v0.52.7 (Henri, 26/11) : « à revérifier » selon ce qui a VRAIMENT bougé. vec : vert ou rouge déplacé de plus de prm.routeTol depuis
+   « Fait » (r.vg / r.vr) ; S / zd : un sommet ou une zone délicate dont la portion de trace a bougé (sStale). */
+function stepMoved(st, r) {
+  if (st.mv === 'vec') { if (!sol || !sol.ok) return false; if (!r.vg) { r.vg = { lat: sol.vec.green.lat, lng: sol.vec.green.lng }; r.vr = { lat: sol.vec.red.lat, lng: sol.vec.red.lng }; return false; }
+    const tol = Math.max(1, +prm.routeTol || 50); return Calc.dist(r.vg, sol.vec.green) > tol || Calc.dist(r.vr, sol.vec.red) > tol; }
+  return isv().points.some(q => (st.mv === 'S' ? q.auto === 'S' : q.kind === 'zd') && sStale(q)); }
 function stepSet(id, s) { const st = STEPS.find(x => x.id === id), H = st ? stepHost(st) : isv(); H.steps = H.steps || {}; if (s) H.steps[id] = { s, sig: traceSig() }; else delete H.steps[id];
+  if (s === 'done' && id === 'vec' && sol && sol.ok) Object.assign(H.steps[id], { vg: { lat: sol.vec.green.lat, lng: sol.vec.green.lng }, vr: { lat: sol.vec.red.lat, lng: sol.vec.red.lng } });
+  if (s === 'done' && (id === 'cut' || id === 'zd')) { const sg = traceSig(); isv().points.forEach(q => { if (id === 'cut' ? q.auto === 'S' : q.kind === 'zd') q.sig = sg; }); syncSumWarn(); } /* Fait = sommets / zones délicates revérifiés */
   /* valider une étape = accepter la trace telle qu'elle est : les étapes faites avant ne se rouvrent pas pour ce qu'on vient de faire (ex. caps arrondis) */
   if (s === 'done') stepRefreshBefore(id);
   persist(); syncSteps(); }
