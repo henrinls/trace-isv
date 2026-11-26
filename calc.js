@@ -437,7 +437,7 @@
           for (let k = 1; k * st2 <= total && sF == null; k++) { const s1 = s0 + k * st2, s2 = s0 - k * st2; if (s1 <= total && okAt(s1)) sF = s1; else if (s2 >= 0 && okAt(s2)) sF = s2; }
           if (sF != null) out.manualFix = fromLocal(isv.manual, toLocal(oK, pointAt(ptsDown, sF))); else sFit = null; }
         else { const v = toLocal(oK, cO), lv = Math.hypot(v.x, v.y) || 1, k = Math.min(lv, ex + 5) / lv;
-          out.manualFix = fromLocal(isv.manual, { x: v.x * k, y: v.y * k }); out.warn = (out.warn ? out.warn + ' ' : '') + 'Ouvertures hors de la zone de relaxation : à cette hauteur d\'ouverture, les points roses doivent rester dedans.'; }
+          out.manualFix = fromLocal(isv.manual, { x: v.x * k, y: v.y * k }); out.warn = (out.warn ? out.warn + ' ' : '') + 'Ouvertures hors de la zone de relaxation : à cette hauteur d\'ouverture, les points d\'ouverture doivent rester dedans.'; }
       } else if (L > 2 * circ.R) sFit = null;
     } else
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
