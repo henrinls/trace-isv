@@ -375,3 +375,10 @@ h3.hgchk{display:flex;align-items:center;gap:8px}.gchk{display:inline-flex;align
 
 /* v0.52.3 (Henri) : menu Affichage au-dessus du cadre des caps (on pouvait plus le fermer) ; textes trop longs coupés proprement */
 #showPop button{max-width:100%;min-width:0}#showPop button span{overflow:hidden;text-overflow:ellipsis}
+
+/* bouton Annuler (undo.js, 26 nov. 2026) : petit carré à droite de Paramètres / Manœuvre */
+#top .parRow{display:flex;gap:6px;align-items:stretch}#top .parRow>*{pointer-events:auto}
+#btnUndo,#btnRedo{width:44px;min-width:44px;padding:0;display:flex;align-items:center;justify-content:center;color:#fff}#btnUndo:disabled,#btnRedo:disabled{opacity:.35}
+/* écran étroit (téléphone) : ⚙ seul, pour que ↶ ↷ tiennent à côté sans pousser les boutons ronds hors de l'écran */
+@media (max-width:440px){#top .parRow .plab{display:none}}
+#top .round{flex-shrink:0}

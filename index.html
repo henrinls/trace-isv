@@ -9,17 +9,21 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.52.13">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.53.0">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.52.13">
+<link rel="stylesheet" href="style.css?v=0.53.0">
 </head>
 <body>
 <div id="map"></div>
 
 <header id="top">
   <div class="leftcol">
-    <button id="btnParams" class="pill" title="Paramètres">⚙ Paramètres</button>
+    <div class="parRow">
+      <button id="btnParams" class="pill" title="Paramètres">⚙<span class="plab"> Paramètres</span></button>
+      <button id="btnUndo" class="pill" title="Annuler la dernière action" disabled></button>
+      <button id="btnRedo" class="pill" title="Rétablir l'action annulée" disabled></button>
+    </div>
     <button id="btnZones" class="pill" title="Zones et ISV">☰ <span id="zoneName">Nouvelle zone</span><small id="isvName"></small></button>
   </div>
   <div class="spacer"><div id="insignes" class="hidden"><img id="insGapImg" alt="GAP"><img id="insStatImg" alt="STAT"></div></div>
@@ -412,19 +416,20 @@
 <div id="toast" class="hidden"></div>
 <div id="archBar" class="hidden"><span>📁 Archive en pause</span><button id="archAllow">Autoriser</button></div>
 
-<script src="vendor/leaflet.js?v=0.52.13"></script>
-<script src="vendor/leaflet-rotate.js?v=0.52.13"></script>
-<script src="vendor/mgrs.min.js?v=0.52.13"></script>
-<script src="geo.js?v=0.52.13"></script>
-<script src="clubs.js?v=0.52.13"></script>
-<script src="wmm.js?v=0.52.13"></script>
-<script src="calc.js?v=0.52.13"></script>
-<script src="pass.js?v=0.52.13"></script>
-<script src="windpick.js?v=0.52.13"></script>
-<script src="pdfview.js?v=0.52.13"></script>
-<script src="lpmove.js?v=0.52.13"></script>
-<script src="app.js?v=0.52.13"></script>
-<script src="photo.js?v=0.52.13"></script>
-<script src="offline.js?v=0.52.13"></script>
+<script src="vendor/leaflet.js?v=0.53.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.53.0"></script>
+<script src="vendor/mgrs.min.js?v=0.53.0"></script>
+<script src="geo.js?v=0.53.0"></script>
+<script src="undo.js?v=0.53.0"></script>
+<script src="clubs.js?v=0.53.0"></script>
+<script src="wmm.js?v=0.53.0"></script>
+<script src="calc.js?v=0.53.0"></script>
+<script src="pass.js?v=0.53.0"></script>
+<script src="windpick.js?v=0.53.0"></script>
+<script src="pdfview.js?v=0.53.0"></script>
+<script src="lpmove.js?v=0.53.0"></script>
+<script src="app.js?v=0.53.0"></script>
+<script src="photo.js?v=0.53.0"></script>
+<script src="offline.js?v=0.53.0"></script>
 </body>
 </html>

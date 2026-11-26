@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.13';
+const VERSION = '0.53.0';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -178,7 +178,7 @@ if (!prm.noPbo) { /* v0.4.0 : la PBO d'origine est retirée des données enregis
 }
 prm.canopies.forEach(c => { delete c.mte; });
 if (!prm.openV2) { if (+prm.openLoss === 200) prm.openLoss = 100; prm.openV2 = true; } /* v0.5.0 : 100 m en chute stabilisée à 1 000 m (les 200 m d'origine étaient un ordre de grandeur) */
-function saveProfile() { store.set('isv.profile', prm); }
+function saveProfile() { store.set('isv.profile', prm); if (typeof Undo !== 'undefined') Undo.record(); }
 prm.canopies.forEach(c => { if (!isFinite(+c.hM)) c.hM = 1000; if (!(+c.mteM > 0)) c.mteM = 150; if (!isFinite(+c.hOpenM)) c.hOpenM = 1000; if (!(+c.lossM >= 0) || c.lossM === null) c.lossM = +prm.openLoss >= 0 ? +prm.openLoss : 100; if (!(+c.mteOpenM > 0)) c.mteOpenM = 150; }); /* v0.33.0 : ouverture mesurée par voile (reprend l'ancienne valeur générale) */
 function openLossNow() { const I = isv(), v = I.team.map(p => { const c = prm.canopies.find(q => q.id === p.canopy) || prm.canopies[0], r = Calc.canOpenRef(c); return r == null ? null : r * Math.sqrt((+p.mte > 0 ? +p.mte : MTE_DEF) / Calc.MTE_REF); }).filter(x => x != null); return v.length ? Math.max(...v) : +prm.openLoss || 0; } /* la plus forte perte de l'équipe (choix validé par Henri : sécurité), MTE de chaque para comprise */ /* v0.31.0 : anciennes voiles = mesure de référence (1 000 m, 150 kg) */
 { const f0 = window.fetch.bind(window), TILE = /^(server\.arcgisonline\.com|data\.geopf\.fr|s3\.amazonaws\.com)$/;
@@ -199,6 +199,7 @@ function persist() {
     const i = zones.findIndex(z => z.id === current.id);
     if (i >= 0) { zones[i] = clone(current); store.set('isv.zones', zones); }
   }
+  if (typeof Undo !== 'undefined') Undo.record(); /* undo.js : photo de l'état après chaque enregistrement */
 }
 // Tous les caps affichés sont magnétiques (cap vrai − déclinaison du lieu) ; la géométrie et les vents restent en vrai
 let _dz = { k: null, v: 0 };
@@ -3840,3 +3841,13 @@ syncOffline();
 $('stepInfoX').addEventListener('click', hideStepInfo); $('bannerInfoX').addEventListener('click', hideBannerInfo);
 $('guideBar').checked = guideOn(); $('guideBar').addEventListener('change', e => { store.set('isv.guideBar', e.target.checked); redraw(); syncStepBar(); });
 window._stepsReady = true; syncSteps();
+
+/* 26 nov. 2026 (Henri, toutes les applis carte) : boutons ↶ ↷ à côté de « Paramètres » qui annule la dernière action (undo.js) */
+$('btnUndo').innerHTML = Undo.ICON; $('btnRedo').innerHTML = Undo.ICON_REDO; /* et ↷ juste à côté pour rétablir l'action annulée */
+Undo.init({ toast, ignore: ['rts', 'locMem', 'ptuElev', 'ptuElevKey', 'ozmtElev', 'ozmtElevKey', 'alti', 'altiErr', 'sumSig', 'sumRoute'], state: () => ({ key: current.id || '', obj: { z: current, p: prm } }),
+  restore: o => {
+    const keep = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing() };
+    Object.keys(prm).forEach(k => { delete prm[k]; }); Object.assign(prm, o.p); store.set('isv.profile', prm);
+    current = upgrade(Object.assign(o.z, keep));
+    resetMarkers(); placing = null; suspended = null; setBanner(null); stopMeasure(); fillInputs(); /* Henri : ni onglet, ni fenêtre, ni zoom ne changent */ draw(); persist(); ensureWx(false);
+  } });
