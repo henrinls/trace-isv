@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.12';
+const VERSION = '0.52.13';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -340,7 +340,7 @@ function syncCompass() {
   $('btnNorth').classList.toggle('rotated', Math.abs(((b % 360) + 360) % 360) > 0.5);
 }
 let rotT = 0;
-map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && zmtOf()) drawBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+map.on('rotate', () => { syncCompass(); if (typeof drawBarb === 'function' && zmtOf()) drawBarb(); if (typeof drawGreenBarb === 'function') drawGreenBarb(!!gBarbMk); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
 
 const fig = L.layerGroup().addTo(map);     // tracé recalculé à chaque dessin
 const handles = L.layerGroup().addTo(map); // points déplaçables, gardés d'un dessin à l'autre
@@ -801,6 +801,31 @@ function drawBarb() { /* v0.35.7 (Henri) : barbule DANS le marqueur ZMT, pile so
   d.innerHTML = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible;display:block"><path d="${body}" stroke="#000" stroke-width="2.6" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="#000" stroke-width=".6"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.1" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="1.1" fill="none"/>` : ''}</svg>`;
   el.appendChild(d);
 }
+/* v0.52.13 (Henri) : barbule du vent À LA HAUTEUR DE LARGAGE à côté du vert, perpendiculairement au vecteur (pas le long), côté opposé à la ZMT ;
+   vent du champ au vert, à l'altitude de largage (sol.altRel). Carte (marqueur propre, non touchable) et PDF. */
+function relWind() { if (!sol || !sol.vec || !F || !isFinite(sol.altRel)) return null; try { const w = Calc.spdDir(Calc.windAt(F, sol.vec.green.lat, sol.vec.green.lng, sol.altRel)); return isFinite(w.spd) ? w : null; } catch (e) { return null; } }
+function greenBarb(toPx, s) { /* géométrie de la barbule du vert, en px de toPx (échelle s) */
+  const w = relWind(); if (!w) return null; const G = sol.vec.green, A = toPx(G), B = toPx(sol.vec.red);
+  const r = (w.dir + 180) * Math.PI / 180, far = toPx(Calc.fromLocal(G, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 })), dl = Math.hypot(far.x - A.x, far.y - A.y) || 1;
+  const bw = { d: { x: (far.x - A.x) / dl, y: (far.y - A.y) / dl }, kt: w.spd * KT };
+  let l = Math.hypot(B.x - A.x, B.y - A.y), ax = l > 0.5 ? { x: (B.x - A.x) / l, y: (B.y - A.y) / l } : (() => { const h = (sol.acHeading || 0) * Math.PI / 180, q = toPx(Calc.fromLocal(G, { x: Math.sin(h) * 1000, y: Math.cos(h) * 1000 })), m = Math.hypot(q.x - A.x, q.y - A.y) || 1; return { x: (q.x - A.x) / m, y: (q.y - A.y) / m }; })();
+  let n = { x: -ax.y, y: ax.x }; const z = zmtOf(); if (z) { const Z = toPx(z); if ((Z.x - A.x) * n.x + (Z.y - A.y) * n.y > 0) n = { x: -n.x, y: -n.y }; }
+  const gap = 24 * s, g0 = barbGeom(bw.kt, { x: 0, y: 0 }, bw.d, s), b = barbBox(g0), cx = A.x + n.x * gap, cy = A.y + n.y * gap, dx = cx - (b.x0 + b.x1) / 2, dy = cy - (b.y0 + b.y1) / 2, mv = q => ({ x: q.x + dx, y: q.y + dy });
+  return { A, lines: g0.lines.map(l2 => l2.map(mv)), tris: g0.tris.map(t => t.map(mv)), calm: g0.calm, T: mv(g0.T) };
+}
+let gBarbMk = null;
+function drawGreenBarb(on) {
+  const g = on ? greenBarb(ll => map.latLngToContainerPoint(LL(ll)), 1) : null;
+  if (!g) { if (gBarbMk) { map.removeLayer(gBarbMk); gBarbMk = null; } return; }
+  if (!gBarbMk) gBarbMk = L.marker(LL(sol.vec.green), { interactive: false, keyboard: false, zIndexOffset: 640, icon: L.divIcon({ className: 'gbarb', iconSize: [0, 0], html: '' }) }).addTo(map);
+  else gBarbMk.setLatLng(LL(sol.vec.green));
+  const el = gBarbMk.getElement(); if (!el) return; el.innerHTML = '';
+  const B = barbBox(g), x0 = B.x0 - 2, y0 = B.y0 - 2, x1 = B.x1 + 2, y1 = B.y1 + 2, f = q => `${(q.x - x0).toFixed(1)},${(q.y - y0).toFixed(1)}`, body = g.lines.map(([a, b]) => `M${f(a)}L${f(b)}`).join('');
+  const d = document.createElement('div'); d.className = 'barbIn';
+  Object.assign(d.style, { position: 'absolute', left: `${(x0 - g.A.x).toFixed(1)}px`, top: `${(y0 - g.A.y).toFixed(1)}px`, width: `${(x1 - x0).toFixed(1)}px`, height: `${(y1 - y0).toFixed(1)}px`, pointerEvents: 'none' });
+  d.innerHTML = `<svg width="${x1 - x0}" height="${y1 - y0}" style="overflow:visible;display:block"><path d="${body}" stroke="#000" stroke-width="2.6" stroke-linecap="round" fill="none" opacity=".55"/>${g.tris.map(t => `<path d="M${t.map(f).join('L')}Z" fill="#00e5ff" stroke="#000" stroke-width=".6"/>`).join('')}<path d="${body}" stroke="#00e5ff" stroke-width="1.1" stroke-linecap="round" fill="none"/>${g.calm ? `<circle cx="${(g.T.x - x0).toFixed(1)}" cy="${(g.T.y - y0).toFixed(1)}" r="2.5" stroke="#00e5ff" stroke-width="1.1" fill="none"/>` : ''}</svg>`;
+  el.appendChild(d);
+}
 const zmtIcon = L.divIcon({ className: 'tgt zmt', iconSize: [34, 34], iconAnchor: [17, 17], html: '<span></span><b>ZMT</b>' });
 const triIcon = L.divIcon({ className: 'tri', iconSize: [22, 20], iconAnchor: [11, 13], html: '<span></span>' });
 const lbl = (ll, html, cls) => L.marker(LL(ll), { interactive: false, icon: L.divIcon({ className: cls || 'glabel', iconSize: [0, 0], html: `<span>${html}</span>` }) });
@@ -1200,6 +1225,7 @@ function draw(light) {
     () => { if (placing === 'TP' && I.ozmt) { placing = 'TM'; placeBanner(); redraw(); } });
   if (mk.zmt && mk.zmt._icon) mk.zmt._icon.style.pointerEvents = placing === 'TM' ? 'none' : ''; /* en déplacement, la ZMT ne capte plus l'appui : on peut toucher juste à côté */ /* pendant la pose du PTU, toucher la ZMT de l'équipe permet de la déplacer sans quitter la pose (Henri, point 5) */
   drawBarb(); /* v0.35.3 : après la ZMT (on lit la position de son étiquette) */
+  drawGreenBarb(!!(SH.vec && sol && sol.vec));
   keep('ptu', SH.ptu ? I.ptu : null, dotIcon(C_PTU, 16, `PTU ${fmtInt(I.hPtu)} m`, 'big'), 400, ll => { if (passInfo(I)) { /* v0.51.0 : dans un passage, le PTU appartient à l'équipe qui tient la ZMT ; le vecteur ne bouge pas */ if (!ptuDragSnap) ptuDragSnap = passSnap(I); const R = zRoot(I); R.ptu = ll; R.ptuElev = null; I.ptu = ll; passMem = {}; solKey = null; return dragRecalc(); } I.ptu = ll; I.manual = null; I.ptuElev = null; dragRecalc(); },
     () => { const sn = ptuDragSnap; ptuDragSnap = null; persist(); fillInputs(); redraw(); refreshPtuElev(); ensureWx(false); if (sn) passAfter('le déplacement du PTU', sn); });
   // Points de l'ISV
@@ -3192,7 +3218,10 @@ async function renderPdfCanvas(opts) { /* opts (v0.39.0) : { W, H } = carte seul
     (apprSegs(12 * u / ppm, passOthMem) || []).forEach(sg => { line(sg.line, 'rgba(0,0,0,.5)', 4.6, [9, 8]); line(sg.line, '#fff', 2.2, [9, 8]); if (!sg.tip) return; const hd = arrowHead(sg.tip, sg.dir, 13 * u / ppm); line(hd, 'rgba(0,0,0,.5)', 5); line(hd, '#fff', 2.6); }); }
   if (SH.vec) { line([sol.vec.green, sol.vec.red], 'rgba(255,255,255,.9)', 9); line([sol.vec.green, sol.vec.red], '#000', 4.5);
   sol.vec.exits.forEach(e => dot(e, e.i === sol.dropIdx ? '#fff' : '#000', e.i === sol.dropIdx ? 4.2 : 3));
-  dot(sol.vec.green, C_START, 8); dot(sol.vec.red, C_END, 8); }
+  dot(sol.vec.green, C_START, 8); dot(sol.vec.red, C_END, 8);
+    { const bg = greenBarb(toC, u); if (bg) { g.save(); g.lineCap = 'round'; /* v0.52.13 : vent de largage à côté du vert */
+      const st = (col, w) => { g.strokeStyle = col; g.lineWidth = w; bg.lines.forEach(([p, q]) => { g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }); if (bg.calm) { g.beginPath(); g.arc(bg.T.x, bg.T.y, 2.5 * u, 0, 2 * Math.PI); g.stroke(); } };
+      st('rgba(0,0,0,.55)', 2.6 * u); bg.tris.forEach(t => { g.beginPath(); g.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => g.lineTo(q.x, q.y)); g.closePath(); g.fillStyle = '#00e5ff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = .6 * u; g.stroke(); }); st('#00e5ff', 1.1 * u); g.restore(); } } }
   if (!(opts && opts.W)) { /* v0.45.0 : les étiquettes suivent ce qu'elles nomment (vecteur ou trace masqués = pas d'étiquette) */
     if (SH.vec) { const m = toC({ lat: (sol.vec.green.lat + sol.vec.red.lat) / 2, lng: (sol.vec.green.lng + sol.vec.red.lng) / 2 }); shadowText(`${hdg(sol.acHeading)} · ${fmtInt(sol.vec.length)} m`, m.x + 12 * u, m.y - 14 * u, '#fff', 11); }
     if (SH.trace) { const t = toC(Calc.pointAt(sol.trace, sol.length / 2)); shadowText(`CAP ${hdg(sol.cap)} · ${fmtKm(sol.length)}`, t.x + 12 * u, t.y, '#fff', 11); } }
