@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.4';
+const VERSION = '0.52.5';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -3522,7 +3522,9 @@ function goSec(tab, text) {
 }
 function placeAlt() { openPtPop(); placing = { kind: 'alt' }; placeBanner(); fillInputs(); syncPtPop(); }
 function sOf(T, q) { return Calc.nearestOn(T, q).s; }
-function altBetween(T, s0, s1) { return isv().points.some(q => q.kind === 'alt' && (s => s > s0 && s < s1)(sOf(T, q))); }
+/* v0.52.5 (Henri, 26/11) : la ZMT compte aussi comme zone de posé pour les sommets et zones délicates (les points court, long, OSO, INT
+   sont des zones de posé alternatives « alt » et comptaient déjà) — même règle : sa projection sur la trace tombe dans la fenêtre */
+function altBetween(T, s0, s1) { const Z = zmtOf(), inW = s => s > s0 && s < s1; return isv().points.some(q => q.kind === 'alt' && inW(sOf(T, q))) || !!(Z && inW(sOf(T, Z))); }
 /* Contrôle : une zone de posé alternative dont la projection sur la trace tombe entre le point d'alerte et le sommet (ou le début de la zone délicate) */
 function stepProblems(kind) {
   if (!sol || !sol.ok) return []; const T = sol.trace, out = [], M = traceMini();
