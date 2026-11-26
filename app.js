@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.10';
+const VERSION = '0.52.11';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -852,7 +852,7 @@ const osoIcon = col => L.divIcon({ className: 'osop', iconSize: [28, 28], iconAn
    dérive en chute et à l'ouverture (la même pour tous : même temps de chute). Celui du para sur la trace s'appelle OUV : c'est
    sol.attachOuv. Le début de la trace (sol.trace[0]) n'a plus de nom. ouvVec() = vert et rouge décalés de la même dérive : c'est ce
    segment-là que le calcul garde dans le cercle de relaxation. */
-const C_OUV_END = 'rgba(255,205,235,.72)'; /* rose clair transparent : vert et rouge reportés à l'ouverture */
+const C_OUV_END = 'rgba(255,205,235,.72)'; /* rose clair transparent : « projection du vert / du rouge après dérive sous RSE » (nom officiel, Henri 26/11) = point d'ouverture d'un para qui sortirait pile au vert ou au rouge (marges de sécurité comprises) ; PAS le premier ni le dernier para (ce sont des points roses normaux) */
 function ouvShift() { return sol && sol.ok && sol.attachOuv && sol.vec ? Calc.toLocal(sol.vec.attach, sol.attachOuv) : null; }
 function ouvPts() { const d = ouvShift(); return d ? sol.vec.exits.map(e => Calc.fromLocal(e, d)) : null; }
 function ouvVec() { const d = ouvShift(); return d ? [Calc.fromLocal(sol.vec.green, d), Calc.fromLocal(sol.vec.red, d)] : null; }
@@ -3684,7 +3684,7 @@ const STEPS = [ /* ordre v0.36.1 (Henri) : altitudes avant ZRT, OSO juste après
   { id: 'tzmt', lk: 1, t: 'ZMT de l\'équipe', d: 'Pose la ZMT de cette équipe. Pour prendre la même zone qu\'une autre équipe, touche SA ZMT : son PTU est repris avec, et le passage est recalé.', auto: () => isv().zst !== 'todo', go: () => startTeamPlace(), goL: 'Poser' },
   { id: 'tptu', lk: 1, t: 'PTU de l\'équipe', d: 'Pose le PTU de cette équipe. Pointillé intérieur : possible sans rien bouger. Pointillé extérieur : possible en décalant le passage. Sa trace apparaît.', auto: () => teamPlaced(isv()), go: () => startTeamPlace(), goL: 'Poser' },
   { id: 'pall', pa: 1, t: 'Toutes les équipes du passage posées', d: 'Chaque équipe du passage doit avoir sa ZMT et son PTU avant de vérifier le vecteur et d\'arrondir le cap avion.', auto: () => passTeams().every(teamPlaced), go: () => { const X = passTeams().find(x => !teamPlaced(x)); if (X) { if (current.cur !== X.id) openIsv(X.id); setTimeout(startTeamPlace, 60); } }, goL: 'Poser' },
-  { id: 'vec', t: 'Vecteur de largage', tr: 1, mv: 'vec', /* v0.52.7 (Henri) : à revérifier seulement si le vecteur a bougé */ d: 'Vérifie sa position avec les points d\'ouverture (OUV = para sur la trace), les points d\'ouverture OSO et les points de posé OSO (point haut). Les points d\'ouverture doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
+  { id: 'vec', t: 'Vecteur de largage', tr: 1, mv: 'vec', /* v0.52.7 (Henri) : à revérifier seulement si le vecteur a bougé */ d: 'Vérifie sa position avec les points d\'ouverture (OUV = para sur la trace), les points d\'ouverture OSO et les points de posé OSO (point haut). Les points d\'ouverture et les projections du vert et du rouge après dérive sous RSE doivent rester dans la zone de relaxation. Appui long sur le vecteur ou sur un de ces points : déplacer ou rentrer le long de la trace, en gardant ou en changeant la hauteur d\'ouverture ; points vert et rouge : pivoter (la trace ne bouge pas).', go: fitVec },
   { id: 'caps', p: 1, t: () => (passInfo() ? 'Cap avion du passage' : 'Cap para et cap avion'), tr: 1, auto: capsRound, d: () => (passInfo() ? 'Arrondis le cap avion à la dizaine pour simplifier les consignes : le passage tourne autour de son milieu et rentre juste ce qu\'il faut pour que toutes les équipes restent dans leur zone. Ce n\'est jamais fait d\'office : « Passer » le laisse tel quel. Les caps para découlent de la position de chaque équipe ; ils sont donnés arrondis dans le Briefing.' : 'Arrondis-les à la dizaine pour simplifier les consignes ; tu peux ensuite forcer une autre valeur.'), go: roundCaps, goL: 'Arrondir' },
   { id: 'oso', t: 'Points OSO', tr: 1, noRt: 1, need: () => isv().points.some(q => q.kind === 'alt' && altPos(q).oso), /* v0.52.6 (Henri) : plus validée toute seule (on pose souvent 2 points OSO) : « Fait » à la main ; need = contrôle permanent */ d: 'Pose au moins une zone de posé alternative près des points de posé OSO (point haut) : elle se nomme OSO toute seule.', go: () => { fitOso(); placeAlt(); }, goL: 'Poser' },
   { id: 'cut', t: 'Coupe et sommets', tr: 1, mv: 'S', /* v0.52.7 : seulement si la trace a bougé entre un point d'alerte et son sommet */ d: 'Vérifie la coupe et place les sommets S (bouton +S sous la punaise de la coupe).', go: () => { closeSheet(); openCut(); }, goL: 'Coupe' },
