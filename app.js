@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.52.11';
+const VERSION = '0.52.12';
 const APP_ID = 'isv';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1495,8 +1495,10 @@ function fillInputs() {
 function syncQuick() {
   const I = isv();
   syncShowPop();
-  $('qRev').classList.toggle('on', !!(I.reversed || (passInfo(I) && passLead(I).prev))); $('qRev').classList.toggle('hidden', !!I.link);
-  $('qVecAuto').classList.toggle('hidden', passInfo(I) ? passTeams(I).filter(teamPlaced).length < 2 : !(I.manual || I.vecHeading != null || I.capManual != null));
+  $('qRev').classList.toggle('hidden', !!I.link); if ($('v_acRev')) $('v_acRev').classList.toggle('hidden', !!I.link);
+  /* v0.52.12 : « Vect. auto » toujours présent dans le sous-menu du bouton Vecteur, grisé quand il n'y a rien à remettre en automatique */
+  $('qVecAuto').disabled = passInfo(I) ? passTeams(I).filter(teamPlaced).length < 2 : !(I.manual || I.vecHeading != null || I.capManual != null || I.reversed);
+  $('qVec').classList.toggle('on', vecPopOpen);
   if ($('qZero')) $('qZero').classList.toggle('on', zeroWind); $('qWinds').classList.toggle('on', !$('windsBox').classList.contains('hidden'));
   $('qPoint').classList.toggle('on', ptOpen || !!(placing && typeof placing === 'object' && placing.kind !== 'move'));
   if (typeof syncPtPop === 'function') try { syncPtPop(); } catch (e) {}
@@ -1538,7 +1540,27 @@ function syncShowPop() {
 }
 function closeShowPop() { if (showOpen) { showOpen = false; syncShowPop(); } }
 $('qShow').addEventListener('click', () => { showOpen = !showOpen; if (showOpen) closeSheet(); syncShowPop(); });
-$('qRev').addEventListener('click', () => { const I0 = isv(); if (passInfo(I0)) { const L = passLead(I0); L.prev = !(L.prev || L.reversed); L.reversed = false; L.pauto = L.vecHeading; passAutoUi('Sens du passage inversé'); return; } /* v0.51.0 */ quick(() => { const I = isv(), t = ouvONow(); I.reversed = !I.reversed; rotKeep(t); }); });
+/* v0.52.12 (Henri) : bouton Vecteur → sous-boutons « Vect. auto » et « ⇅ Sens », à droite du bouton (comme ＋ Point) */
+var vecPopOpen = false;
+function syncVecPop() { const p = $('vecPop'); p.classList.toggle('hidden', !vecPopOpen); $('qVec').classList.toggle('on', vecPopOpen); if (!vecPopOpen) return;
+  const r = $('qVec').getBoundingClientRect(); p.style.left = `${Math.round(r.right + 6)}px`; p.style.top = `${Math.round(r.top + r.height / 2 - 25)}px`; }
+function closeVecPop() { if (vecPopOpen) { vecPopOpen = false; syncVecPop(); } }
+$('qVec').addEventListener('click', () => { vecPopOpen = !vecPopOpen; fillInputs(); syncVecPop(); });
+document.addEventListener('pointerdown', e => { if (vecPopOpen && !$('vecPop').contains(e.target) && e.target !== $('qVec')) closeVecPop(); }, true);
+['qVecAuto', 'qRev'].forEach(id => $(id).addEventListener('click', () => setTimeout(closeVecPop, 0)));
+if ($('v_acRev')) $('v_acRev').addEventListener('click', () => revClick());
+$('qRev').addEventListener('click', () => revClick());
+function revClick() { const I0 = isv(); if (passInfo(I0)) { const L = passLead(I0); L.prev = !(L.prev || L.reversed); L.reversed = false; L.pauto = L.vecHeading; passAutoUi('Sens du passage inversé'); return; } /* v0.51.0 */ flipVec(); }
+/* v0.52.12 (Henri) : inverser le sens = rotation de 180° : RIEN ne bouge sur la trace (même point d'ouverture, même trace, même hauteur).
+   Vecteur automatique : il est d'abord figé tel quel (point de largage actuel, hauteur gardée, route figée), sinon l'ouverture
+   glissait de quelques dizaines de mètres le long de la trace en changeant de sens. */
+function flipVec() { const I = isv(); compute(); if (!sol || !sol.ok) { quick(() => { I.reversed = !I.reversed; }); return; }
+  if (!I.manual) { I.manual = { lat: sol.vec.attach.lat, lng: sol.vec.attach.lng }; I.keepH = true; I.along = { cap: sol.cap }; I.vecHeading = sol.acHeading; I.reversed = false; solKey = null; compute(); }
+  const t = { lat: sol.attachOuv.lat, lng: sol.attachOuv.lng }; /* point d'ouverture RÉEL du para sur la trace (pas ouvO, d'avant glissement) */
+  quick(() => { I.vecHeading = n360((I.vecHeading != null ? I.vecHeading : sol.acHeading) + 180); I.reversed = false; solKey = null;
+    const e0 = elev0(), inp = calcInput(I); let m = I.manual;
+    for (let k = 0; k < 8; k++) { const s = Calc.solve(Object.assign({}, inp, { manual: m }), prm, F, e0); if (!s.ok || !s.attachOuv) break; const d = Calc.toLocal(s.attachOuv, t); if (Math.hypot(d.x, d.y) < 1) break; m = Calc.fromLocal(m, d); }
+    I.manual = m; solKey = null; }); }
 $('qVecAuto').addEventListener('click', () => { if (passInfo()) { /* v0.51.0 (Henri) : dans un passage, « Vecteur automatique » recalcule TOUT le passage (ZMT, PTU, délais, FL et hauteurs d'ouverture gardés) */ passAutoUi('Passage recalculé : toutes les équipes dans leur zone'); return; } quick(() => { const I = isv(); I.manual = null; I.keepH = false; I.along = null; I.vecHeading = null; I.capManual = null; I.reversed = false; }); toast('Vecteur et cap para recalculés'); });
 /* v0.18.0 : bouton Vent 0 supprimé (Henri) */ if ($('qZero')) $('qZero').addEventListener('click', () => { zeroWind = !zeroWind; store.set('isv.zeroWind', zeroWind); fillInputs(); draw(); if (!$('windsBox').classList.contains('hidden')) renderWinds(); toast(zeroWind ? 'ESSAI : vent forcé à 0 partout' : 'Vent réel rétabli'); });
 $('qIsv').addEventListener('click', () => toggleTab('isv'));

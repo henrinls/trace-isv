@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="trace-isv">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png?v=0.52.11">
+<link rel="apple-touch-icon" href="icon-192.png?v=0.52.12">
 <title>trace-isv</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.52.11">
+<link rel="stylesheet" href="style.css?v=0.52.12">
 </head>
 <body>
 <div id="map"></div>
@@ -45,8 +45,7 @@
   <button id="qWinds" title="Tableau des vents">🌬</button>
   <button id="qIsv" title="Préparer l'ISV : PTU, équipe, données de vol, points">Prépa ISV</button>
   <button id="qBrief" title="Briefing : export, consignes, largage, navigation">Briefing</button>
-  <button id="qRev" title="Inverser le sens de vol de l'avion">⇅ LARG</button>
-  <button id="qVecAuto" class="hidden" title="Revenir au vecteur et au cap calculés, avec le temps de chute prévu">Vect. auto</button>
+  <button id="qVec" title="Vecteur : automatique, ou inverser le sens">Vecteur</button>
   <button id="qShow" title="Choisir ce qui est affiché sur la carte">Affichage</button>
   <button id="qPoint" title="Ajouter une zone de posé alternative ou un point libre">＋ Point</button>
   <button id="qCut" title="Coupe du terrain le long de la trace (ou de la mesure affichée)">Coupe</button>
@@ -54,7 +53,11 @@
 </nav>
 
 <!-- v0.17.0 : ＋ Point comme les repères de l'appli PA : choix du type à côté du bouton, pas de fenêtre -->
-<div id="showPop" class="hidden"></div><!-- v0.45.0 : interrupteurs du bouton Affichage -->
+<div id="showPop" class="hidden"></div>
+<div id="vecPop" class="hidden"><!-- v0.52.12 (Henri) : bouton Vecteur → deux sous-boutons -->
+  <button id="qVecAuto" title="Revenir au vecteur et au cap calculés, avec le temps de chute prévu">Vect. auto</button>
+  <button id="qRev" title="Inverser le sens de vol de l'avion (rotation de 180° : rien ne bouge sur la trace)">⇅ Sens</button>
+</div><!-- v0.45.0 : interrupteurs du bouton Affichage -->
 <div id="ptPop" class="hidden">
   <button id="ptAlt" title="Zone de posé alternative"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="7" fill="none" stroke="#000" stroke-width="5"/><circle cx="12" cy="12" r="7" fill="none" stroke="#ff2020" stroke-width="3"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6" stroke="#ff2020" stroke-width="2.4"/></svg></button>
   <div class="prow"><button id="ptFree" title="Point libre"><svg viewBox="0 0 24 24" width="22" height="22"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="#fff" stroke="#111" stroke-width="2"/></svg></button></div>
@@ -221,7 +224,7 @@
     <label>CAP PARA (° magnétiques)</label>
     <div class="stepper"><button id="v_capM">−</button><input id="v_cap" inputmode="numeric"><button id="v_capP">+</button><button id="v_capAuto">Auto</button></div>
     <label>Cap avion = cap du vecteur (° magnétiques)</label>
-    <div class="stepper"><button id="v_acM">−</button><input id="v_acH" inputmode="numeric"><button id="v_acP">+</button><button id="v_acAuto">Auto</button></div>
+    <div class="stepper"><button id="v_acM">−</button><input id="v_acH" inputmode="numeric"><button id="v_acP">+</button><button id="v_acAuto">Auto</button><button id="v_acRev" title="Inverser le sens (rotation de 180° : rien ne bouge sur la trace)">⇅</button></div>
     <div class="grid2">
       <div><label>Para sur la trace</label><select id="v_drop"></select></div>
       <div><label>Point de relaxation</label><select id="v_relax"></select></div>
@@ -409,19 +412,19 @@
 <div id="toast" class="hidden"></div>
 <div id="archBar" class="hidden"><span>📁 Archive en pause</span><button id="archAllow">Autoriser</button></div>
 
-<script src="vendor/leaflet.js?v=0.52.11"></script>
-<script src="vendor/leaflet-rotate.js?v=0.52.11"></script>
-<script src="vendor/mgrs.min.js?v=0.52.11"></script>
-<script src="geo.js?v=0.52.11"></script>
-<script src="clubs.js?v=0.52.11"></script>
-<script src="wmm.js?v=0.52.11"></script>
-<script src="calc.js?v=0.52.11"></script>
-<script src="pass.js?v=0.52.11"></script>
-<script src="windpick.js?v=0.52.11"></script>
-<script src="pdfview.js?v=0.52.11"></script>
-<script src="lpmove.js?v=0.52.11"></script>
-<script src="app.js?v=0.52.11"></script>
-<script src="photo.js?v=0.52.11"></script>
-<script src="offline.js?v=0.52.11"></script>
+<script src="vendor/leaflet.js?v=0.52.12"></script>
+<script src="vendor/leaflet-rotate.js?v=0.52.12"></script>
+<script src="vendor/mgrs.min.js?v=0.52.12"></script>
+<script src="geo.js?v=0.52.12"></script>
+<script src="clubs.js?v=0.52.12"></script>
+<script src="wmm.js?v=0.52.12"></script>
+<script src="calc.js?v=0.52.12"></script>
+<script src="pass.js?v=0.52.12"></script>
+<script src="windpick.js?v=0.52.12"></script>
+<script src="pdfview.js?v=0.52.12"></script>
+<script src="lpmove.js?v=0.52.12"></script>
+<script src="app.js?v=0.52.12"></script>
+<script src="photo.js?v=0.52.12"></script>
+<script src="offline.js?v=0.52.12"></script>
 </body>
 </html>

@@ -292,6 +292,9 @@ table.vals tr.hi td:last-child{color:#ffd400;font-size:16px}table.vals tr.hi td:
 /* ＋ Point : choix du type à côté du bouton (v0.17.0) */
 #ptPop{position:fixed;z-index:960;display:flex;flex-direction:column;gap:6px}
 #ptPop.hidden{display:none}
+#vecPop{position:fixed;z-index:1500;display:flex;flex-direction:column;gap:6px}#vecPop.hidden{display:none}
+#vecPop button{min-width:96px;height:44px;padding:0 10px;border-radius:11px;background:rgba(20,20,20,.92);border:2px solid #fff;color:#fff;font-weight:700;white-space:nowrap;touch-action:manipulation}
+#vecPop button:disabled{opacity:.4}#vecPop button.hidden{display:none}
 #ptPop .prow{display:flex;gap:6px;align-items:center;position:relative}
 #ptPop button{width:44px;height:44px;padding:0;border-radius:11px;background:rgba(20,20,20,.88);border:2px solid #fff;display:flex;align-items:center;justify-content:center;touch-action:manipulation}
 #ptPop button.on{background:#1f6fb2;border-color:#1f6fb2}
