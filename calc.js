@@ -195,7 +195,7 @@
   /* v0.51.0 : meilleur cap et zone de relaxation ne dépendent pas de la position du vecteur ; un passage à plusieurs équipes les
      redemande des dizaines de fois avec les mêmes données (40 ms à chaque fois) → gardés en mémoire, par champ de vent. */
   const memoF = new WeakMap(), memo0 = new Map();
-  function memo(F, key, make) { let M = F ? memoF.get(F) : memo0; if (!M) { M = new Map(); memoF.set(F, M); } if (M.has(key)) return M.get(key); if (M.size > 60) M.clear(); const v = make(); M.set(key, v); return v; }
+  function memo(F, key, make) { let M = F ? memoF.get(F) : memo0; if (!M) { M = new Map(); memoF.set(F, M); } if (M.has(key)) return M.get(key); if (M.size > 240) M.clear(); /* v0.54.0 : une zone par voile + MTE, plus la zone de l'équipe */ const v = make(); M.set(key, v); return v; }
   const canKey = can => [can.vx, can.vz, can.mk].join('/');
   function bestCap(F, ptu, elev0, hPtu, hOpen, can, margin) { return memo(F, ['bc', ptu.lat, ptu.lng, elev0, hPtu, hOpen, canKey(can), margin].join('|'), () => bestCap0(F, ptu, elev0, hPtu, hOpen, can, margin)); }
   function bestCap0(F, ptu, elev0, hPtu, hOpen, can, margin) {
@@ -251,6 +251,53 @@
     for (let d = 0; d < 360; d += st) { const g = d * Math.PI / 180, ang = Math.atan2(Math.sin(g), Math.cos(g)), R = circ.z ? zoneR(circ.z, ang) : circ.R, c = circ.z ? circ.z.c : circ.c; out.push(fromLocal(c, { x: R * Math.sin(g), y: R * Math.cos(g) })); }
     return out; }
   function zoneSpan(circ) { if (!circ.z) return { min: circ.R, max: circ.R }; return { min: Math.min.apply(null, circ.z.r), max: Math.max.apply(null, circ.z.r) }; }
+  /* v0.54.0 (Henri, 27/11) — ZONE DE L'ÉQUIPE. Chaque voile + MTE a sa zone de relaxation ; quand elles diffèrent, ce n'est pas la même
+     qui limite partout (côté loin, vent dans le dos : la moins fine ou la plus lourde ; côté PTU, face au vent : la plus légère).
+     La zone de l'équipe est ce qui est dans TOUTES : tant que les points d'ouverture sont dedans, tous les paras rejoignent le PTU.
+     On la rend dans le même format qu'une zone simple ({ c, R, z: { c, a, r } }) : rayon du bord selon le relèvement vu de son point le
+     plus profond, un échantillon par degré plus trois aux « coins » (là où la voile qui limite change), pour que zoneR / zoneOut /
+     zonePts, le moteur des passages (pass.js) et le dessin marchent sans rien savoir de plus. R = demi-plus-grande largeur.
+     Une seule zone → rendue telle quelle (équipe homogène : strictement comme avant). Aucune zone commune → { R: 0, z: null, empty }.
+     PIÈGE : ne pas additionner des coordonnées locales de centres différents (cos de la latitude) : toujours repasser par lat/lng. */
+  function zoneJoin(parts) {
+    if (parts.length === 1) return parts[0];
+    const cOf = z => (z.z ? z.z.c : z.c), P2 = 2 * Math.PI;
+    const outAt = p => { let v = -Infinity; for (const z of parts) { const w = zoneOut(z, p); if (w > v) v = w; } return v; };
+    let la = 0, lo = 0; for (const z of parts) { const c = cOf(z); la += c.lat; lo += c.lng; }
+    const C0 = { lat: la / parts.length, lng: lo / parts.length }, Rbig = Math.max.apply(null, parts.map(z => dist(C0, cOf(z)) + zoneSpan(z).max));
+    let x = 0, y = 0, f = outAt(C0); // point le plus profond de l'intersection (descente par motifs)
+    for (let st = Math.max(50, Rbig / 4); st >= 2; st /= 2) { let moved = true, guard = 0;
+      while (moved && guard++ < 60) { moved = false;
+        for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, nx = x + Math.sin(a) * st, ny = y + Math.cos(a) * st, nf = outAt(fromLocal(C0, { x: nx, y: ny })); if (nf < f - 1e-3) { x = nx; y = ny; f = nf; moved = true; } } } }
+    const C = fromLocal(C0, { x, y });
+    if (!(f < -1) || !isFinite(Rbig)) return { c: C, R: 0, z: null, parts, empty: true };
+    const depth = -f, at = (g, r) => fromLocal(C, { x: Math.sin(g) * r, y: Math.cos(g) * r });
+    const exit = (g, guess) => { /* rayon où la demi-droite de relèvement g sort de l'intersection */
+      let lo2 = null, hi = null;
+      if (guess != null) { const a = guess * 0.97, b = guess * 1.03 + 1; if (outAt(at(g, a)) <= 0 && outAt(at(g, b)) > 0) { lo2 = a; hi = b; } }
+      if (lo2 == null) { const stp = Math.min(Rbig / 32, Math.max(depth / 2, Rbig / 400)); lo2 = 0; hi = stp; let n = 0; while (outAt(at(g, hi)) <= 0 && n++ < 2000) { lo2 = hi; hi += stp; } }
+      for (let k = 0; k < 40 && hi - lo2 > 0.02; k++) { const m = (lo2 + hi) / 2; if (outAt(at(g, m)) <= 0) lo2 = m; else hi = m; }
+      return lo2; };
+    const owner = (g, r) => { const p = at(g, r); let b = 0, v = -Infinity; parts.forEach((z, j) => { const w = zoneOut(z, p); if (w > v) { v = w; b = j; } }); return b; };
+    const N = 360, nodes = []; let prev = null;
+    for (let i = 0; i < N; i++) { const g = -Math.PI + (i + 0.5) * P2 / N, r = exit(g, prev); nodes.push({ a: g, r, o: owner(g, r) }); prev = r; }
+    const EPS = 3e-4, extra = []; /* coins : on encadre l'endroit où la voile qui limite change, pour que le bord garde son angle */
+    for (let i = 0; i < N; i++) { const A = nodes[i], B = nodes[(i + 1) % N]; if (A.o === B.o) continue;
+      let ga = A.a, gb = B.a + (i === N - 1 ? P2 : 0), ra = A.r;
+      for (let k = 0; k < 14; k++) { const gm = (ga + gb) / 2, rm = exit(gm, ra); if (owner(gm, rm) === A.o) { ga = gm; ra = rm; } else gb = gm; }
+      for (const d of [-EPS, 0, EPS]) { let g = (ga + gb) / 2 + d; const r = exit(g, ra); if (g >= Math.PI) g -= P2; extra.push({ a: g, r }); } }
+    const all = nodes.concat(extra).sort((u, v) => u.a - v.a), a = [], r = [];
+    for (const k of all) { if (a.length && k.a - a[a.length - 1] < 1e-5) continue; a.push(k.a); r.push(k.r); }
+    let chord = 0; for (let i = 0; i < N / 2; i++) chord = Math.max(chord, nodes[i].r + nodes[i + N / 2].r);
+    return { c: C, R: chord / 2, z: { c: C, a, r }, parts, own: nodes.map(k => k.o) };
+  }
+  /* Zone de l'équipe pour une liste de voiles effectives (cans) à la hauteur d'ouverture hOpen ; caps[i] = cap autour duquel la zone de
+     la voile i doit être exacte (là où sa trace se pose), ou null. Gardée en mémoire comme les zones simples. */
+  function teamZone(F, ptu, elev0, hPtu, hOpen, cans, caps, margin) {
+    const parts = cans.map((c, i) => relaxCircle(F, ptu, elev0, hPtu, hOpen, c, margin, caps ? caps[i] : null));
+    if (parts.length === 1) return parts[0];
+    return memo(F, ['tz', ptu.lat, ptu.lng, elev0, hPtu, hOpen, margin].concat(cans.map((c, i) => canKey(c) + '@' + (caps && caps[i] != null ? caps[i] : ''))).join('|'), () => zoneJoin(parts));
+  }
   // Point d'une polyligne (liste de { lat, lng, h }) le plus proche de q : distance, hauteur interpolée, abscisse
   function nearestOn(pts, q) {
     let best = null, acc = 0;
@@ -326,11 +373,24 @@
     let st = relState(+isv.fl || 295);
     if (st.hOpen <= hPtu + 50) { out.err = `Largage trop bas : ouverture à ${Math.round(st.hOpen)} m pour un PTU à ${Math.round(hPtu)} m.`; return out; }
 
-    // Voile la moins performante : celle qui va le moins loin (en ligne droite) à son meilleur cap, ou au cap imposé
+    /* v0.54.0 (Henri, 27/11) — voiles ou MTE différentes dans l'équipe. Pour une même voile, seules la MTE la plus légère et la plus
+       lourde peuvent limiter (la zone d'une MTE intermédiaire contient ce qui est commun aux deux extrêmes) : ext = ces extrêmes. */
+    const ext = []; used.forEach(u => { const same = used.filter(v => v.id === u.id); for (const e of [same.reduce((a, b) => (b.mte < a.mte ? b : a)), same.reduce((a, b) => (b.mte > a.mte ? b : a))]) if (!ext.includes(e)) ext.push(e); });
     const reach = (c, hOpen) => { const cap = isv.capManual != null ? isv.capManual : bestCap(F, ptu, elev0, hPtu, hOpen, c, margin); const tr = trace(F, ptu, elev0, hPtu, hOpen, c, cap, margin); return { c, cap, tr }; };
-    let cand = used.map(c => reach(c, st.hOpen)).sort((a, b) => a.tr.direct - b.tr.direct), weak = cand[0];
-    const wi = team.findIndex(p => effOf(p).key === weak.c.key);
-    out.weak = { canopy: weak.c.c, mte: weak.c.mte, idx: wi, name: team[wi] && team[wi].name || '', several: used.length > 1 };
+    const cand = ext.map(c => reach(c, st.hOpen)), capsPlan = cand.map(k => k.cap), zoneTeam = (hOpen, caps) => teamZone(F, ptu, elev0, hPtu, hOpen, ext, caps, margin);
+    /* Voile de la trace (vecteur automatique ou cap para imposé) : celle dont le bout de trace est dans la zone de toutes les autres,
+       c'est-à-dire sur le bord de la zone de l'équipe. Au meilleur cap, c'est celle qui va le moins loin (la règle d'avant) ; à un cap
+       imposé face au vent, c'est au contraire la plus légère. Aucune (coin de la zone) : celle qui dépasse le moins. */
+    let weak = cand[0];
+    if (cand.length > 1) { const zs = cand.map(k => relaxCircle(F, ptu, elev0, hPtu, st.hOpen, k.c, margin, k.cap));
+      const sc = cand.map((k, i) => { let v = -Infinity; zs.forEach((z, j) => { if (j !== i) v = Math.max(v, zoneOut(z, k.tr.top)); }); return v; }), okc = cand.filter((k, i) => sc[i] <= 1);
+      weak = okc.length ? okc.reduce((a, b) => (b.tr.direct < a.tr.direct ? b : a)) : cand[sc.indexOf(Math.min.apply(null, sc))]; }
+    /* Vecteur posé à la main : la voile de la trace est la plus restrictive AU POINT D'OUVERTURE O, celle dont la trace y passe le plus
+       haut (c'est elle qui a le moins de hauteur en trop), ou qui ne peut pas rejoindre le PTU depuis là. La voile par défaut garde la
+       main à égalité (0,5 m). Route figée (isv.along) : la voile reste celle de la route (along.can), sinon la trace changerait. */
+    const pickAt = O => { let best = null; for (const k of [weak].concat(cand.filter(q => q !== weak))) { const r = capThrough(F, ptu, elev0, hPtu, st.hOpen, k.c, margin, O), v = r.d < 30 ? r.h : 1e7 + r.d; if (!best || v > best.v + 0.5) best = { c: k.c, r, v }; } return best; };
+    const ouv0 = () => fromLocal(isv.manual, rseDrift(F, isv.manual, st.altRel, st.f, acHeadingOf(F, isv, st, traceDir(weak.tr.pts), isv.manual)));
+    const alCan = isv.along && isv.along.can != null ? (ext.find(u => u.key === isv.along.can) || null) : null;
 
     // Vecteur déplacé à la main : le FL ne change pas. La trace doit passer par le nouveau point d'ouverture ; si elle y passe
     // plus bas que l'ouverture prévue, le para chute plus longtemps : la consigne devient « ouverture à x m » (centaine supérieure).
@@ -350,6 +410,8 @@
       const al = isv.along && isv.along.cap != null ? isv.along : null, full = c => trace(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, c, margin);
       const perpNear = (d1, prev) => { const c1 = n360(d1 + 90), c2 = n360(d1 - 90), g = c => Math.abs(((c - prev + 540) % 360) - 180); return g(c1) <= g(c2) ? c1 : c2; };
       let O = null, nr = null, capPrev = null, flips = 0; isAl = !!al;
+      if (al && alCan) weak = { c: alCan, cap: weak.cap, tr: weak.tr };
+      else if (!al && cand.length > 1) { const b = pickAt(ouv0()); weak = { c: b.c, cap: b.r.cap, tr: trace(F, ptu, elev0, hPtu, stPlan.hOpen, b.c, b.r.cap, margin) }; }
       if (al) weak = { c: weak.c, cap: al.cap, tr: full(al.cap) };
       /* v0.51.1 (Henri, 24/11) : hauteur gardée = l'ouverture reste TOUJOURS celle du temps de chute. L'appli ne l'abaisse plus
          d'elle-même quand le para s'ouvre loin au-dessus de la trace (ancienne règle de la v0.44.0, supprimée : NE PAS la remettre).
@@ -368,6 +430,8 @@
       if (nr.d > 30 && nr.pt) { out.manualFix = fromLocal(isv.manual, toLocal(O, nr.pt)); if (!al) out.warn = 'Vecteur hors de la zone de relaxation : à cette hauteur d\'ouverture, le PTU ne peut pas être rejoint depuis là.'; }
     } else if (isv.manual && isv.capManual == null) {
       let O = null, sol = null, hCmd = null;
+      if (isv.along && isv.along.cap != null) { if (alCan) weak = { c: alCan, cap: weak.cap, tr: weak.tr }; }
+      else if (cand.length > 1) { const b = pickAt(ouv0()); weak = { c: b.c, cap: b.r.cap, tr: trace(F, ptu, elev0, hPtu, stPlan.hOpen, b.c, b.r.cap, margin) }; }
       for (let pass = 0; pass < 5; pass++) { // la dérive sous RSE dépend du temps de chute, qui dépend du point d'ouverture : on recale
         const ach = acHeadingOf(F, isv, st, traceDir(weak.tr.pts), isv.manual), dr = rseDrift(F, isv.manual, st.altRel, st.f, ach);
         O = fromLocal(isv.manual, dr);
@@ -388,6 +452,8 @@
       if (sol.d > 30 && sol.pt) out.manualFix = fromLocal(isv.manual, toLocal(O, sol.pt)); /* v0.40.0 : point de largage le plus proche d'où le PTU reste joignable */
       if (sol.d > 100) out.warn = 'Ce point de largage est hors de portée : le PTU ne peut pas être rejoint depuis là.';
     }
+    { const wi = team.findIndex(p => effOf(p).key === weak.c.key); /* v0.54.0 : après le choix (il dépend du point d'ouverture quand le vecteur est posé à la main) */
+      out.weak = { canopy: weak.c.c, mte: weak.c.mte, idx: wi, name: team[wi] && team[wi].name || '', several: used.length > 1 }; out.wk = weak.c.key; }
     const tr = weak.tr, ptsDown = tr.pts.slice().reverse(); // de l'ouverture terminée vers le PTU
     out.cap = n360(weak.cap); out.capAuto = isv.capManual == null && !isv.manual;
     out.trace = ptsDown; out.direct = tr.direct; out.length = tr.length; out.ouv = ptsDown[0];
@@ -408,15 +474,17 @@
     const man = !!(isv.manual && isv.capManual == null), capShow = man ? capPlan : weak.cap;
     /* v0.40.0 (Henri) : le cercle est TOUJOURS celui de la hauteur d'ouverture réelle. Hauteur gardée : cercle de l'ouverture prévue
        (il ne bouge pas quand on déplace le vecteur dedans). Hauteur changée : cercle recalculé pour la nouvelle hauteur. */
-    const circ = keepH ? relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan) : relaxCircle(F, ptu, elev0, hPtu, st.hOpen, weak.c, margin, weak.cap);
+    /* v0.54.0 : zone de l'ÉQUIPE (ce qui est dans la zone de chaque voile + MTE). Une seule voile + MTE : la même zone qu'avant. */
+    const circ = keepH ? zoneTeam(stPlan.hOpen, capsPlan) : zoneTeam(st.hOpen, man ? ext.map(e => (e === weak.c ? weak.cap : null)) : capsPlan);
+    out.zoneN = ext.length;
     const zonePlan = circ, circShow = circ, drShow = dr;
-    if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`;
+    if (!(circ.R > 0)) out.warn = (out.warn ? out.warn + ' ' : '') + (circ.empty ? 'Avec ce vent, il n\'existe aucun endroit d\'où tous les paras de l\'équipe rejoignent le PTU : leurs voiles ou leurs MTE sont trop différentes.' : `Avec ce vent et ${Math.round(margin * 100)} % de marge, aucun point de largage ne garantit de rejoindre le PTU.`);
     const toDrop = (c, d) => ({ c: fromLocal(c.c, { x: -d.x, y: -d.y }), R: c.R });
     out.circleOuv = circShow; out.circle = toDrop(circShow, drShow);
     out.zoneOuv = circ; out.zone = toDrop(zonePlan, drShow);
     /* v0.51.0 : zone de la hauteur d'ouverture PRÉVUE (temps de chute), même quand l'ouverture a été abaissée (mode Changer) : c'est d'elle
        que dépend la possibilité de rejoindre le PTU ; sert au placement d'un passage à plusieurs équipes */
-    out.zonePlan = (keepH || st === stPlan) ? circ : relaxCircle(F, ptu, elev0, hPtu, stPlan.hOpen, weak.c, margin, capPlan);
+    out.zonePlan = (keepH || st === stPlan) ? circ : zoneTeam(stPlan.hOpen, capsPlan);
 
     // Vecteur : le para choisi s'ouvre sur la trace ; on fait glisser ce point le long de la trace (vers le PTU) jusqu'à ce que
     // le vert et le rouge soient dans la zone avec marge (non affichée). La trace ne change pas.
@@ -441,7 +509,7 @@
       } else if (L > 2 * circ.R) sFit = null;
     } else
     for (let s = s0; s <= total; s += Math.max(5, total / 4000)) { const o = pointAt(ptsDown, s), e = ends(o); if (inside(e[0]) && inside(e[1])) { sFit = s; break; } }
-    if (sFit == null) { out.warn = out.warn || '' ; out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de large) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de relaxation sur ce cap : tourne-le ou change de para sur la trace.`); sFit = s0; }
+    if (sFit == null) { out.warn = out.warn || '' ; if (!circ.empty) out.warn = (out.warn ? out.warn + ' ' : '') + (L > 2 * circ.R ? `Vecteur (${Math.round(L)} m) plus long que la zone de relaxation${st !== stPlan ? ' à cette hauteur d\'ouverture' : ''} (${Math.round(2 * circ.R)} m de large) : il ne peut pas y rentrer.` : `Le vecteur ne rentre pas dans la zone de relaxation sur ce cap : tourne-le ou change de para sur la trace.`); sFit = s0; }
     const oAtt = pointAt(ptsDown, sFit), eO = ends(oAtt), shift = p => fromLocal(p, { x: -dr.x, y: -dr.y });
     out.keepH = keepH; out.slide = sFit; out.attachOuv = oAtt; out.attachH = oAtt.h; out.dropIdx = idx;
     out.vec = { heading: acHeading, length: L, green: shift(eO[0]), red: shift(eO[1]), attach: shift(oAtt),
@@ -500,6 +568,6 @@
   }
 
   const api = { toLocal, fromLocal, unit, bearingOf, dist, n360, stdP, stdH, RHO_REF, MTE_REF, canRef, canOpenRef, rhoAt, kRho, ffK, windAt, rhAt, windMean, zOfP, pOfZ, flToAlt, altToFl, spdDir, inGrid,
-    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, zoneR, zoneOut, zonePts, zoneSpan, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
+    tasOf, groundSpeed, fall, tFallFor, rseDrift, rsePath, heights, trace, bestCap, relaxCircle, zoneJoin, teamZone, zoneR, zoneOut, zonePts, zoneSpan, nearestOn, pointAt, capThrough, exitTimes, defaultDropIdx, solve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
